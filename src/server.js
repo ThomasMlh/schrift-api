@@ -1,7 +1,7 @@
-const express = require('express');
-const cors = require('cors');
-const { MongoClient, ObjectId } = require('mongodb');
-const dotenv = require('dotenv');
+import express, { application } from 'express';
+import cors from 'cors';
+import { MongoClient, ObjectId } from 'mongodb';
+import * as dotenv from 'dotenv';
 dotenv.config();
 
 if (typeof PhusionPassenger !== 'undefined') {
@@ -21,6 +21,10 @@ let db;
 client.connect().then(() => {
   db = client.db('schrift');
   console.log('Connecté à MongoDB');
+});
+
+app.get('/', (_req, res) => {
+  res.send('API Schrift est en cours d\'exécution');
 });
 
 // Récupérer toutes les guildes

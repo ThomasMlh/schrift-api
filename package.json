@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "main": "src/server.js",
+  "type": "module",
   "scripts": {
     "build": "npx babel src --out-dir dist",
     "start": "node dist/server.js",
