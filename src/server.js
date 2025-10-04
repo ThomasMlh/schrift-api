@@ -4,6 +4,10 @@ const { MongoClient, ObjectId } = require('mongodb');
 const dotenv = require('dotenv');
 dotenv.config();
 
+if (typeof PhusionPassenger !== 'undefined') {
+  PhusionPassenger.configure({ autoInstall: false });
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -132,6 +136,12 @@ app.post('/api/scores', async (req, res) => {
 });
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
-app.listen(PORT, () => {
-  console.log(`Serveur backend démarré sur http://localhost:${PORT}`);
-});
+if (typeof PhusionPassenger !== 'undefined') {
+  app.listen("passenger");
+} else {
+    const host = process.env.HOST || '0.0.0.0';
+    const port = process.env.PORT || '3000';
+    app.listen(port, () => {
+    console.log(`Serveur backend démarré sur http://${host}:${port}`);
+  });
+}
