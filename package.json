@@ -2,35 +2,20 @@
   "name": "schrift-api",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/server.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "nodemon src/server.ts",
-    "watch": "tsc -w",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@types/bcrypt": "^6.0.0",
-    "@types/cors": "^2.8.19",
-    "@types/dotenv": "^8.2.3",
-    "@types/express": "^5.0.3",
-    "@types/joi": "^17.2.3",
-    "@types/node": "^24.6.0",
-    "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "joi": "^18.0.1",
-    "joi-objectid": "^4.0.2",
-    "loadash": "^1.0.0",
     "mongodb": "^6.20.0",
-    "mongoose": "^8.18.3",
-    "nodemon": "^3.1.10",
-    "pg": "^8.16.3",
-    "typescript": "^5.9.2"
+    "nodemon": "^3.1.10"
   }
 }
