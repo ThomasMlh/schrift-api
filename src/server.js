@@ -4,6 +4,10 @@ import { MongoClient, ObjectId } from 'mongodb';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
+if (typeof (PhusionPassenger) !== 'undefined') {
+  PhusionPassenger.configure({ autoInstall: false });
+}
+
 const uri = process.env.MONGODB_URI;
 if (!uri) {
   console.error('❌ MONGODB_URI manquant');
@@ -156,9 +160,11 @@ app.post('/api/scores', async (req, res) => {
 const port = Number(process.env.PORT) || 3000;
 
 // Sur Passenger, inutile d'appeler quoi que ce soit de spécial : on écoute le port fourni.
-app.listen(port, '127.0.0.1', () => {
-  console.log(`🚀 API démarrée sur http://127.0.0.1:${port}`);
-});
+if (typeof (PhusionPassenger) !== 'undefined') {
+  app.listen('passenger');
+} else {
+  app.listen(3000);
+}
 
 // Bonnes pratiques pour voir les crashs dans les logs Passenger
 process.on('unhandledRejection', err => {
