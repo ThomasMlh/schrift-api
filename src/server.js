@@ -4,24 +4,37 @@ import { MongoClient, ObjectId } from 'mongodb';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-if (typeof PhusionPassenger !== 'undefined') {
-  PhusionPassenger.configure({ autoInstall: false });
-}
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
 const uri = process.env.MONGODB_URI;
 if (!uri) {
-  throw new Error('MONGODB_URI is not defined in environment variables');
+  console.error('❌ MONGODB_URI manquant');
+  process.exit(1);
 }
-const client = new MongoClient(uri);
-let db;
-client.connect().then(() => {
-  db = client.db('schrift');
-  console.log('Connecté à MongoDB');
+
+const client = new MongoClient(uri, {
+  // keepAlive aide sur certains hébergements
+  keepAlive: true,
 });
+
+let db;
+
+async function initDb() {
+  try {
+    await client.connect();
+    db = client.db('schrift');
+    console.log('✅ Connecté à MongoDB');
+  } catch (err) {
+    console.error('❌ Connexion MongoDB échouée:', err.message);
+    // si la DB est indispensable, on stoppe pour que Passenger relance
+    process.exit(1);
+  }
+}
+initDb();
+
+// Middleware simple pour éviter d’appeler la DB avant qu’elle soit prête
+function requireDb(req, res, next) {
+  if (!db) return res.status(503).json({ error: 'DB non prête' });
+  next();
+}
 
 app.get('/', (_req, res) => {
   res.send('API Schrift est en cours d\'exécution');
@@ -139,13 +152,20 @@ app.post('/api/scores', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
-if (typeof PhusionPassenger !== 'undefined') {
-  app.listen("passenger");
-} else {
-    const host = process.env.HOST || '0.0.0.0';
-    const port = process.env.PORT || '3000';
-    app.listen(port, () => {
-    console.log(`Serveur backend démarré sur http://${host}:${port}`);
-  });
-}
+// ---- Démarrage Passenger/Express ----
+const port = Number(process.env.PORT) || 3000;
+
+// Sur Passenger, inutile d'appeler quoi que ce soit de spécial : on écoute le port fourni.
+app.listen(port, '127.0.0.1', () => {
+  console.log(`🚀 API démarrée sur http://127.0.0.1:${port}`);
+});
+
+// Bonnes pratiques pour voir les crashs dans les logs Passenger
+process.on('unhandledRejection', err => {
+  console.error('UNHANDLED REJECTION', err);
+  process.exit(1);
+});
+process.on('uncaughtException', err => {
+  console.error('UNCAUGHT EXCEPTION', err);
+  process.exit(1);
+});
