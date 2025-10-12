@@ -156,22 +156,7 @@ app.post('/api/scores', async (req, res) => {
   }
 });
 
-// ---- Démarrage Passenger/Express ----
 const port = Number(process.env.PORT) || 3000;
-
-// Sur Passenger, inutile d'appeler quoi que ce soit de spécial : on écoute le port fourni.
-if (typeof (PhusionPassenger) !== 'undefined') {
-  app.listen('passenger');
-} else {
-  app.listen(3000);
-}
-
-// Bonnes pratiques pour voir les crashs dans les logs Passenger
-process.on('unhandledRejection', err => {
-  console.error('UNHANDLED REJECTION', err);
-  process.exit(1);
-});
-process.on('uncaughtException', err => {
-  console.error('UNCAUGHT EXCEPTION', err);
-  process.exit(1);
+app.listen(port, '127.0.0.1', () => {
+  console.log(`API démarrée sur http://127.0.0.1:${port}`);
 });
