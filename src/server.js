@@ -1,8 +1,12 @@
-import express, { application } from 'express';
+import express from 'express';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as dotenv from 'dotenv';
 dotenv.config();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
 
 if (typeof (PhusionPassenger) !== 'undefined') {
   PhusionPassenger.configure({ autoInstall: false });
@@ -14,10 +18,7 @@ if (!uri) {
   process.exit(1);
 }
 
-const client = new MongoClient(uri, {
-  // keepAlive aide sur certains hébergements
-  keepAlive: true,
-});
+const client = new MongoClient(uri);
 
 let db;
 
