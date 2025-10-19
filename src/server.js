@@ -158,6 +158,6 @@ app.post('/api/scores', async (req, res) => {
 });
 
 const port = Number(process.env.PORT) || 3000;
-app.listen(port, '127.0.0.1', () => {
-  console.log(`API démarrée sur http://127.0.0.1:${port}`);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`API démarrée sur http://0.0.0.0:${port}`);
 });
