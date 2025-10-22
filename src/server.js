@@ -127,7 +127,7 @@ app.post('/api/guildes', async (req, res) => {
     res.json({ 
       success: true,
       insertedId: result.insertedId, 
-      message: 'Guilde ajoutée avec succès' 
+      message: `Guilde ${name.trim()} ajoutée avec succès`
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -161,8 +161,8 @@ app.put('/api/guildes/:id', async (req, res) => {
       { _id: new ObjectId(guildeId) },
       { $set: { name: name.trim() } }
     );
-    
-    res.json({ success: true, message: 'Guilde renommée avec succès' });
+
+    res.json({ success: true, message: `Guilde renommée en ${name.trim()}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -171,8 +171,11 @@ app.put('/api/guildes/:id', async (req, res) => {
 // Supprimer une guilde
 app.delete('/api/guildes/:id', async (req, res) => {
   try {
+    const guilde = await db.collection('guildes').findOne({ _id: new ObjectId(req.params.id) });
+    if (!guilde) return res.status(404).json({ success: false, message: 'Guilde non trouvée' });
+
     await db.collection('guildes').deleteOne({ _id: new ObjectId(req.params.id) });
-    res.json({ success: true, message: 'Guilde supprimée avec succès' });
+    res.json({ success: true, message: `Guilde ${guilde.name} supprimée avec succès` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -197,6 +200,12 @@ app.post('/api/guildes/:id/membres', async (req, res) => {
       if (sousChefCount >= 2) {
         return res.status(400).json({ success: false, message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' });
       }
+    }
+
+    // Vérifications de si la guilde a 20 membres ou non
+    const memberCount = await db.collection('membres').countDocuments({ guilde_id: guildeId });
+    if (memberCount >= 20) {
+      return res.status(400).json({ success: false, message: 'Une guilde ne peut pas avoir plus de 20 membres' });
     }
 
     const membre = { ...req.body, guilde_id: guildeId };
@@ -239,7 +248,7 @@ app.put('/api/membres/:id/role', async (req, res) => {
       { _id: new ObjectId(memberId) },
       { $set: { role: newRole } }
     );
-    res.json({ success: true, message: `Rôle du membre ${member.name} mis à jour avec succès` });
+    res.json({ success: true, message: `Le rôle de ${member.name} a été mis à jour avec succès. De ${member.role} à ${newRole}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -253,13 +262,16 @@ app.put('/api/membres/:id/guilde', async (req, res) => {
 
     if (!newGuildeId) return res.status(400).json({ success: false, message: 'guilde_id requis' });
 
+    const member = await db.collection('membres').findOne({ _id: new ObjectId(memberId) });
+    if (!member) return res.status(404).json({ success: false, message: 'Membre non trouvé' });
+
     // Forcer le rôle "membre" lors du déplacement (plus simple et logique)
     await db.collection('membres').updateOne(
       { _id: new ObjectId(memberId) },
       { $set: { guilde_id: newGuildeId, role: 'membre' } }
     );
-    
-    res.json({ success: true, message: 'Membre déplacé avec le rôle "membre"' });
+
+    res.json({ success: true, message: `Membre ${member.name} déplacé avec le rôle "membre"` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -268,8 +280,11 @@ app.put('/api/membres/:id/guilde', async (req, res) => {
 // Supprimer un membre
 app.delete('/api/membres/:id', async (req, res) => {
   try {
+    const member = await db.collection('membres').findOne({ _id: new ObjectId(req.params.id) });
+    if (!member) return res.status(404).json({ success: false, message: 'Membre non trouvé' });
+
     await db.collection('membres').deleteOne({ _id: new ObjectId(req.params.id) });
-    res.json({ success: true, message: 'Membre supprimé avec succès' });
+    res.json({ success: true, message: `Membre ${member.name} supprimé avec succès` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -316,7 +331,6 @@ app.post('/api/scores', async (req, res) => {
 app.post('/api/admin/login', async (req, res) => {
   try {
     const { password } = req.body;
-    console.log("password reçu:", password);
 
     if (!password) {
       return res.status(400).json({ success: false, message: 'Mot de passe requis' });
