@@ -101,8 +101,34 @@ app.get('/api/guildes/:id/membres', async (req, res) => {
 // Ajouter une guilde
 app.post('/api/guildes', async (req, res) => {
   try {
-    const result = await db.collection('guildes').insertOne(req.body);
-    res.json({ insertedId: result.insertedId, message: 'Guilde ajoutée avec succès' });
+    const { name } = req.body;
+    
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ success: false, message: 'Le nom de la guilde est requis' });
+    }
+
+    // Vérifier si une guilde avec ce nom existe déjà
+    const existingGuilde = await db.collection('guildes').findOne({ 
+      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') } // Insensible à la casse
+    });
+
+    if (existingGuilde) {
+      return res.status(409).json({ 
+        success: false, 
+        message: 'Une guilde avec ce nom existe déjà' 
+      });
+    }
+
+    const result = await db.collection('guildes').insertOne({ 
+      ...req.body, 
+      name: name.trim() // Nettoyer le nom
+    });
+    
+    res.json({ 
+      success: true,
+      insertedId: result.insertedId, 
+      message: 'Guilde ajoutée avec succès' 
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -111,10 +137,31 @@ app.post('/api/guildes', async (req, res) => {
 // Renommer une guilde
 app.put('/api/guildes/:id', async (req, res) => {
   try {
+    const { name } = req.body;
+    const guildeId = req.params.id;
+    
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ success: false, message: 'Le nom de la guilde est requis' });
+    }
+
+    // Vérifier si une autre guilde avec ce nom existe déjà (excluant la guilde actuelle)
+    const existingGuilde = await db.collection('guildes').findOne({ 
+      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
+      _id: { $ne: new ObjectId(guildeId) }
+    });
+
+    if (existingGuilde) {
+      return res.status(409).json({ 
+        success: false, 
+        message: 'Une autre guilde avec ce nom existe déjà' 
+      });
+    }
+
     await db.collection('guildes').updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { name: req.body.name } }
+      { _id: new ObjectId(guildeId) },
+      { $set: { name: name.trim() } }
     );
+    
     res.json({ success: true, message: 'Guilde renommée avec succès' });
   } catch (err) {
     res.status(500).json({ error: err.message });
