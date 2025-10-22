@@ -102,7 +102,7 @@ app.get('/api/guildes/:id/membres', async (req, res) => {
 app.post('/api/guildes', async (req, res) => {
   try {
     const result = await db.collection('guildes').insertOne(req.body);
-    res.json({ insertedId: result.insertedId });
+    res.json({ insertedId: result.insertedId, message: 'Guilde ajoutée avec succès' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -115,7 +115,7 @@ app.put('/api/guildes/:id', async (req, res) => {
       { _id: new ObjectId(req.params.id) },
       { $set: { name: req.body.name } }
     );
-    res.json({ success: true });
+    res.json({ success: true, message: 'Guilde renommée avec succès' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -125,7 +125,7 @@ app.put('/api/guildes/:id', async (req, res) => {
 app.delete('/api/guildes/:id', async (req, res) => {
   try {
     await db.collection('guildes').deleteOne({ _id: new ObjectId(req.params.id) });
-    res.json({ success: true });
+    res.json({ success: true, message: 'Guilde supprimée avec succès' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -134,7 +134,25 @@ app.delete('/api/guildes/:id', async (req, res) => {
 // Ajouter un membre à une guilde
 app.post('/api/guildes/:id/membres', async (req, res) => {
   try {
-    const membre = { ...req.body, guilde_id: req.params.id };
+    const guildeId = req.params.id;
+    const role = req.body.role || 'membre';
+
+    // Vérifications des contraintes de rôle
+    if (role === 'chef') {
+      const chefCount = await db.collection('membres').countDocuments({ guilde_id: guildeId, role: 'chef' });
+      if (chefCount >= 1) {
+        return res.status(400).json({ success: false, message: 'Il ne peut y avoir qu\'un seul chef dans une guilde' });
+      }
+    }
+
+    if (role === 'sous-chef') {
+      const sousChefCount = await db.collection('membres').countDocuments({ guilde_id: guildeId, role: 'sous-chef' });
+      if (sousChefCount >= 2) {
+        return res.status(400).json({ success: false, message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' });
+      }
+    }
+
+    const membre = { ...req.body, guilde_id: guildeId };
     const result = await db.collection('membres').insertOne(membre);
     res.json({ insertedId: result.insertedId });
   } catch (err) {
@@ -145,24 +163,56 @@ app.post('/api/guildes/:id/membres', async (req, res) => {
 // Changer le role d'un membre
 app.put('/api/membres/:id/role', async (req, res) => {
   try {
+    const memberId = req.params.id;
+    const newRole = req.body.role;
+
+    if (!newRole) return res.status(400).json({ success: false, message: 'Role requis' });
+
+    const member = await db.collection('membres').findOne({ _id: new ObjectId(memberId) });
+    if (!member) return res.status(404).json({ success: false, message: 'Membre non trouvé' });
+
+    const guildeId = member.guilde_id;
+
+    // Vérifier contraintes si on veut passer en chef ou sous-chef
+    if (newRole === 'chef') {
+      const chefCount = await db.collection('membres').countDocuments({ guilde_id: guildeId, role: 'chef', _id: { $ne: new ObjectId(memberId) } });
+      if (chefCount >= 1) {
+        return res.status(400).json({ success: false, message: 'Il ne peut y avoir qu\'un seul chef dans une guilde' });
+      }
+    }
+
+    if (newRole === 'sous-chef') {
+      const sousChefCount = await db.collection('membres').countDocuments({ guilde_id: guildeId, role: 'sous-chef', _id: { $ne: new ObjectId(memberId) } });
+      if (sousChefCount >= 2) {
+        return res.status(400).json({ success: false, message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' });
+      }
+    }
+
     await db.collection('membres').updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { role: req.body.role } }
+      { _id: new ObjectId(memberId) },
+      { $set: { role: newRole } }
     );
-    res.json({ success: true });
+    res.json({ success: true, message: `Rôle du membre ${member.name} mis à jour avec succès` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Déplacer un membre vers une autre guilde
+// Déplacer un membre vers une autre guilde (rôle automatiquement "membre")
 app.put('/api/membres/:id/guilde', async (req, res) => {
   try {
+    const memberId = req.params.id;
+    const newGuildeId = req.body.guilde_id;
+
+    if (!newGuildeId) return res.status(400).json({ success: false, message: 'guilde_id requis' });
+
+    // Forcer le rôle "membre" lors du déplacement (plus simple et logique)
     await db.collection('membres').updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $set: { guilde_id: req.body.guilde_id, role: 'membre' } }
+      { _id: new ObjectId(memberId) },
+      { $set: { guilde_id: newGuildeId, role: 'membre' } }
     );
-    res.json({ success: true });
+    
+    res.json({ success: true, message: 'Membre déplacé avec le rôle "membre"' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -172,7 +222,7 @@ app.put('/api/membres/:id/guilde', async (req, res) => {
 app.delete('/api/membres/:id', async (req, res) => {
   try {
     await db.collection('membres').deleteOne({ _id: new ObjectId(req.params.id) });
-    res.json({ success: true });
+    res.json({ success: true, message: 'Membre supprimé avec succès' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -260,40 +310,6 @@ app.post('/api/admin/login', async (req, res) => {
   }
 });
 
-// Route pour vérifier le statut d'authentification
-app.get('/api/admin/verify', requireAdmin, (req, res) => {
-  res.json({ 
-    authenticated: true, 
-    user: req.user,
-    message: 'Token valide'
-  });
-});
-
-// Route pour rafraîchir le token
-app.post('/api/admin/refresh', requireAdmin, (req, res) => {
-  try {
-    const jwtSecret = process.env.JWT_SECRET || 'votre-jwt-secret-super-securise';
-    const newToken = jwt.sign(
-      { 
-        role: 'admin',
-        loginTime: req.user.loginTime, // Garder l'heure de login originale
-        userId: req.user.userId,
-        refreshed: new Date()
-      },
-      jwtSecret,
-      { expiresIn: '24h' }
-    );
-    
-    res.json({ 
-      success: true,
-      token: newToken,
-      expiresIn: '24h'
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Erreur lors du rafraîchissement' });
-  }
-});
-
 // Route pour créer/modifier le mot de passe admin
 app.post('/api/admin/setup', async (req, res) => {
   try {
@@ -321,44 +337,6 @@ app.post('/api/admin/setup', async (req, res) => {
     res.json({ success: true, message: 'Mot de passe admin configuré avec succès' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Erreur serveur', error: err.message });
-  }
-});
-
-// ===== ROUTES PROTÉGÉES (Exemples) =====
-
-// Route d'administration protégée
-app.get('/api/admin/dashboard', requireAdmin, async (req, res) => {
-  try {
-    const stats = {
-      guildesCount: await db.collection('guildes').countDocuments(),
-      membresCount: await db.collection('membres').countDocuments(),
-      rotationsCount: await db.collection('rotations').countDocuments(),
-      scoresCount: await db.collection('scores').countDocuments(),
-      serverTime: new Date(),
-      userInfo: req.user
-    };
-    
-    res.json(stats);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Supprimer toutes les données (route ultra-protégée)
-app.delete('/api/admin/reset-all', requireAdmin, async (req, res) => {
-  try {
-    await db.collection('guildes').deleteMany({});
-    await db.collection('membres').deleteMany({});
-    await db.collection('rotations').deleteMany({});
-    await db.collection('scores').deleteMany({});
-    
-    res.json({ 
-      success: true, 
-      message: 'Toutes les données ont été supprimées',
-      timestamp: new Date()
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 
