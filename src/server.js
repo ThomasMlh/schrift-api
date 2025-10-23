@@ -327,7 +327,7 @@ app.post('/api/scores', async (req, res) => {
   }
 });
 
-app.post('/api/characters/')
+// app.post('/api/characters/')
 
 app.post('/api/admin/login', async (req, res) => {
   try {
