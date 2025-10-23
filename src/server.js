@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import { MongoClient, ObjectId } from 'mongodb';
-import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import * as dotenv from 'dotenv';
 dotenv.config();
@@ -11,7 +10,9 @@ const app = express();
 
 // Configuration CORS simplifiée pour JWT
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173'
+  origin: process.env.FRONTEND_URL || '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
@@ -47,7 +48,7 @@ initDb();
 function requireAdmin(req, res, next) {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-  
+
   if (!token) {
     return res.status(401).json({ success: false, message: 'Token d\'authentification requis' });
   }
@@ -55,12 +56,12 @@ function requireAdmin(req, res, next) {
   try {
     const jwtSecret = process.env.JWT_SECRET || 'votre-jwt-secret-super-securise';
     const decoded = jwt.verify(token, jwtSecret);
-    
+
     // Vérifier que c'est bien un token admin
     if (decoded.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Droits administrateur requis' });
     }
-    
+
     req.user = decoded; // Ajouter les infos du token à la requête
     next();
   } catch (err) {
@@ -102,31 +103,31 @@ app.get('/api/guildes/:id/membres', async (req, res) => {
 app.post('/api/guildes', async (req, res) => {
   try {
     const { name } = req.body;
-    
+
     if (!name || name.trim() === '') {
       return res.status(400).json({ success: false, message: 'Le nom de la guilde est requis' });
     }
 
     // Vérifier si une guilde avec ce nom existe déjà
-    const existingGuilde = await db.collection('guildes').findOne({ 
+    const existingGuilde = await db.collection('guildes').findOne({
       name: { $regex: new RegExp(`^${name.trim()}$`, 'i') } // Insensible à la casse
     });
 
     if (existingGuilde) {
-      return res.status(409).json({ 
-        success: false, 
-        message: 'Une guilde avec ce nom existe déjà' 
+      return res.status(409).json({
+        success: false,
+        message: 'Une guilde avec ce nom existe déjà'
       });
     }
 
-    const result = await db.collection('guildes').insertOne({ 
-      ...req.body, 
+    const result = await db.collection('guildes').insertOne({
+      ...req.body,
       name: name.trim() // Nettoyer le nom
     });
-    
-    res.json({ 
+
+    res.json({
       success: true,
-      insertedId: result.insertedId, 
+      insertedId: result.insertedId,
       message: `Guilde ${name.trim()} ajoutée avec succès`
     });
   } catch (err) {
@@ -139,21 +140,21 @@ app.put('/api/guildes/:id', async (req, res) => {
   try {
     const { name } = req.body;
     const guildeId = req.params.id;
-    
+
     if (!name || name.trim() === '') {
       return res.status(400).json({ success: false, message: 'Le nom de la guilde est requis' });
     }
 
     // Vérifier si une autre guilde avec ce nom existe déjà (excluant la guilde actuelle)
-    const existingGuilde = await db.collection('guildes').findOne({ 
+    const existingGuilde = await db.collection('guildes').findOne({
       name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
       _id: { $ne: new ObjectId(guildeId) }
     });
 
     if (existingGuilde) {
-      return res.status(409).json({ 
-        success: false, 
-        message: 'Une autre guilde avec ce nom existe déjà' 
+      return res.status(409).json({
+        success: false,
+        message: 'Une autre guilde avec ce nom existe déjà'
       });
     }
 
@@ -171,9 +172,6 @@ app.put('/api/guildes/:id', async (req, res) => {
 // Supprimer une guilde
 app.delete('/api/guildes/:id', async (req, res) => {
   try {
-    const guilde = await db.collection('guildes').findOne({ _id: new ObjectId(req.params.id) });
-    if (!guilde) return res.status(404).json({ success: false, message: 'Guilde non trouvée' });
-
     await db.collection('guildes').deleteOne({ _id: new ObjectId(req.params.id) });
     res.json({ success: true, message: `Guilde ${guilde.name} supprimée avec succès` });
   } catch (err) {
@@ -200,12 +198,6 @@ app.post('/api/guildes/:id/membres', async (req, res) => {
       if (sousChefCount >= 2) {
         return res.status(400).json({ success: false, message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' });
       }
-    }
-
-    // Vérifications de si la guilde a 20 membres ou non
-    const memberCount = await db.collection('membres').countDocuments({ guilde_id: guildeId });
-    if (memberCount >= 20) {
-      return res.status(400).json({ success: false, message: 'Une guilde ne peut pas avoir plus de 20 membres' });
     }
 
     const membre = { ...req.body, guilde_id: guildeId };
@@ -248,7 +240,7 @@ app.put('/api/membres/:id/role', async (req, res) => {
       { _id: new ObjectId(memberId) },
       { $set: { role: newRole } }
     );
-    res.json({ success: true, message: `Le rôle de ${member.name} a été mis à jour avec succès. De ${member.role} à ${newRole}` });
+    res.json({ success: true, message: `Rôle du membre ${member.name} mis à jour avec succès` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -262,6 +254,12 @@ app.put('/api/membres/:id/guilde', async (req, res) => {
 
     if (!newGuildeId) return res.status(400).json({ success: false, message: 'guilde_id requis' });
 
+    // Je veux récupérer le name de la nouvelle guilde pour le message de succès
+    const newGuilde = await db.collection('guildes').findOne({ _id: new ObjectId(newGuildeId) });
+    if (!newGuilde) {
+      return res.status(404).json({ success: false, message: 'Nouvelle guilde non trouvée' });
+    }
+
     const member = await db.collection('membres').findOne({ _id: new ObjectId(memberId) });
     if (!member) return res.status(404).json({ success: false, message: 'Membre non trouvé' });
 
@@ -271,7 +269,7 @@ app.put('/api/membres/:id/guilde', async (req, res) => {
       { $set: { guilde_id: newGuildeId, role: 'membre' } }
     );
 
-    res.json({ success: true, message: `Membre ${member.name} déplacé avec le rôle "membre"` });
+    res.json({ success: true, message: `${member.name} déplacé vers la guilde ${newGuilde.name}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -331,24 +329,25 @@ app.post('/api/scores', async (req, res) => {
 app.post('/api/admin/login', async (req, res) => {
   try {
     const { password } = req.body;
+    console.log("password reçu:", password); // Just for test
 
     if (!password) {
       return res.status(400).json({ success: false, message: 'Mot de passe requis' });
     }
 
     const adminDoc = await db.collection('admin').findOne({ role: 'admin' });
-    
+
     if (!adminDoc || !adminDoc.passwordHash) {
       return res.status(500).json({ success: false, message: 'Configuration admin non trouvée' });
     }
 
     const salt = process.env.PASSWORD_SALT;
     const computedHash = crypto.createHash('sha256').update(password + salt).digest('hex');
-    
+
     if (computedHash === adminDoc.passwordHash) {
       const jwtSecret = process.env.JWT_SECRET;
       const token = jwt.sign(
-        { 
+        {
           role: 'admin',
           loginTime: new Date(),
           userId: adminDoc._id
@@ -356,9 +355,9 @@ app.post('/api/admin/login', async (req, res) => {
         jwtSecret,
         { expiresIn: '24h' }
       );
-      
-      return res.json({ 
-        success: true, 
+
+      return res.json({
+        success: true,
         message: 'Authentification réussie',
         token: token,
         expiresIn: '24h'
@@ -375,7 +374,7 @@ app.post('/api/admin/login', async (req, res) => {
 app.post('/api/admin/setup', async (req, res) => {
   try {
     const { password, setupKey } = req.body;
-    
+
     // Clé de sécurité pour éviter que n'importe qui puisse changer le mot de passe
     if (setupKey !== process.env.ADMIN_SETUP_KEY) {
       return res.status(403).json({ success: false, message: 'Clé de configuration invalide' });
