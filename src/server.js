@@ -12,7 +12,8 @@ const app = express();
 app.use(cors({
   origin: process.env.FRONTEND_URL || '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 app.use(express.json());
@@ -325,6 +326,8 @@ app.post('/api/scores', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.post('/api/characters/')
 
 app.post('/api/admin/login', async (req, res) => {
   try {
