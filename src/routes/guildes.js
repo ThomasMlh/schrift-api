@@ -21,8 +21,25 @@ router.get('/', async (req, res) => {
 // Récupérer les membres d'une guilde
 router.get('/:id/membres', async (req, res) => {
   try {
-    const membres = await req.db.collection('membres').find({ guilde_id: req.params.id }).toArray();
-    res.status(200).json(membres);
+    const guildeId = req.params.id;
+    
+    // Récupérer les membres depuis la collection users
+    const membres = await req.db.collection('users').find(
+      { guilde_id: guildeId },
+      {
+        projection: {
+          _id: 1,
+          discord_id: 1,
+          username: 1,
+          avatar: 1,
+          role: 1,
+          is_admin: 1,
+          last_login: 1
+        }
+      }
+    ).toArray();
+
+    res.json({ success: true, membres, count: membres.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -108,6 +125,82 @@ router.delete('/:id', async (req, res) => {
 
     await req.db.collection('guildes').deleteOne({ _id: new ObjectId(req.params.id) });
     res.status(200).json({ success: true, message: `Guilde ${guilde.name} supprimée avec succès` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Assigner un utilisateur à une guilde avec un rôle
+router.post('/:id/assign-member', async (req, res) => {
+  try {
+    const guildeId = req.params.id;
+    const { userId, role } = req.body;
+
+    if (!userId || !role) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'userId et role sont requis' 
+      });
+    }
+
+    // Vérifier les contraintes de rôle
+    if (role === 'chef') {
+      const existingChef = await req.db.collection('users').findOne({ 
+        guilde_id: guildeId, 
+        role: 'chef',
+      });
+      if (existingChef) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Il ne peut y avoir qu\'un seul chef dans une guilde' 
+        });
+      }
+    }
+
+    if (role === 'sous-chef') {
+      const sousChefCount = await req.db.collection('users').countDocuments({ 
+        guilde_id: guildeId, 
+        role: 'sous-chef',
+      });
+      if (sousChefCount >= 2) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' 
+        });
+      }
+    }
+
+    // Mettre à jour l'utilisateur
+    const result = await req.db.collection('users').updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { guilde_id: guildeId, role: role } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    res.json({ success: true, message: 'Utilisateur assigné à la guilde avec succès' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Retirer un membre d'une guilde
+router.delete('/:id/members/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const result = await req.db.collection('users').updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { guilde_id: null, role: null } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    res.json({ success: true, message: 'Utilisateur retiré de la guilde' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
