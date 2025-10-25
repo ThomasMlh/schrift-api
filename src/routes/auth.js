@@ -21,7 +21,7 @@ router.post('/discord/callback', async (req, res) => {
     try {
         const { code } = req.body;
         const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, JWT_SECRET, ADMIN_DISCORD_IDS } = getDiscordConfig();
-        
+
         if (!code) {
             return res.status(400).json({ success: false, message: 'Code d\'autorisation manquant' });
         }
@@ -109,6 +109,7 @@ router.post('/discord/callback', async (req, res) => {
         const user = {
             discord_id: userData.id,
             username: userData.username,
+            global_name: userData.global_name, // Nom d'affichage Discord
             discriminator: userData.discriminator,
             avatar: userData.avatar,
             email: userData.email,
@@ -164,6 +165,7 @@ router.post('/discord/callback', async (req, res) => {
             user: {
                 id: savedUser._id,
                 username: userData.username,
+                global_name: userData.global_name,
                 discord_id: userData.id,
                 guilde_id: user.guilde_id,
                 role: user.role,
@@ -203,6 +205,7 @@ router.get('/me', async (req, res) => {
                 id: user._id,
                 discord_id: user.discord_id,
                 username: user.username,
+                global_name: user.global_name,
                 avatar: user.avatar,
                 isAdmin: user.is_admin,
                 lastLogin: user.last_login,
