@@ -149,6 +149,7 @@ router.post('/discord/callback', async (req, res) => {
         const jwtPayload = {
             userId: userData.id,
             username: userData.username,
+            global_name: userData.global_name,
             discord_id: userData.id,
             guilde_id: user.guilde_id,
             role: user.role,

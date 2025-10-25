@@ -15,13 +15,13 @@ const getJwtSecret = () => process.env.JWT_SECRET;
 const requireAdmin = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!token) {
       return res.status(401).json({ success: false, message: 'Token manquant' });
     }
 
     const decoded = jwt.verify(token, getJwtSecret());
-    
+
     if (!decoded.isAdmin) {
       return res.status(403).json({ success: false, message: 'Accès refusé - Admin requis' });
     }
@@ -48,7 +48,8 @@ router.get('/', async (req, res) => {
         guilde_id: 1,
         role: 1,
         is_admin: 1,
-        last_login: 1
+        last_login: 1,
+        global_name: 1
       }
     }).toArray();
 
@@ -75,7 +76,8 @@ router.get('/:userId', async (req, res) => {
           guilde_id: 1,
           role: 1,
           is_admin: 1,
-          last_login: 1
+          last_login: 1,
+          global_name: 1
         }
       }
     );
@@ -102,42 +104,49 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
     }
 
     // Récupérer l'utilisateur pour connaître sa guilde
-    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    let user;
     
+    // Essayer d'abord comme ObjectId MongoDB, sinon comme discord_id
+    if (ObjectId.isValid(userId)) {
+      user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    } else {
+      user = await req.db.collection('users').findOne({ discord_id: userId });
+    }
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
     if (!user.guilde_id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'L\'utilisateur doit être dans une guilde pour avoir un rôle' 
+      return res.status(400).json({
+        success: false,
+        message: 'L\'utilisateur doit être dans une guilde pour avoir un rôle'
       });
     }
 
     // Vérifier les contraintes de rôle
     if (role === 'chef') {
-      const existingChef = await req.db.collection('users').findOne({ 
-        guilde_id: user.guilde_id, 
+      const existingChef = await req.db.collection('users').findOne({
+        guilde_id: user.guilde_id,
         role: 'chef',
       });
       if (existingChef) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Il ne peut y avoir qu\'un seul chef dans une guilde' 
+        return res.status(400).json({
+          success: false,
+          message: 'Il ne peut y avoir qu\'un seul chef dans une guilde'
         });
       }
     }
 
     if (role === 'sous-chef') {
-      const sousChefCount = await req.db.collection('users').countDocuments({ 
-        guilde_id: user.guilde_id, 
+      const sousChefCount = await req.db.collection('users').countDocuments({
+        guilde_id: user.guilde_id,
         role: 'sous-chef',
       });
       if (sousChefCount >= 2) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' 
+        return res.status(400).json({
+          success: false,
+          message: 'Il ne peut y avoir que deux sous-chefs dans une guilde'
         });
       }
     }
@@ -173,29 +182,29 @@ router.put('/:userId/guild', requireAdmin, async (req, res) => {
 
     // Vérifier les contraintes si un rôle spécifique est demandé
     if (newRole === 'chef') {
-      const existingChef = await req.db.collection('users').findOne({ 
-        guilde_id: guildeId, 
+      const existingChef = await req.db.collection('users').findOne({
+        guilde_id: guildeId,
         role: 'chef',
         _id: { $ne: new ObjectId(userId) }
       });
       if (existingChef) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Il ne peut y avoir qu\'un seul chef dans une guilde' 
+        return res.status(400).json({
+          success: false,
+          message: 'Il ne peut y avoir qu\'un seul chef dans une guilde'
         });
       }
     }
 
     if (newRole === 'sous-chef') {
-      const sousChefCount = await req.db.collection('users').countDocuments({ 
-        guilde_id: guildeId, 
+      const sousChefCount = await req.db.collection('users').countDocuments({
+        guilde_id: guildeId,
         role: 'sous-chef',
         _id: { $ne: new ObjectId(userId) }
       });
       if (sousChefCount >= 2) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' 
+        return res.status(400).json({
+          success: false,
+          message: 'Il ne peut y avoir que deux sous-chefs dans une guilde'
         });
       }
     }
@@ -210,7 +219,9 @@ router.put('/:userId/guild', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
-    res.json({ success: true, message: 'Utilisateur déplacé vers la nouvelle guilde' });
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+
+    res.json({ success: true, message: `${user.global_name || 'Utilisateur'} déplacé vers la nouvelle guilde` });
   } catch (error) {
     console.error('Erreur lors du changement de guilde:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
@@ -221,7 +232,7 @@ router.put('/:userId/guild', requireAdmin, async (req, res) => {
 router.get('/without-guild', async (req, res) => {
   try {
     const users = await req.db.collection('users').find(
-      { 
+      {
         $or: [
           { guilde_id: null },
           { guilde_id: { $exists: false } }
@@ -234,7 +245,10 @@ router.get('/without-guild', async (req, res) => {
           username: 1,
           avatar: 1,
           is_admin: 1,
-          last_login: 1
+          last_login: 1,
+          global_name: 1,
+          guilde_id: 1,
+          role: 1
         }
       }
     ).toArray();

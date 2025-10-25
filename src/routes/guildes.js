@@ -34,7 +34,8 @@ router.get('/:id/membres', async (req, res) => {
           avatar: 1,
           role: 1,
           is_admin: 1,
-          last_login: 1
+          last_login: 1,
+          global_name: 1
         }
       }
     ).toArray();
@@ -176,11 +177,15 @@ router.post('/:id/assign-member', async (req, res) => {
       { $set: { guilde_id: guildeId, role: role } }
     );
 
+    const user = await req.db.collection('users').findOne(
+      { _id: new ObjectId(userId) }
+    );
+
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
-    res.json({ success: true, message: 'Utilisateur assigné à la guilde avec succès' });
+    res.json({ success: true, message: `${user.global_name || 'Utilisateur'} assigné à la guilde avec succès` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -206,32 +211,83 @@ router.delete('/:id/members/:userId', async (req, res) => {
   }
 });
 
+// Retirer un membre d'une guilde
+router.delete('/:guildeId/membres/:userId', async (req, res) => {
+  try {
+    const guildeId = req.params.guildeId;
+    const userId = req.params.userId;
+
+    // Vérifier que l'utilisateur existe et est dans cette guilde
+    const user = await req.db.collection('users').findOne({ 
+      _id: new ObjectId(userId),
+      guilde_id: guildeId 
+    });
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Utilisateur non trouvé dans cette guilde' 
+      });
+    }
+
+    // Retirer l'utilisateur de la guilde
+    const result = await req.db.collection('users').updateOne(
+      { _id: new ObjectId(userId) },
+      { 
+        $set: { 
+          guilde_id: null, 
+          role: null 
+        } 
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    res.json({ 
+      success: true, 
+      message: `${user.global_name || 'Utilisateur'} retiré de la guilde avec succès` 
+    });
+  } catch (err) {
+    console.error('Erreur lors de la suppression du membre:', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
 // Ajouter un membre à une guilde
 router.post('/:id/membres', async (req, res) => {
   try {
     const guildeId = req.params.id;
     const role = req.body.role || 'membre';
 
+    // Vérifications si le membre existe
+    const user = await req.db.collection('users').findOne({ guilde_id: guildeId, discord_id: req.body.discord_id });
+    if (user) {
+      return res.status(400).json({ success: false, message: 'Le membre existe déjà dans cette guilde' });
+    }
+
     // Vérifications des contraintes de rôle
     if (role === 'chef') {
-      const chefCount = await req.db.collection('membres').countDocuments({ guilde_id: guildeId, role: 'chef' });
+      const chefCount = await req.db.collection('users').countDocuments({ guilde_id: guildeId, role: 'chef' });
       if (chefCount >= 1) {
         return res.status(400).json({ success: false, message: 'Il ne peut y avoir qu\'un seul chef dans une guilde' });
       }
     }
 
     if (role === 'sous-chef') {
-      const sousChefCount = await req.db.collection('membres').countDocuments({ guilde_id: guildeId, role: 'sous-chef' });
+      const sousChefCount = await req.db.collection('users').countDocuments({ guilde_id: guildeId, role: 'sous-chef' });
       if (sousChefCount >= 2) {
         return res.status(400).json({ success: false, message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' });
       }
     }
 
     const membre = { ...req.body, guilde_id: guildeId };
-    const result = await req.db.collection('membres').insertOne(membre);
-    res.status(201).json({ insertedId: result.insertedId });
+    const result = await req.db.collection('users').insertOne(membre);
+    res.status(201).json({ success: true, message: `${user.global_name || 'Membre'} ajouté avec succès` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Erreur lors de l\'ajout du membre:', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 
