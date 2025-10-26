@@ -27,9 +27,17 @@ export function requireAdmin(req, res, next) {
 
 // Middleware simple pour éviter d'appeler la DB avant qu'elle soit prête
 export function requireDb(req, res, next) {
-  if (!req.app.locals.db) {
-    return res.status(503).json({ error: 'DB non prête' });
+  if (!req.app.locals.db && !req.db) {
+    return res.status(503).json({ 
+      success: false, 
+      error: 'Base de données non disponible' 
+    });
   }
-  req.db = req.app.locals.db; // Passer la DB à la requête
+  
+  // Assurer que req.db est défini
+  if (!req.db && req.app.locals.db) {
+    req.db = req.app.locals.db;
+  }
+  
   next();
 }

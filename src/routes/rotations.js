@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireDb } from '../middleware/auth.js';
+import { requireAdmin, requireDb } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -31,7 +31,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Ajouter une rotation
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   try {
     const result = await req.db.collection('rotations').insertOne(req.body);
     res.json({ 
@@ -45,7 +45,7 @@ router.post('/', async (req, res) => {
 });
 
 // Modifier une rotation
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const rotationId = req.params.id;
     
@@ -65,7 +65,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Supprimer une rotation
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const result = await req.db.collection('rotations').deleteOne({ _id: new ObjectId(req.params.id) });
     
