@@ -5,7 +5,7 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import { MongoClient } from 'mongodb';
-import apiRoutes from './routes/index.js';
+import apiRoutes from '../src/routes/index.js';
 
 const app = express();
 
