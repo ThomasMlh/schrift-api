@@ -14,7 +14,7 @@ export function requireAdmin(req, res, next) {
     const decoded = jwt.verify(token, jwtSecret);
 
     // Vérifier que c'est bien un token admin
-    if (decoded.role !== 'admin') {
+    if (!decoded.isAdmin) {
       return res.status(403).json({ success: false, message: 'Droits administrateur requis' });
     }
 
