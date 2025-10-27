@@ -44,6 +44,26 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
+// Ajouter plusieurs rotations
+router.post('/bulk', requireAdmin, async (req, res) => {
+  try {
+    const rotations = req.body;
+    if (!Array.isArray(rotations) || rotations.length === 0) {
+      return res.status(400).json({ success: false, message: 'Aucune rotation à ajouter' });
+    }
+
+    const result = await req.db.collection('rotations').insertMany(rotations);
+    res.json({ 
+      success: true,
+      insertedCount: result.insertedCount,
+      insertedIds: result.insertedIds,
+      message: `${result.insertedCount} rotations ajoutées avec succès`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Modifier une rotation
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
