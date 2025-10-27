@@ -66,7 +66,7 @@ router.get('/:userId', async (req, res) => {
     const { userId } = req.params;
 
     const user = await req.db.collection('users').findOne(
-      { discord_id: userId },
+      { _id: new ObjectId(userId)},
       {
         projection: {
           _id: 1,
