@@ -18,6 +18,19 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Récupérer une guilde par ID
+router.get('/:id', async (req, res) => {
+  try {
+    const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(req.params.id) });
+    if (!guilde) {
+      return res.status(404).json({ success: false, message: 'Guilde non trouvée' });
+    }
+    res.json(guilde);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Récupérer les membres d'une guilde
 router.get('/:id/membres', async (req, res) => {
   try {
