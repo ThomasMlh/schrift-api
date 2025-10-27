@@ -192,19 +192,51 @@ router.get('/', async (req, res) => {
             ];
         }
 
-        // Exécuter la requête avec pagination et tri automatique par date de sortie
-        const [characters, totalCount] = await Promise.all([
-            req.db.collection('characters')
-                .find(query)
-                .sort({
-                    "release_date": -1,       // Backup si Date sortie n'existe pas
-                    "name": 1                 // Alphabétique en cas d'égalité
-                })
-                .skip(skip)
-                .limit(actualLimit)
-                .toArray(),
-            req.db.collection('characters').countDocuments(query)
-        ]);
+        // Récupérer les personnages et les trier côté application
+        const characters = await req.db.collection('characters')
+            .find(query)
+            .skip(skip)
+            .limit(actualLimit)
+            .toArray();
+
+        // Trier les personnages par date de sortie (format DD/MM/YYYY)
+        characters.sort((a, b) => {
+            // Fonction pour convertir DD/MM/YYYY en Date
+            const parseDate = (dateStr) => {
+                if (!dateStr || dateStr === null) return new Date(0); // Très ancien si pas de date
+                
+                // Si c'est déjà un objet Date
+                if (dateStr instanceof Date) return dateStr;
+                
+                // Si c'est au format DD/MM/YYYY
+                if (typeof dateStr === 'string' && dateStr.includes('/')) {
+                    const [day, month, year] = dateStr.split('/');
+                    return new Date(year, month - 1, day); // month - 1 car les mois sont indexés à partir de 0
+                }
+                
+                // Sinon essayer de parser directement
+                return new Date(dateStr);
+            };
+
+            const dateA = parseDate(a["release_date"]);
+            const dateB = parseDate(b["release_date"]);
+            
+            // Tri décroissant (plus récents en premier) - RETOUR VERSION ORIGINALE
+            const dateDiff = dateB.getTime() - dateA.getTime();
+            
+            // Si les dates sont identiques, trier par nom
+            if (dateDiff === 0) {
+                const nameA = a.name || '';
+                const nameB = b.name || '';
+                return nameA.localeCompare(nameB);
+            }
+            
+            return dateDiff;
+        });
+
+        console.log(characters);
+
+        const totalCount = await req.db.collection('characters').countDocuments(query);
 
         const totalPages = Math.ceil(totalCount / actualLimit);
 
@@ -251,19 +283,49 @@ router.get('/search', async (req, res) => {
             ]
         };
 
-        const [characters, totalCount] = await Promise.all([
-            req.db.collection('characters')
-                .find(searchQuery)
-                .sort({
-                    "Date sortie": -1,
-                    "release_date": -1,
-                    "name": 1
-                })
-                .skip(skip)
-                .limit(actualLimit)
-                .toArray(),
-            req.db.collection('characters').countDocuments(searchQuery)
-        ]);
+        // Récupérer les personnages et les trier côté application
+        const characters = await req.db.collection('characters')
+            .find(searchQuery)
+            .skip(skip)
+            .limit(actualLimit)
+            .toArray();
+
+        // Trier les personnages par date de sortie (format DD/MM/YYYY)
+        characters.sort((a, b) => {
+            // Fonction pour convertir DD/MM/YYYY en Date
+            const parseDate = (dateStr) => {
+                if (!dateStr || dateStr === null) return new Date(0); // Très ancien si pas de date
+                
+                // Si c'est déjà un objet Date
+                if (dateStr instanceof Date) return dateStr;
+                
+                // Si c'est au format DD/MM/YYYY
+                if (typeof dateStr === 'string' && dateStr.includes('/')) {
+                    const [day, month, year] = dateStr.split('/');
+                    return new Date(year, month - 1, day); // month - 1 car les mois sont indexés à partir de 0
+                }
+                
+                // Sinon essayer de parser directement
+                return new Date(dateStr);
+            };
+
+            const dateA = parseDate(a["release_date"]);
+            const dateB = parseDate(b["release_date"]);
+            
+            // Tri décroissant (plus récents en premier) - RETOUR VERSION ORIGINALE
+            const dateDiff = dateB.getTime() - dateA.getTime();
+            
+            // Si les dates sont identiques, trier par nom
+            if (dateDiff === 0) {
+                const nameA = a.name || a["Nom personnage"] || '';
+                const nameB = b.name || b["Nom personnage"] || '';
+                return nameA.localeCompare(nameB);
+            }
+            
+            return dateDiff;
+        });
+
+        const totalCount = await req.db.collection('characters').countDocuments(searchQuery);
 
         const totalPages = Math.ceil(totalCount / actualLimit);
 
