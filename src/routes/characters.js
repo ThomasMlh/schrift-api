@@ -234,8 +234,6 @@ router.get('/', async (req, res) => {
             return dateDiff;
         });
 
-        console.log(characters);
-
         const totalCount = await req.db.collection('characters').countDocuments(query);
 
         const totalPages = Math.ceil(totalCount / actualLimit);
