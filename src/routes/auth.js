@@ -247,4 +247,54 @@ router.post('/logout', async (req, res) => {
     }
 });
 
+// Route pour déboguer les tokens JWT
+router.post('/debug-token', async (req, res) => {
+    try {
+        const { token } = req.body;
+        const { JWT_SECRET } = getDiscordConfig();
+
+        if (!token) {
+            return res.status(400).json({ success: false, message: 'Token requis dans le body' });
+        }
+
+        let decoded = null;
+        let isValid = false;
+        let error = null;
+
+        try {
+            decoded = jwt.verify(token, JWT_SECRET);
+            isValid = true;
+        } catch (err) {
+            error = err.message;
+            // Essayons de décoder sans vérifier la signature pour voir le contenu
+            try {
+                decoded = jwt.decode(token);
+            } catch (decodeErr) {
+                decoded = null;
+            }
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        
+        res.json({
+            success: true,
+            debug: {
+                isValid,
+                error,
+                decoded,
+                currentTime: now,
+                currentTimeISO: new Date().toISOString(),
+                hasJwtSecret: !!JWT_SECRET,
+                jwtSecretLength: JWT_SECRET ? JWT_SECRET.length : 0,
+                tokenExpired: decoded && decoded.exp ? decoded.exp < now : null,
+                timeUntilExpiry: decoded && decoded.exp ? decoded.exp - now : null
+            }
+        });
+
+    } catch (error) {
+        console.error('Erreur lors du debug du token:', error);
+        res.status(500).json({ success: false, message: 'Erreur serveur' });
+    }
+});
+
 export default router;
