@@ -19,12 +19,20 @@ const getDiscordConfig = () => ({
 // Route pour échanger le code d'autorisation contre un token
 router.post('/discord/callback', async (req, res) => {
     try {
-        const { code } = req.body;
+        const { code, redirect_uri } = req.body; // ✅ Récupérer aussi redirect_uri
         const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, JWT_SECRET, ADMIN_DISCORD_IDS } = getDiscordConfig();
 
         if (!code) {
             return res.status(400).json({ success: false, message: 'Code d\'autorisation manquant' });
         }
+
+        // Utiliser la redirect_uri du frontend ou fallback sur celle de l'env
+        const finalRedirectUri = redirect_uri || DISCORD_REDIRECT_URI;
+
+        // console.log('🔍 DEBUG OAuth - Code:', code);
+        // console.log('🔍 DEBUG OAuth - Redirect URI frontend:', redirect_uri);
+        // console.log('🔍 DEBUG OAuth - Redirect URI env:', DISCORD_REDIRECT_URI);
+        // console.log('🔍 DEBUG OAuth - Redirect URI finale:', finalRedirectUri);
 
         // Échanger le code contre un access token
         const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
@@ -37,17 +45,20 @@ router.post('/discord/callback', async (req, res) => {
                 client_secret: DISCORD_CLIENT_SECRET,
                 grant_type: 'authorization_code',
                 code: code,
-                redirect_uri: DISCORD_REDIRECT_URI,
+                redirect_uri: finalRedirectUri, // ✅ Utiliser la bonne redirect_uri
             }),
         });
 
         if (!tokenResponse.ok) {
             const errorData = await tokenResponse.text();
             console.error('❌ Erreur Discord API:', errorData);
+            console.error('❌ Status:', tokenResponse.status);
+            console.error('❌ Headers:', Object.fromEntries(tokenResponse.headers.entries()));
             return res.status(400).json({ 
                 success: false, 
                 message: 'Erreur lors de l\'échange du code',
-                details: errorData 
+                details: errorData,
+                status: tokenResponse.status
             });
         }
 
@@ -293,6 +304,38 @@ router.post('/debug-token', async (req, res) => {
 
     } catch (error) {
         console.error('Erreur lors du debug du token:', error);
+        res.status(500).json({ success: false, message: 'Erreur serveur' });
+    }
+});
+
+// Route de debug pour vérifier la configuration Discord
+router.get('/debug/discord-config', (req, res) => {
+    try {
+        const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, JWT_SECRET, ADMIN_DISCORD_IDS } = getDiscordConfig();
+        
+        res.json({
+            success: true,
+            config: {
+                hasClientId: !!DISCORD_CLIENT_ID,
+                clientIdPreview: DISCORD_CLIENT_ID ? `${DISCORD_CLIENT_ID.substring(0, 8)}...` : null,
+                hasClientSecret: !!DISCORD_CLIENT_SECRET,
+                clientSecretLength: DISCORD_CLIENT_SECRET ? DISCORD_CLIENT_SECRET.length : 0,
+                redirectUri: DISCORD_REDIRECT_URI,
+                hasJwtSecret: !!JWT_SECRET,
+                jwtSecretLength: JWT_SECRET ? JWT_SECRET.length : 0,
+                adminCount: ADMIN_DISCORD_IDS ? ADMIN_DISCORD_IDS.length : 0,
+                envVars: {
+                    NODE_ENV: process.env.NODE_ENV,
+                    hasDiscordClientId: !!process.env.DISCORD_CLIENT_ID,
+                    hasDiscordClientSecret: !!process.env.DISCORD_CLIENT_SECRET,
+                    hasDiscordRedirectUri: !!process.env.DISCORD_REDIRECT_URI,
+                    hasJwtSecret: !!process.env.JWT_SECRET,
+                    hasAdminIds: !!process.env.ADMIN_DISCORD_IDS
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Erreur lors du debug de la config Discord:', error);
         res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
 });
