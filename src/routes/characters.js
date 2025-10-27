@@ -1,6 +1,6 @@
 import express from 'express';
 import { cleanObject } from '../utils/cleaners.js';
-import { requireDb } from '../middleware/auth.js';
+import { requireAdmin, requireDb } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -8,7 +8,7 @@ const router = express.Router();
 router.use(requireDb);
 
 // Route pour ajouter plusieurs personnages
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
     try {
         const characters = req.body;
         if (!Array.isArray(characters)) {
@@ -34,17 +34,50 @@ router.post('/', async (req, res) => {
                 continue;
             }
 
+            let cancel_resistance;
+
+            switch (cleanedChar["Annulation résistance Rouge/Bleue"]) {
+                case 'Annul. Res. Bleue':
+                    cancel_resistance = 'B';
+                    break;
+                case 'Annul. Res. Rouge':
+                    cancel_resistance = 'R';
+                    break;
+                case 'Range Nullify':
+                    cancel_resistance = 'range';
+                    break;
+                default:
+                    cancel_resistance = null;
+            }
+
             sanitizedCharacters.push({
                 name: cleanedChar["Nom personnage"] || '',
                 search_name: searchName,
                 link: cleanedChar["Link"] || '',
                 artwork: cleanedChar["URL Artwork"] || '',
+                attack_url: cleanedChar["URL ATK"] || '',
                 affinity: cleanedChar["Affinité"] || '',
                 categories: [cleanedChar["Catégorie 1"] || '', cleanedChar["Catégorie 2"] || ''].filter(Boolean),
                 killers: [cleanedChar["Killer 1"] || '', cleanedChar["Killer 2"] || ''].filter(Boolean),
                 soul_traits: [cleanedChar["Soul Trait 1"] || '', cleanedChar["Soul Trait 2"] || ''].filter(Boolean),
                 soul_traits_ex: cleanedChar["Ex Soul Traits"] || '',
-                attack_type: cleanedChar["Attaques Rouges ou Bleues"] || '',
+                attack_type: cleanedChar["Attaques Rouges ou Bleues"] === 'Attaques B' ? 'B' : 'R',
+                release_date: cleanedChar["Date sortie"] || null,
+                resurrection_release: cleanedChar["Date résurrection"] || null,
+                portail: cleanedChar["Portail"] || '',
+                nad: cleanedChar["NAD ou SAD"] === 'NAD' ? 'NAD' : false,
+                sad: cleanedChar["NAD ou SAD"] === 'SAD' ? 'SAD' : false,
+                banner: cleanedChar["Bannière"] || '',
+                banner_url: cleanedChar["URL Bannière"] || '',
+                stats: {
+                    end: cleanedChar["END"] || null,
+                    atk: cleanedChar["ATK"] || null,
+                    def: cleanedChar["DEF"] || null,
+                    cct: cleanedChar["CCT"] || null,
+                    pre: cleanedChar["PRE"] || null,
+                },
+                immunities: [cleanedChar["Immunité 1"] || '', cleanedChar["Immunité 2"] || '', cleanedChar["Immunité 3"] || ''].filter(Boolean),
+                cancel_resistance,
             });
         }
 
@@ -131,17 +164,17 @@ router.get('/', async (req, res) => {
 
         // Construire la requête de filtrage
         const query = {};
-        
+
         // Filtre par affinité
         if (affinity && affinity.trim()) {
             query.affinity = { $regex: new RegExp(affinity.trim(), 'i') };
         }
-        
+
         // Filtre par catégorie (recherche dans le tableau)
         if (category && category.trim()) {
             query.categories = { $regex: new RegExp(category.trim(), 'i') };
         }
-        
+
         // Filtre par killer (recherche exacte dans le tableau)
         if (killer && killer.trim()) {
             const killerTerm = killer.trim();
@@ -149,7 +182,7 @@ router.get('/', async (req, res) => {
             const escapedTerm = killerTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             query.killers = { $regex: new RegExp(`^${escapedTerm}$`, 'i') };
         }
-        
+
         // Filtre par recherche textuelle
         if (search && search.trim()) {
             const searchTerm = search.toLowerCase().replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, '').trim();
@@ -159,10 +192,14 @@ router.get('/', async (req, res) => {
             ];
         }
 
-        // Exécuter la requête avec pagination
+        // Exécuter la requête avec pagination et tri automatique par date de sortie
         const [characters, totalCount] = await Promise.all([
             req.db.collection('characters')
                 .find(query)
+                .sort({
+                    "release_date": -1,       // Backup si Date sortie n'existe pas
+                    "name": 1                 // Alphabétique en cas d'égalité
+                })
                 .skip(skip)
                 .limit(actualLimit)
                 .toArray(),
@@ -217,6 +254,11 @@ router.get('/search', async (req, res) => {
         const [characters, totalCount] = await Promise.all([
             req.db.collection('characters')
                 .find(searchQuery)
+                .sort({
+                    "Date sortie": -1,
+                    "release_date": -1,
+                    "name": 1
+                })
                 .skip(skip)
                 .limit(actualLimit)
                 .toArray(),
@@ -247,12 +289,12 @@ router.get('/search', async (req, res) => {
 router.get('/names', async (req, res) => {
     try {
         const characters = await req.db.collection('characters')
-            .find({}, { 
-                projection: { 
-                    name: 1, 
+            .find({}, {
+                projection: {
+                    name: 1,
                     search_name: 1,
-                    _id: 1 
-                } 
+                    _id: 1
+                }
             })
             .sort({ name: 1 })
             .toArray();
@@ -269,34 +311,38 @@ router.post('/admin/create-indexes', async (req, res) => {
         // Créer les index pour optimiser les performances
         await Promise.all([
             // Index texte pour la recherche
-            req.db.collection('characters').createIndex({ 
-                "search_name": "text", 
-                "name": "text" 
+            req.db.collection('characters').createIndex({
+                "search_name": "text",
+                "name": "text"
             }),
             // Index pour search_name
             req.db.collection('characters').createIndex({ "search_name": 1 }),
             // Index pour l'affinité
             req.db.collection('characters').createIndex({ "affinity": 1 }),
             // Index composé
-            req.db.collection('characters').createIndex({ 
-                "affinity": 1, 
-                "search_name": 1 
+            req.db.collection('characters').createIndex({
+                "affinity": 1,
+                "search_name": 1
             }),
             // Index pour les catégories
             req.db.collection('characters').createIndex({ "categories": 1 }),
             // Index pour les killers
-            req.db.collection('characters').createIndex({ "killers": 1 })
+            req.db.collection('characters').createIndex({ "killers": 1 }),
+            // Nouveaux index pour les champs ajoutés
+            req.db.collection('characters').createIndex({ "release_date": 1 }),
+            req.db.collection('characters').createIndex({ "rarity": 1 }),
+            req.db.collection('characters').createIndex({ "status": 1 })
         ]);
 
-        res.json({ 
-            success: true, 
-            message: 'Index créés avec succès pour optimiser les performances' 
+        res.json({
+            success: true,
+            message: 'Index créés avec succès pour optimiser les performances'
         });
     } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            message: 'Erreur lors de la création des index', 
-            error: error.message 
+        res.status(500).json({
+            success: false,
+            message: 'Erreur lors de la création des index',
+            error: error.message
         });
     }
 });
