@@ -74,13 +74,13 @@ router.get('/:id', async (req, res) => {
 // POST créer un nouveau score
 router.post('/', async (req, res) => {
   try {
-    const { user_id, cycle_id, rotation_id, scores } = req.body;
+    const { user_id, cycle_id, rotation_id, guild_id, scores } = req.body;
 
     // Validation des champs requis
-    if (!user_id || !cycle_id || !rotation_id || scores === undefined) {
+    if (!user_id || !cycle_id || !rotation_id || !guild_id || scores === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Les champs user_id, cycle_id, rotation_id et scores sont requis'
+        message: 'Les champs user_id, cycle_id, rotation_id, guild_id et scores sont requis'
       });
     }
 
@@ -96,6 +96,7 @@ router.post('/', async (req, res) => {
       user_id,
       cycle_id,
       rotation_id,
+      guild_id,
       scores,
       created_at: new Date(),
       updated_at: new Date()
@@ -116,7 +117,7 @@ router.post('/', async (req, res) => {
 // PUT modifier un score
 router.put('/:id', async (req, res) => {
   try {
-    const { user_id, cycle_id, rotation_id, scores } = req.body;
+    const { user_id, cycle_id, rotation_id, guild_id, scores } = req.body;
 
     const updateData = {
       updated_at: new Date()
@@ -125,6 +126,7 @@ router.put('/:id', async (req, res) => {
     if (user_id) updateData.user_id = user_id;
     if (cycle_id) updateData.cycle_id = cycle_id;
     if (rotation_id) updateData.rotation_id = rotation_id;
+    if (guild_id) updateData.guild_id = guild_id;
     if (scores !== undefined) {
       if (typeof scores !== 'number') {
         return res.status(400).json({
