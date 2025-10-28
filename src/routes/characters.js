@@ -160,7 +160,7 @@ router.get('/', async (req, res) => {
         const actualLimit = Math.min(limit, maxLimit);
 
         // Paramètres de filtrage
-        const { affinity, category, killer, search } = req.query;
+        const { affinity, category, killer, search, attack_type } = req.query;
 
         // Construire la requête de filtrage
         const query = {};
@@ -181,6 +181,11 @@ router.get('/', async (req, res) => {
             // Échapper les caractères spéciaux de regex pour une recherche littérale exacte
             const escapedTerm = killerTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             query.killers = { $regex: new RegExp(`^${escapedTerm}$`, 'i') };
+        }
+
+        // Filtre par type d'attaque (R pour Rouge, B pour Bleue)
+        if (attack_type && attack_type.trim()) {
+            query.attack_type = attack_type.trim().toUpperCase();
         }
 
         // Filtre par recherche textuelle
@@ -254,6 +259,7 @@ router.get('/', async (req, res) => {
                 affinity: affinity || null,
                 category: category || null,
                 killer: killer || null,
+                attack_type: attack_type || null,
                 search: search || null
             }
         });
