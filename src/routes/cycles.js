@@ -11,26 +11,34 @@ router.use(requireDb);
 router.get('/', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec characters
     const skip = (page - 1) * limit;
+
+    // Limiter le nombre max par page pour éviter les abus
+    const maxLimit = 200;
+    const actualLimit = Math.min(limit, maxLimit);
 
     const cycles = await req.db.collection('cycles')
       .find()
       .sort({ _id: -1 })
       .skip(skip)
-      .limit(limit)
+      .limit(actualLimit)
       .toArray();
 
-    const total = await req.db.collection('cycles').countDocuments();
+    const totalCount = await req.db.collection('cycles').countDocuments();
+    const totalPages = Math.ceil(totalCount / actualLimit);
 
     res.json({
       success: true,
-      cycles,
+      data: cycles,
       pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
+        currentPage: page,
+        totalPages,
+        totalCount,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        itemsPerPage: actualLimit,
+        itemsOnPage: cycles.length
       }
     });
   } catch (err) {

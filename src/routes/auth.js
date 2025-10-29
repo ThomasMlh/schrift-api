@@ -29,11 +29,6 @@ router.post('/discord/callback', async (req, res) => {
         // Utiliser la redirect_uri du frontend ou fallback sur celle de l'env
         const finalRedirectUri = redirect_uri || DISCORD_REDIRECT_URI;
 
-        // console.log('🔍 DEBUG OAuth - Code:', code);
-        // console.log('🔍 DEBUG OAuth - Redirect URI frontend:', redirect_uri);
-        // console.log('🔍 DEBUG OAuth - Redirect URI env:', DISCORD_REDIRECT_URI);
-        // console.log('🔍 DEBUG OAuth - Redirect URI finale:', finalRedirectUri);
-
         // Échanger le code contre un access token
         const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
             method: 'POST',

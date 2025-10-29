@@ -244,7 +244,7 @@ router.get('/', async (req, res) => {
         const totalPages = Math.ceil(totalCount / actualLimit);
 
         res.json({
-            characters,
+            data: characters,
             pagination: {
                 currentPage: page,
                 totalPages,
@@ -334,7 +334,7 @@ router.get('/search', async (req, res) => {
         const totalPages = Math.ceil(totalCount / actualLimit);
 
         res.json({
-            characters,
+            
             pagination: {
                 currentPage: parseInt(page),
                 totalPages,

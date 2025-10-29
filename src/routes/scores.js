@@ -11,8 +11,12 @@ router.use(requireDb);
 router.get('/', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec characters
     const skip = (page - 1) * limit;
+
+    // Limiter le nombre max par page pour éviter les abus
+    const maxLimit = 200;
+    const actualLimit = Math.min(limit, maxLimit);
 
     // Construction des filtres
     const filters = {};
@@ -33,21 +37,30 @@ router.get('/', async (req, res) => {
       .find(filters)
       .sort({ _id: -1 })
       .skip(skip)
-      .limit(limit)
+      .limit(actualLimit)
       .toArray();
 
-    const total = await req.db.collection('scores').countDocuments(filters);
+    const totalCount = await req.db.collection('scores').countDocuments(filters);
+    const totalPages = Math.ceil(totalCount / actualLimit);
 
     res.json({
       success: true,
-      scores,
+      data: scores, // Changé de 'data' vers 'scores' pour cohérence
       pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
+        currentPage: page,
+        totalPages,
+        totalCount,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        itemsPerPage: actualLimit,
+        itemsOnPage: scores.length
       },
-      filters: filters
+      // Retourner les filtres actifs pour le frontend
+      activeFilters: {
+        user_id: req.query.user_id || null,
+        cycle_id: req.query.cycle_id || null,
+        rotation_id: req.query.rotation_id || null
+      }
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -74,18 +87,18 @@ router.get('/:id', async (req, res) => {
 // POST créer un nouveau score
 router.post('/', async (req, res) => {
   try {
-    const { user_id, cycle_id, rotation_id, guild_id, scores } = req.body;
+    const { user_id, cycle_id, rotation_id, guild_id, score } = req.body;
 
     // Validation des champs requis
-    if (!user_id || !cycle_id || !rotation_id || !guild_id || scores === undefined) {
+    if (!user_id || !cycle_id || !rotation_id || !guild_id || score === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Les champs user_id, cycle_id, rotation_id, guild_id et scores sont requis'
+        message: 'Les champs user_id, cycle_id, rotation_id, guild_id et score sont requis'
       });
     }
 
     // Vérifier que le score est un nombre
-    if (typeof scores !== 'number') {
+    if (typeof score !== 'number') {
       return res.status(400).json({
         success: false,
         message: 'Le score doit être un nombre'
@@ -97,7 +110,7 @@ router.post('/', async (req, res) => {
       cycle_id,
       rotation_id,
       guild_id,
-      scores,
+      score,
       created_at: new Date(),
       updated_at: new Date()
     };
@@ -117,7 +130,7 @@ router.post('/', async (req, res) => {
 // PUT modifier un score
 router.put('/:id', async (req, res) => {
   try {
-    const { user_id, cycle_id, rotation_id, guild_id, scores } = req.body;
+    const { user_id, cycle_id, rotation_id, guild_id, score } = req.body;
 
     const updateData = {
       updated_at: new Date()
@@ -127,14 +140,14 @@ router.put('/:id', async (req, res) => {
     if (cycle_id) updateData.cycle_id = cycle_id;
     if (rotation_id) updateData.rotation_id = rotation_id;
     if (guild_id) updateData.guild_id = guild_id;
-    if (scores !== undefined) {
-      if (typeof scores !== 'number') {
+    if (score !== undefined) {
+      if (typeof score !== 'number') {
         return res.status(400).json({
           success: false,
           message: 'Le score doit être un nombre'
         });
       }
-      updateData.scores = scores;
+      updateData.score = score;
     }
 
     const result = await req.db.collection('scores').updateOne(
@@ -175,28 +188,37 @@ router.delete('/:id', async (req, res) => {
 router.get('/user/:userId', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec characters
     const skip = (page - 1) * limit;
+
+    // Limiter le nombre max par page pour éviter les abus
+    const maxLimit = 200;
+    const actualLimit = Math.min(limit, maxLimit);
 
     const scores = await req.db.collection('scores')
       .find({ user_id: req.params.userId })
       .sort({ _id: -1 })
       .skip(skip)
-      .limit(limit)
+      .limit(actualLimit)
       .toArray();
 
-    const total = await req.db.collection('scores').countDocuments({ 
+    const totalCount = await req.db.collection('scores').countDocuments({ 
       user_id: req.params.userId 
     });
 
+    const totalPages = Math.ceil(totalCount / actualLimit);
+
     res.json({
       success: true,
-      scores,
+      scores, // Changé de 'data' vers 'scores' pour cohérence
       pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
+        currentPage: page,
+        totalPages,
+        totalCount,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        itemsPerPage: actualLimit,
+        itemsOnPage: scores.length
       }
     });
   } catch (err) {
@@ -208,28 +230,37 @@ router.get('/user/:userId', async (req, res) => {
 router.get('/cycle/:cycleId', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec characters
     const skip = (page - 1) * limit;
+
+    // Limiter le nombre max par page pour éviter les abus
+    const maxLimit = 200;
+    const actualLimit = Math.min(limit, maxLimit);
 
     const scores = await req.db.collection('scores')
       .find({ cycle_id: req.params.cycleId })
       .sort({ _id: -1 })
       .skip(skip)
-      .limit(limit)
+      .limit(actualLimit)
       .toArray();
 
-    const total = await req.db.collection('scores').countDocuments({ 
+    const totalCount = await req.db.collection('scores').countDocuments({ 
       cycle_id: req.params.cycleId 
     });
 
+    const totalPages = Math.ceil(totalCount / actualLimit);
+
     res.json({
       success: true,
-      scores,
+      scores, // Changé de 'data' vers 'scores' pour cohérence
       pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
+        currentPage: page,
+        totalPages,
+        totalCount,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        itemsPerPage: actualLimit,
+        itemsOnPage: scores.length
       }
     });
   } catch (err) {
@@ -350,72 +381,5 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Routes supplémentaires pour des statistiques
-
-// GET scores par utilisateur
-router.get('/user/:userId', async (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    const scores = await req.db.collection('scores')
-      .find({ user_id: req.params.userId })
-      .sort({ _id: -1 })
-      .skip(skip)
-      .limit(limit)
-      .toArray();
-
-    const total = await req.db.collection('scores').countDocuments({ 
-      user_id: req.params.userId 
-    });
-
-    res.json({
-      success: true,
-      scores,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET scores par cycle
-router.get('/cycle/:cycleId', async (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    const scores = await req.db.collection('scores')
-      .find({ cycle_id: req.params.cycleId })
-      .sort({ _id: -1 })
-      .skip(skip)
-      .limit(limit)
-      .toArray();
-
-    const total = await req.db.collection('scores').countDocuments({ 
-      cycle_id: req.params.cycleId 
-    });
-
-    res.json({
-      success: true,
-      scores,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 export default router;
