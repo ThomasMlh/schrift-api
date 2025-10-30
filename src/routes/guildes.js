@@ -35,7 +35,7 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/membres', async (req, res) => {
   try {
     const guildeId = req.params.id;
-    
+        
     // Récupérer les membres depuis la collection users
     const membres = await req.db.collection('users').find(
       { guilde_id: guildeId },
@@ -53,7 +53,7 @@ router.get('/:id/membres', async (req, res) => {
       }
     ).toArray();
 
-    res.json({ success: true, membres, count: membres.length });
+    res.json({ success: true, data: membres, count: membres.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

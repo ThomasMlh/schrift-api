@@ -129,6 +129,8 @@ router.post('/discord/callback', async (req, res) => {
             accent_color: userData.accent_color,
             // Données de connexion
             connections: connections,
+            bleach_id: existingUser?.bleach_id || null,
+            bleach_name: existingUser?.bleach_name || null,
             // Informations de guilde (conserver les valeurs existantes ou mettre null)
             guilde_id: existingUser?.guilde_id || null,
             role: existingUser?.role || null,
@@ -159,6 +161,8 @@ router.post('/discord/callback', async (req, res) => {
             discord_id: userData.id,
             guilde_id: user.guilde_id,
             role: user.role,
+            bleach_id: user.bleach_id,
+            bleach_name: user.bleach_name,
             avatar: userData.avatar,
             isAdmin: isAdmin,
             exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) // 7 jours
@@ -176,6 +180,8 @@ router.post('/discord/callback', async (req, res) => {
                 discord_id: userData.id,
                 guilde_id: user.guilde_id,
                 role: user.role,
+                bleach_id: user.bleach_id,
+                bleach_name: user.bleach_name,
                 avatar: userData.avatar,
                 isAdmin: isAdmin
             }
@@ -217,7 +223,9 @@ router.get('/me', async (req, res) => {
                 isAdmin: user.is_admin,
                 lastLogin: user.last_login,
                 guilde_id: user.guilde_id,
-                role: user.role
+                role: user.role,
+                bleach_id: user.bleach_id,
+                bleach_name: user.bleach_name
             }
         });
 

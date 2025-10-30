@@ -268,23 +268,6 @@ router.get('/cycle/:cycleId', async (req, res) => {
   }
 });
 
-// GET un score spécifique par ID
-router.get('/:id', async (req, res) => {
-  try {
-    const score = await req.db.collection('scores').findOne({ 
-      _id: new ObjectId(req.params.id) 
-    });
-    
-    if (!score) {
-      return res.status(404).json({ success: false, message: 'Score non trouvé' });
-    }
-    
-    res.json({ success: true, score });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // POST créer un nouveau score
 router.post('/', async (req, res) => {
   try {
@@ -321,6 +304,53 @@ router.post('/', async (req, res) => {
       success: true,
       id: result.insertedId,
       message: 'Score créé avec succès'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Créer plusieurs scores
+router.post('/bulk', async (req, res) => {
+  try {
+    const scores = req.body;
+
+    if (!Array.isArray(scores) || scores.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Aucun score à ajouter'
+      });
+    }
+
+    // Valider chaque score
+    for (const scoreData of scores) {
+      const { user_id, cycle_id, rotation_id, score } = scoreData;
+
+      if (!user_id || !cycle_id || !rotation_id || score === undefined) {
+        return res.status(400).json({
+          success: false,
+          message: 'Chaque score doit contenir les champs user_id, cycle_id, rotation_id et score'
+        });
+      }
+
+      if (typeof score !== 'number') {
+        return res.status(400).json({
+          success: false,
+          message: 'Le score doit être un nombre'
+        });
+      }
+
+      scoreData.created_at = new Date();
+      scoreData.updated_at = new Date();
+    }
+
+    const result = await req.db.collection('scores').insertMany(scores);
+
+    res.status(201).json({
+      success: true,
+      insertedCount: result.insertedCount,
+      insertedIds: result.insertedIds,
+      message: `${result.insertedCount} scores ajoutés avec succès`
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -34,21 +34,11 @@ router.post('/', requireAdmin, async (req, res) => {
                 continue;
             }
 
-            let cancel_resistance;
-
-            switch (cleanedChar["Annulation résistance Rouge/Bleue"]) {
-                case 'Annul. Res. Bleue':
-                    cancel_resistance = 'B';
-                    break;
-                case 'Annul. Res. Rouge':
-                    cancel_resistance = 'R';
-                    break;
-                case 'Range Nullify':
-                    cancel_resistance = 'range';
-                    break;
-                default:
-                    cancel_resistance = null;
-            }
+            const CANCEL_RESISTANCE_MAP = {
+                'Annul. Res. Bleue': 'B',
+                'Annul. Res. Rouge': 'R',
+                'Range Nullify': 'range'
+            };
 
             sanitizedCharacters.push({
                 name: cleanedChar["Nom personnage"] || '',
@@ -56,6 +46,7 @@ router.post('/', requireAdmin, async (req, res) => {
                 link: cleanedChar["Link"] || '',
                 artwork: cleanedChar["URL Artwork"] || '',
                 attack_url: cleanedChar["URL ATK"] || '',
+                phrase_url: cleanedChar["URL Phrase"] || '',
                 affinity: cleanedChar["Affinité"] || '',
                 categories: [cleanedChar["Catégorie 1"] || '', cleanedChar["Catégorie 2"] || ''].filter(Boolean),
                 killers: [cleanedChar["Killer 1"] || '', cleanedChar["Killer 2"] || ''].filter(Boolean),
@@ -77,7 +68,7 @@ router.post('/', requireAdmin, async (req, res) => {
                     pre: cleanedChar["PRE"] || null,
                 },
                 immunities: [cleanedChar["Immunité 1"] || '', cleanedChar["Immunité 2"] || '', cleanedChar["Immunité 3"] || ''].filter(Boolean),
-                cancel_resistance,
+                cancel_resistance: CANCEL_RESISTANCE_MAP[cleanedChar["Annulation résistance Rouge/Bleue"]] || null,
             });
         }
 
@@ -123,18 +114,42 @@ router.post('/single', async (req, res) => {
             });
         }
 
+        const CANCEL_RESISTANCE_MAP = {
+            'Annul. Res. Bleue': 'B',
+            'Annul. Res. Rouge': 'R',
+            'Range Nullify': 'range'
+        };
+
         const sanitizedCharacter = {
             name: character["Nom personnage"] || '',
             search_name: searchName,
             link: character["Link"] || '',
             artwork: character["URL Artwork"] || '',
+            attack_url: character["URL ATK"] || '',
+            phrase_url: character["URL Phrase"] || '',
             affinity: character["Affinité"] || '',
             categories: [character["Catégorie 1"] || '', character["Catégorie 2"] || ''].filter(Boolean),
             killers: [character["Killer 1"] || '', character["Killer 2"] || ''].filter(Boolean),
             soul_traits: [character["Soul Trait 1"] || '', character["Soul Trait 2"] || ''].filter(Boolean),
             soul_traits_ex: character["Ex Soul Traits"] || '',
-            attack_type: character["Attaques Rouges ou Bleues"] || '',
-        };
+            attack_type: character["Attaques Rouges ou Bleues"] === 'Attaques B' ? 'B' : 'R',
+            release_date: character["Date sortie"] || null,
+            resurrection_release: character["Date résurrection"] || null,
+            portail: character["Portail"] || '',
+            nad: character["NAD ou SAD"] === 'NAD' ? 'NAD' : false,
+            sad: character["NAD ou SAD"] === 'SAD' ? 'SAD' : false,
+            banner: character["Bannière"] || '',
+            banner_url: character["URL Bannière"] || '',
+            stats: {
+                end: character["END"] || null,
+                atk: character["ATK"] || null,
+                def: character["DEF"] || null,
+                cct: character["CCT"] || null,
+                pre: character["PRE"] || null,
+            },
+            immunities: [character["Immunité 1"] || '', character["Immunité 2"] || '', character["Immunité 3"] || ''].filter(Boolean),
+            cancel_resistance: CANCEL_RESISTANCE_MAP[character["Annulation résistance Rouge/Bleue"]] || null,
+        }
 
         const result = await req.db.collection('characters').insertOne(sanitizedCharacter);
         res.json({
@@ -209,33 +224,33 @@ router.get('/', async (req, res) => {
             // Fonction pour convertir DD/MM/YYYY en Date
             const parseDate = (dateStr) => {
                 if (!dateStr || dateStr === null) return new Date(0); // Très ancien si pas de date
-                
+
                 // Si c'est déjà un objet Date
                 if (dateStr instanceof Date) return dateStr;
-                
+
                 // Si c'est au format DD/MM/YYYY
                 if (typeof dateStr === 'string' && dateStr.includes('/')) {
                     const [day, month, year] = dateStr.split('/');
                     return new Date(year, month - 1, day); // month - 1 car les mois sont indexés à partir de 0
                 }
-                
+
                 // Sinon essayer de parser directement
                 return new Date(dateStr);
             };
 
             const dateA = parseDate(a["release_date"]);
             const dateB = parseDate(b["release_date"]);
-            
+
             // Tri décroissant (plus récents en premier) - RETOUR VERSION ORIGINALE
             const dateDiff = dateB.getTime() - dateA.getTime();
-            
+
             // Si les dates sont identiques, trier par nom
             if (dateDiff === 0) {
                 const nameA = a.name || '';
                 const nameB = b.name || '';
                 return nameA.localeCompare(nameB);
             }
-            
+
             return dateDiff;
         });
 
@@ -299,33 +314,33 @@ router.get('/search', async (req, res) => {
             // Fonction pour convertir DD/MM/YYYY en Date
             const parseDate = (dateStr) => {
                 if (!dateStr || dateStr === null) return new Date(0); // Très ancien si pas de date
-                
+
                 // Si c'est déjà un objet Date
                 if (dateStr instanceof Date) return dateStr;
-                
+
                 // Si c'est au format DD/MM/YYYY
                 if (typeof dateStr === 'string' && dateStr.includes('/')) {
                     const [day, month, year] = dateStr.split('/');
                     return new Date(year, month - 1, day); // month - 1 car les mois sont indexés à partir de 0
                 }
-                
+
                 // Sinon essayer de parser directement
                 return new Date(dateStr);
             };
 
             const dateA = parseDate(a["release_date"]);
             const dateB = parseDate(b["release_date"]);
-            
+
             // Tri décroissant (plus récents en premier) - RETOUR VERSION ORIGINALE
             const dateDiff = dateB.getTime() - dateA.getTime();
-            
+
             // Si les dates sont identiques, trier par nom
             if (dateDiff === 0) {
                 const nameA = a.name || a["Nom personnage"] || '';
                 const nameB = b.name || b["Nom personnage"] || '';
                 return nameA.localeCompare(nameB);
             }
-            
+
             return dateDiff;
         });
 
@@ -334,7 +349,7 @@ router.get('/search', async (req, res) => {
         const totalPages = Math.ceil(totalCount / actualLimit);
 
         res.json({
-            
+
             pagination: {
                 currentPage: parseInt(page),
                 totalPages,
