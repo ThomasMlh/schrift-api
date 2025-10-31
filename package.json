@@ -22,7 +22,8 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.20.0",
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "ssh2-sftp-client": "^12.0.1"
   },
   "devDependencies": {
     "@babel/cli": "^7.28.3",
