@@ -1,4 +1,5 @@
 import express from 'express';
+import { ObjectId } from 'mongodb';
 import { cleanObject } from '../utils/cleaners.js';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
 import { SFTPClient } from '../utils/database.js';
@@ -27,7 +28,7 @@ router.post('/', requireAdmin, async (req, res) => {
                 continue;
             }
 
-            const searchName = cleanedChar["Nom de recherche"].toLowerCase().replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, '').trim();
+            const searchName = cleanedChar["Nom de recherche"].replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, '').trim();
 
             // Vérifier si le personnage existe déjà en base
             const existingCharacter = await req.db.collection('characters').findOne({ search_name: searchName });
@@ -59,8 +60,10 @@ router.post('/', requireAdmin, async (req, res) => {
                 portail: cleanedChar["Portail"] || '',
                 nad: cleanedChar["NAD ou SAD"] === 'NAD' ? 'NAD' : false,
                 sad: cleanedChar["NAD ou SAD"] === 'SAD' ? 'SAD' : false,
-                banner: cleanedChar["Bannière"] || '',
-                banner_url: cleanedChar["URL Bannière"] || '',
+                version: cleanedChar["Version"] || '',
+                version_name: cleanedChar["Nom version"] || '',
+                banner: cleanedChar["Loterie"] || '',
+                banner_url: cleanedChar["URL Portail"] || '',
                 stats: {
                     end: cleanedChar["END"] || null,
                     atk: cleanedChar["ATK"] || null,
@@ -104,7 +107,7 @@ router.post('/single', async (req, res) => {
             });
         }
 
-        const searchName = character["Nom de recherche"].toLowerCase().replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, '').trim();
+        const searchName = character["Nom de recherche"].replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, '').trim();
 
         // Vérifier si le personnage existe déjà
         const existingCharacter = await req.db.collection('characters').findOne({ search_name: searchName });
@@ -139,8 +142,10 @@ router.post('/single', async (req, res) => {
             portail: character["Portail"] || '',
             nad: character["NAD ou SAD"] === 'NAD' ? 'NAD' : false,
             sad: character["NAD ou SAD"] === 'SAD' ? 'SAD' : false,
-            banner: character["Bannière"] || '',
-            banner_url: character["URL Bannière"] || '',
+            version: cleanedChar["Version"] || '',
+            version_name: cleanedChar["Nom version"] || '',
+            banner: character["Loterie"] || character["Bannière"] || character["Banner"] || '',
+            banner_url: character["URL Portail"] || '',
             stats: {
                 end: character["END"] || null,
                 atk: character["ATK"] || null,
@@ -246,6 +251,19 @@ router.get('/', async (req, res) => {
                 search: search || null
             }
         });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Erreur serveur', error: error.message });
+    }
+});
+
+// Route pour récupérer un personnage par ID
+router.get('/:id', async (req, res) => {
+    try {
+        const character = await req.db.collection('characters').findOne({ _id: new ObjectId(req.params.id) });
+        if (!character) {
+            return res.status(404).json({ success: false, message: 'Personnage non trouvé' });
+        }
+        res.json({ success: true, data: character });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Erreur serveur', error: error.message });
     }
@@ -411,7 +429,7 @@ router.post('/update', requireAdmin, async (req, res) => {
 
         let sftpClient;
         let fileContent;
-        
+
         try {
             // Connexion SFTP
             sftpClient = new SFTPClient();
@@ -428,7 +446,7 @@ router.post('/update', requireAdmin, async (req, res) => {
                 console.warn('⚠️ Impossible de vérifier l\'existence du fichier:', existsError.message);
                 // Continuer quand même, certains serveurs SFTP ne supportent pas exists()
             }
-            
+
             const buffer = await sftpClient.client.get(filename);
             fileContent = buffer.toString('utf8');
 
@@ -499,7 +517,7 @@ router.post('/update', requireAdmin, async (req, res) => {
                     continue;
                 }
 
-                const searchName = cleanedChar["Nom de recherche"].toLowerCase().replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, '').trim();
+                const searchName = cleanedChar["Nom de recherche"].replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, '').trim();
 
                 const CANCEL_RESISTANCE_MAP = {
                     'Annul. Res. Bleue': 'B',
@@ -525,8 +543,10 @@ router.post('/update', requireAdmin, async (req, res) => {
                     portail: cleanedChar["Portail"] || '',
                     nad: cleanedChar["NAD ou SAD"] === 'NAD' ? 'NAD' : false,
                     sad: cleanedChar["NAD ou SAD"] === 'SAD' ? 'SAD' : false,
-                    banner: cleanedChar["Bannière"] || '',
-                    banner_url: cleanedChar["URL Bannière"] || '',
+                    version: cleanedChar["Version"] || '',
+                    version_name: cleanedChar["Nom version"] || '',
+                    banner: cleanedChar["Loterie"] || '',
+                    banner_url: cleanedChar["URL Portail"] || '',
                     stats: {
                         end: cleanedChar["END"] || null,
                         atk: cleanedChar["ATK"] || null,
@@ -574,7 +594,7 @@ router.post('/update', requireAdmin, async (req, res) => {
                 .sort({ created_at: -1 })
                 .limit(10)
                 .toArray();
-        
+
         }
 
         // Tri automatique des personnages par date de sortie après synchronisation
@@ -639,23 +659,23 @@ function parseCSV(csvContent) {
 
 // Fonction utilitaire pour trier les personnages par date de sortie
 async function reorderCharactersByReleaseDate(db) {
-    
+
     // Récupérer tous les personnages
     const allCharacters = await db.collection('characters').find({}).toArray();
 
     // Fonction pour convertir DD/MM/YYYY en Date
     const parseDate = (dateStr) => {
         if (!dateStr || dateStr === null) return new Date('1900-01-01'); // Très ancien par défaut
-        
+
         // Si c'est déjà un objet Date
         if (dateStr instanceof Date) return dateStr;
-        
+
         // Si c'est au format DD/MM/YYYY
         if (typeof dateStr === 'string' && dateStr.includes('/')) {
             const [day, month, year] = dateStr.split('/');
             return new Date(year, month - 1, day);
         }
-        
+
         // Sinon essayer de parser directement
         const parsedDate = new Date(dateStr);
         return isNaN(parsedDate.getTime()) ? new Date('1900-01-01') : parsedDate;
@@ -665,26 +685,26 @@ async function reorderCharactersByReleaseDate(db) {
     const sortedCharacters = allCharacters.sort((a, b) => {
         const dateA = parseDate(a.release_date);
         const dateB = parseDate(b.release_date);
-        
+
         // Tri décroissant (plus récents en premier)
         const dateDiff = dateB.getTime() - dateA.getTime();
-        
+
         // Si les dates sont identiques, trier par nom
         if (dateDiff === 0) {
             const nameA = a.name || '';
             const nameB = b.name || '';
             return nameA.localeCompare(nameB);
         }
-        
+
         return dateDiff;
     });
-    
+
     // Ajouter un champ sort_order basé sur la position dans le tri
     const bulkOps = sortedCharacters.map((char, index) => ({
         updateOne: {
             filter: { _id: char._id },
-            update: { 
-                $set: { 
+            update: {
+                $set: {
                     sort_order: index,
                     sort_date_parsed: parseDate(char.release_date),
                     updated_at: new Date()
@@ -694,7 +714,7 @@ async function reorderCharactersByReleaseDate(db) {
     }));
 
     const bulkResult = await db.collection('characters').bulkWrite(bulkOps);
-    
+
     return {
         totalCharacters: allCharacters.length,
         updated: bulkResult.modifiedCount,
