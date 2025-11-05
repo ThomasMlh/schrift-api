@@ -245,6 +245,11 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Rotation non trouvée pour cette position' });
     }
 
+    const currentRotation = await req.db.collection('rotations').findOne({ _id: new ObjectId(rotation.rotation_id)});
+    if(!currentRotation) {
+      return res.status(404).json({ success: false, message: 'Rotation actuelle non trouvée' });
+    }
+
     // Récupérer les scores avec pagination, tri par score décroissant et join avec les utilisateurs
     const scores = await req.db.collection('scores')
       .aggregate([
@@ -273,7 +278,7 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
 
     // Compter le total pour la pagination
     const totalCount = await req.db.collection('scores').countDocuments({ 
-      rotation_id: rotation._id.toString() 
+      _id: rotation._id.toString() 
     });
 
     const totalPages = Math.ceil(totalCount / actualLimit);
@@ -282,6 +287,7 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       success: true, 
       data: scores,
       cycle: cycle.name,
+      rotation: currentRotation,
       pagination: {
         currentPage: page,
         totalPages,
