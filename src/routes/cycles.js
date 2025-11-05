@@ -213,4 +213,88 @@ router.delete('/:cycleId', async (req, res) => {
   }
 });
 
+// GET tout les scores d'une rotation donné par sa position dans un cycle donné par son ID
+router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
+  try {
+    const cycleId = req.params.cycleId;
+    const position = parseInt(req.params.position);
+
+    if (isNaN(position) || position < 1 || position > 20) {
+      return res.status(400).json({ success: false, message: 'Position de rotation invalide. Doit être entre 1 et 20.' });
+    }
+
+    // Paramètres de pagination avec valeurs par défaut
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec les autres routes
+    const skip = (page - 1) * limit;
+
+    // Limiter le nombre max par page pour éviter les abus
+    const maxLimit = 200;
+    const actualLimit = Math.min(limit, maxLimit);
+
+    const cycle = await req.db.collection('cycles').findOne({ 
+      _id: new ObjectId(cycleId) 
+    });
+
+    if (!cycle) {
+      return res.status(404).json({ success: false, message: 'Cycle non trouvé' });
+    }
+
+    const rotation = cycle.rotations[position - 1];
+    if (!rotation) {
+      return res.status(404).json({ success: false, message: 'Rotation non trouvée pour cette position' });
+    }
+
+    // Récupérer les scores avec pagination, tri par score décroissant et join avec les utilisateurs
+    const scores = await req.db.collection('scores')
+      .aggregate([
+        { $match: { rotation_id: rotation._id.toString() } },
+        {
+          $lookup: {
+            from: 'users',
+            let: { userId: { $toObjectId: "$user_id" } },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$_id", "$$userId"] } } }
+            ],
+            as: 'user'
+          }
+        },
+        {
+          $unwind: {
+            path: '$user',
+            preserveNullAndEmptyArrays: true // Garder les scores même si l'utilisateur n'est pas trouvé
+          }
+        },
+        { $sort: { score: -1 } },
+        { $skip: skip },
+        { $limit: actualLimit }
+      ])
+      .toArray();
+
+    // Compter le total pour la pagination
+    const totalCount = await req.db.collection('scores').countDocuments({ 
+      rotation_id: rotation._id.toString() 
+    });
+
+    const totalPages = Math.ceil(totalCount / actualLimit);
+
+    res.json({ 
+      success: true, 
+      data: scores,
+      cycle: cycle.name,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalCount,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        itemsPerPage: actualLimit,
+        itemsOnPage: scores.length
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
