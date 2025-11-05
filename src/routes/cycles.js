@@ -20,17 +20,28 @@ router.get('/', async (req, res) => {
 
     const cycles = await req.db.collection('cycles')
       .find()
-      .sort({ _id: -1 })
-      .skip(skip)
-      .limit(actualLimit)
       .toArray();
 
-    const totalCount = await req.db.collection('cycles').countDocuments();
+    // Trier les cycles par la start_date de la première rotation
+    cycles.sort((a, b) => {
+      const dateA = a.rotations && a.rotations.length > 0 ? new Date(a.rotations[0].start_date) : new Date(0);
+      const dateB = b.rotations && b.rotations.length > 0 ? new Date(b.rotations[0].start_date) : new Date(0);
+      
+      // Tri décroissant (plus récents en premier)
+      return dateB.getTime() - dateA.getTime();
+    });
+
+    // Appliquer la pagination après le tri
+    const startIndex = skip;
+    const endIndex = skip + actualLimit;
+    const paginatedCycles = cycles.slice(startIndex, endIndex);
+
+    const totalCount = cycles.length;
     const totalPages = Math.ceil(totalCount / actualLimit);
 
     res.json({
       success: true,
-      data: cycles,
+      data: paginatedCycles,
       pagination: {
         currentPage: page,
         totalPages,
@@ -38,7 +49,7 @@ router.get('/', async (req, res) => {
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1,
         itemsPerPage: actualLimit,
-        itemsOnPage: cycles.length
+        itemsOnPage: paginatedCycles.length
       }
     });
   } catch (err) {

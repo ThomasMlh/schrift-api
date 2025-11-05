@@ -21,10 +21,6 @@ router.get('/', async (req, res) => {
     // Construction des filtres
     const filters = {};
 
-    if (req.query.user_id) {
-      filters.user_id = req.query.user_id;
-    }
-
     if (req.query.cycle_id) {
       filters.cycle_id = req.query.cycle_id;
     }
@@ -33,19 +29,107 @@ router.get('/', async (req, res) => {
       filters.rotation_id = req.query.rotation_id;
     }
 
+    if (req.query.guild_id) {
+      filters.guild_id = req.query.guild_id;
+    }
+
+    // Pour la recherche par nom d'utilisateur (global_name), on doit toujours faire une agrégation
+    let pipeline = [];
+    
+    if (req.query.search && req.query.search.trim()) {
+      const searchTerm = req.query.search.trim();
+      
+      // Pipeline d'agrégation pour joindre avec la collection users et filtrer par global_name
+      pipeline = [
+        { $match: filters },
+        {
+          $lookup: {
+            from: 'users',
+            let: { userId: { $toObjectId: "$user_id" } },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$_id", "$$userId"] } } }
+            ],
+            as: 'user'
+          }
+        },
+        {
+          $unwind: '$user'  // Décompose le tableau user pour accéder directement aux champs
+        },
+        {
+          $match: {
+            $or: [
+              { 'user.global_name': { $regex: searchTerm, $options: 'i' } },
+              { 'user.username': { $regex: searchTerm, $options: 'i' } }
+            ]
+          }
+        },
+        { $sort: { _id: -1 } },
+        { $skip: skip },
+        { $limit: actualLimit }
+      ];
+    } else {
+      // Requête simple sans recherche - mais on peut quand même joindre les données utilisateur
+      pipeline = [
+        { $match: filters },
+        {
+          $lookup: {
+            from: 'users',
+            let: { userId: { $toObjectId: "$user_id" } },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$_id", "$$userId"] } } }
+            ],
+            as: 'user'
+          }
+        },
+        { $sort: { _id: -1 } },
+        { $skip: skip },
+        { $limit: actualLimit }
+      ];
+    }
+
     const scores = await req.db.collection('scores')
-      .find(filters)
-      .sort({ _id: -1 })
-      .skip(skip)
-      .limit(actualLimit)
+      .aggregate(pipeline)
       .toArray();
 
-    const totalCount = await req.db.collection('scores').countDocuments(filters);
+    // Pour le count, on utilise la même logique
+    let totalCount;
+    if (req.query.search && req.query.search.trim()) {
+      const countPipeline = [
+        { $match: filters },
+        {
+          $lookup: {
+            from: 'users',
+            let: { userId: { $toObjectId: "$user_id" } },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$_id", "$$userId"] } } }
+            ],
+            as: 'user'
+          }
+        },
+        {
+          $unwind: '$user'  // Décompose le tableau user pour accéder directement aux champs
+        },
+        {
+          $match: {
+            $or: [
+              { 'user.global_name': { $regex: req.query.search.trim(), $options: 'i' } },
+              { 'user.username': { $regex: req.query.search.trim(), $options: 'i' } }
+            ]
+          }
+        },
+        { $count: "total" }
+      ];
+      
+      const countResult = await req.db.collection('scores').aggregate(countPipeline).toArray();
+      totalCount = countResult.length > 0 ? countResult[0].total : 0;
+    } else {
+      totalCount = await req.db.collection('scores').countDocuments(filters);
+    }
     const totalPages = Math.ceil(totalCount / actualLimit);
 
     res.json({
       success: true,
-      data: scores, // Changé de 'data' vers 'scores' pour cohérence
+      data: scores,
       pagination: {
         currentPage: page,
         totalPages,
@@ -57,9 +141,10 @@ router.get('/', async (req, res) => {
       },
       // Retourner les filtres actifs pour le frontend
       activeFilters: {
-        user_id: req.query.user_id || null,
         cycle_id: req.query.cycle_id || null,
-        rotation_id: req.query.rotation_id || null
+        rotation_id: req.query.rotation_id || null,
+        guild_id: req.query.guild_id || null,
+        search: req.query.search || null
       }
     });
   } catch (err) {
@@ -180,7 +265,7 @@ router.post('/bulk', async (req, res) => {
         });
 
         if (previousScore) {
-          finalScore = score.score - previousScore.score;
+          finalScore = Math.max(0, score.score - previousScore.score);
         }
       }
 
@@ -190,7 +275,6 @@ router.post('/bulk', async (req, res) => {
         rotation_id: score.rotation_id,
         guild_id: score.guild_id,
         score: finalScore,
-        raw_score: score.score, // Conserver le score original
         is_differential: currentRotationIndex > 0 && currentRotationIndex % 2 === 1,
         created_at: new Date(),
         updated_at: new Date()
@@ -280,12 +364,52 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Récupérer le cycle pour avoir l'ordre des rotations
+    const cycle = await req.db.collection('cycles').findOne({
+      _id: new ObjectId(cycle_id)
+    });
+
+    if (!cycle) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cycle non trouvé'
+      });
+    }
+
+    // Créer un map des rotations avec leur index pour l'ordre
+    const rotationIndexMap = new Map();
+    cycle.rotations.forEach((rotation, index) => {
+      rotationIndexMap.set(rotation._id.toString(), index);
+    });
+
+    const currentRotationIndex = rotationIndexMap.get(rotation_id);
+    let finalScore = score;
+    let isDifferential = false;
+
+    // Logique de soustraction : 1 rotation sur 2 (index impairs)
+    if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
+      // Chercher le score de la rotation précédente pour ce user
+      const previousRotationId = cycle.rotations[currentRotationIndex - 1]._id.toString();
+
+      const previousScore = await req.db.collection('scores').findOne({
+        user_id: user_id,
+        cycle_id: cycle_id,
+        rotation_id: previousRotationId
+      });
+
+      if (previousScore) {
+        finalScore = Math.max(0, score - previousScore.score);
+        isDifferential = true;
+      }
+    }
+
     const scoreData = {
       user_id,
       cycle_id,
       rotation_id,
       guild_id,
-      score,
+      score: finalScore,
+      is_differential: isDifferential,
       created_at: new Date(),
       updated_at: new Date()
     };
@@ -295,7 +419,13 @@ router.post('/', async (req, res) => {
     res.status(201).json({
       success: true,
       id: result.insertedId,
-      message: 'Score créé avec succès'
+      message: 'Score créé avec succès',
+      details: {
+        finalScore: finalScore,
+        rawScore: score,
+        isDifferential: isDifferential,
+        rotationIndex: currentRotationIndex
+      }
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -307,6 +437,15 @@ router.put('/:id', async (req, res) => {
   try {
     const { user_id, cycle_id, rotation_id, guild_id, score } = req.body;
 
+    // Récupérer le score existant pour avoir les données actuelles
+    const existingScore = await req.db.collection('scores').findOne({
+      _id: new ObjectId(req.params.id)
+    });
+
+    if (!existingScore) {
+      return res.status(404).json({ success: false, message: 'Score non trouvé' });
+    }
+
     const updateData = {
       updated_at: new Date()
     };
@@ -315,6 +454,8 @@ router.put('/:id', async (req, res) => {
     if (cycle_id) updateData.cycle_id = cycle_id;
     if (rotation_id) updateData.rotation_id = rotation_id;
     if (guild_id) updateData.guild_id = guild_id;
+
+    // Si le score est modifié, appliquer la logique différentielle
     if (score !== undefined) {
       if (typeof score !== 'number') {
         return res.status(400).json({
@@ -322,7 +463,49 @@ router.put('/:id', async (req, res) => {
           message: 'Le score doit être un nombre'
         });
       }
-      updateData.score = score;
+
+      const targetCycleId = cycle_id || existingScore.cycle_id;
+      const targetRotationId = rotation_id || existingScore.rotation_id;
+      const targetUserId = user_id || existingScore.user_id;
+
+      const cycle = await req.db.collection('cycles').findOne({
+        _id: new ObjectId(targetCycleId)
+      });
+
+      if (!cycle) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cycle non trouvé'
+        });
+      }
+
+      const rotationIndexMap = new Map();
+      cycle.rotations.forEach((rotation, index) => {
+        rotationIndexMap.set(rotation._id.toString(), index);
+      });
+
+      const currentRotationIndex = rotationIndexMap.get(targetRotationId);
+      let finalScore = score;
+      let isDifferential = false;
+
+      if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
+        const previousRotationId = cycle.rotations[currentRotationIndex - 1]._id.toString();
+
+        const previousScore = await req.db.collection('scores').findOne({
+          user_id: targetUserId,
+          cycle_id: targetCycleId,
+          rotation_id: previousRotationId
+        });
+
+        if (previousScore) {
+          const calculation = score - previousScore.score;
+          finalScore = Math.max(0, calculation);
+          isDifferential = true;
+        }
+      }
+
+      updateData.score = finalScore;
+      updateData.is_differential = isDifferential;
     }
 
     const result = await req.db.collection('scores').updateOne(
@@ -334,7 +517,14 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Score non trouvé' });
     }
 
-    res.json({ success: true, message: 'Score mis à jour avec succès' });
+    res.json({ 
+      success: true, 
+      message: 'Score mis à jour avec succès',
+      details: score !== undefined ? {
+        finalScore: updateData.score,
+        isDifferential: updateData.is_differential
+      } : null
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

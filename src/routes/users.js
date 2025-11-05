@@ -84,7 +84,9 @@ router.get('/', async (req, res) => {
           role: 1,
           is_admin: 1,
           last_login: 1,
-          global_name: 1
+          global_name: 1,
+          bbs_id: 1,
+          bbs_name: 1
         }
       })
       .sort({ last_login: -1 }) // Trier par dernière connexion (plus récents en premier)
@@ -126,7 +128,7 @@ router.get('/:userId', async (req, res) => {
     const { userId } = req.params;
 
     const user = await req.db.collection('users').findOne(
-      { _id: new ObjectId(userId)},
+      { _id: new ObjectId(userId) },
       {
         projection: {
           _id: 1,
@@ -137,7 +139,9 @@ router.get('/:userId', async (req, res) => {
           role: 1,
           is_admin: 1,
           last_login: 1,
-          global_name: 1
+          global_name: 1,
+          bbs_id: 1,
+          bbs_name: 1
         }
       }
     );
@@ -149,6 +153,29 @@ router.get('/:userId', async (req, res) => {
     res.json({ success: true, user });
   } catch (error) {
     console.error('Erreur lors de la récupération de l\'utilisateur:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+router.patch('/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const updates = req.body;
+
+    const result = await req.db.collection('users').updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: updates }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    const updatedUser = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+
+    res.json({ success: true, message: `${updatedUser.global_name} mis à jour avec succès` });
+  } catch (error) {
+    console.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
@@ -165,7 +192,7 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
 
     // Récupérer l'utilisateur pour connaître sa guilde
     let user;
-    
+
     // Essayer d'abord comme ObjectId MongoDB, sinon comme discord_id
     if (ObjectId.isValid(userId)) {
       user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });

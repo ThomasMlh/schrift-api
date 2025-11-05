@@ -1,8 +1,33 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { requireDb } from '../middleware/auth.js';
+import players from '../assets/joueurs.json' with { type: "json" };
 
 const router = express.Router();
+
+// Cache pour les tokens Discord (en mémoire)
+const tokenCache = new Map();
+// Cache pour les données utilisateur récentes (évite les appels API répétés)
+const userDataCache = new Map();
+
+// Fonction pour nettoyer le cache des tokens expirés
+const cleanExpiredTokens = () => {
+    const now = Date.now();
+    for (const [discordId, tokenData] of tokenCache.entries()) {
+        if (tokenData.expires_at <= now) {
+            tokenCache.delete(discordId);
+        }
+    }
+    // Nettoyer aussi le cache des données utilisateur (garde 5 minutes)
+    for (const [discordId, userData] of userDataCache.entries()) {
+        if (userData.cached_at + (5 * 60 * 1000) <= now) {
+            userDataCache.delete(discordId);
+        }
+    }
+};
+
+// Nettoyer le cache toutes les 10 minutes
+setInterval(cleanExpiredTokens, 10 * 60 * 1000);
 
 // Middleware pour toutes les routes auth
 router.use(requireDb);
@@ -49,8 +74,8 @@ router.post('/discord/callback', async (req, res) => {
             console.error('❌ Erreur Discord API:', errorData);
             console.error('❌ Status:', tokenResponse.status);
             console.error('❌ Headers:', Object.fromEntries(tokenResponse.headers.entries()));
-            return res.status(400).json({ 
-                success: false, 
+            return res.status(400).json({
+                success: false,
                 message: 'Erreur lors de l\'échange du code',
                 details: errorData,
                 status: tokenResponse.status
@@ -69,47 +94,96 @@ router.post('/discord/callback', async (req, res) => {
         if (!userResponse.ok) {
             const errorData = await userResponse.text();
             console.error('❌ Erreur récupération utilisateur:', errorData);
-            return res.status(400).json({ 
-                success: false, 
+            return res.status(400).json({
+                success: false,
                 message: 'Erreur lors de la récupération des données utilisateur',
-                details: errorData 
+                details: errorData
             });
         }
 
         const userData = await userResponse.json();
 
-        // Récupérer les connexions de l'utilisateur (Steam, Spotify, etc.) si le scope est accordé
+        // Mettre en cache le nouveau token (toujours faire l'échange initial)
+        tokenCache.set(userData.id, {
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+            expires_at: Date.now() + (tokenData.expires_in * 1000),
+            discord_id: userData.id
+        });
+        console.log('💾 Token Discord mis en cache pour', userData.username);
+
+        // Utiliser le token pour les appels API subséquents
+        const activeToken = tokenData.access_token;
+
+        // Récupérer les connexions et guildes (avec cache pour éviter les appels répétés)
         let connections = [];
-        try {
-            const connectionsResponse = await fetch('https://discord.com/api/users/@me/connections', {
+        let guilds = [];
+        
+        const cachedUserData = userDataCache.get(userData.id);
+        const now = Date.now();
+        
+        if (cachedUserData && (cachedUserData.cached_at + (5 * 60 * 1000)) > now) {
+            // Utiliser les données en cache si elles ont moins de 5 minutes
+            console.log('🔄 Utilisation des données utilisateur en cache pour', userData.username);
+            connections = cachedUserData.connections;
+            guilds = cachedUserData.guilds;
+        } else {
+            // Récupérer les nouvelles données
+            try {
+                const connectionsResponse = await fetch('https://discord.com/api/users/@me/connections', {
+                    headers: {
+                        'Authorization': `Bearer ${activeToken}`,
+                    },
+                });
+                if (connectionsResponse.ok) {
+                    connections = await connectionsResponse.json();
+                }
+            } catch (error) {
+                console.warn('⚠️ Impossible de récupérer les connexions utilisateur:', error);
+            }
+
+            const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
                 headers: {
-                    'Authorization': `Bearer ${tokenData.access_token}`,
+                    'Authorization': `Bearer ${activeToken}`,
                 },
             });
-            if (connectionsResponse.ok) {
-                connections = await connectionsResponse.json();
+
+            if (guildsResponse.ok) {
+                guilds = await guildsResponse.json();
             }
-        } catch (error) {
-            console.warn('⚠️ Impossible de récupérer les connexions utilisateur:', error);
+
+            // Mettre en cache les données utilisateur
+            userDataCache.set(userData.id, {
+                connections,
+                guilds,
+                cached_at: now
+            });
+            console.log('💾 Données utilisateur mises en cache pour', userData.username);
         }
 
         // Vérifier si l'utilisateur est administrateur
         const isAdmin = ADMIN_DISCORD_IDS.includes(userData.id);
 
-        // Récupérer les guildes de l'utilisateur si nécessaire
-        const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
-            headers: {
-                'Authorization': `Bearer ${tokenData.access_token}`,
-            },
-        });
-
-        let guilds = [];
-        if (guildsResponse.ok) {
-            guilds = await guildsResponse.json();
+        const existingUser = await req.db.collection('users').findOne({ discord_id: userData.id });
+        
+        let playerInfo = null;
+        if (players.joueurs && Array.isArray(players.joueurs)) {
+            playerInfo = players.joueurs.find(p => p.id_discord === userData.id);
         }
 
-        // Vérifier si l'utilisateur existe déjà pour conserver sa guilde/rôle
-        const existingUser = await req.db.collection('users').findOne({ discord_id: userData.id });
+        let guildeInfo = null;
+        if (playerInfo && playerInfo.guilde) {
+            // Chercher la guilde par son name
+            const extractGuildName = playerInfo.guilde.split(' ')[1];
+            guildeInfo = await req.db.collection('guildes').findOne({
+                name: extractGuildName
+            });
+        }
+
+        let roleInfo = null;
+        if (playerInfo && playerInfo.statut) {
+            roleInfo = playerInfo.statut.toLowerCase();
+        }
 
         // Créer ou mettre à jour l'utilisateur en base de données
         const user = {
@@ -129,11 +203,11 @@ router.post('/discord/callback', async (req, res) => {
             accent_color: userData.accent_color,
             // Données de connexion
             connections: connections,
-            bleach_id: existingUser?.bleach_id || null,
-            bleach_name: existingUser?.bleach_name || null,
-            // Informations de guilde (conserver les valeurs existantes ou mettre null)
-            guilde_id: existingUser?.guilde_id || null,
-            role: existingUser?.role || null,
+            bbs_id:  existingUser?.bbs_id || playerInfo?.id_bbs || null,
+            bbs_name: existingUser?.bbs_name || playerInfo?.pseudo_bbs || null,
+            // Informations de guilde (utiliser les données du JSON ou conserver les existantes)
+            guilde_id: existingUser?.guilde_id || guildeInfo?._id?.toString() || null,
+            role: existingUser?.role || roleInfo || null,
             // Autres données
             is_admin: isAdmin,
             guilds: guilds,
@@ -149,10 +223,10 @@ router.post('/discord/callback', async (req, res) => {
             { $set: user },
             { upsert: true }
         );
-        
+
         // Récupérer l'utilisateur mis à jour pour avoir son _id
         const savedUser = await req.db.collection('users').findOne({ discord_id: userData.id });
-        
+
         // Créer un JWT
         const jwtPayload = {
             userId: userData.id,
@@ -161,8 +235,8 @@ router.post('/discord/callback', async (req, res) => {
             discord_id: userData.id,
             guilde_id: user.guilde_id,
             role: user.role,
-            bleach_id: user.bleach_id,
-            bleach_name: user.bleach_name,
+            bbs_id: user.bbs_id,
+            bbs_name: user.bbs_name,
             avatar: userData.avatar,
             isAdmin: isAdmin,
             exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) // 7 jours
@@ -180,8 +254,8 @@ router.post('/discord/callback', async (req, res) => {
                 discord_id: userData.id,
                 guilde_id: user.guilde_id,
                 role: user.role,
-                bleach_id: user.bleach_id,
-                bleach_name: user.bleach_name,
+                bbs_id: user.bbs_id,
+                bbs_name: user.bbs_name,
                 avatar: userData.avatar,
                 isAdmin: isAdmin
             }
@@ -198,16 +272,16 @@ router.get('/me', async (req, res) => {
     try {
         const { JWT_SECRET } = getDiscordConfig();
         const token = req.headers.authorization?.replace('Bearer ', '');
-        
+
         if (!token) {
             return res.status(401).json({ success: false, message: 'Token manquant' });
         }
 
         const decoded = jwt.verify(token, JWT_SECRET);
-        
+
         // Récupérer les infos utilisateur depuis la base
         const user = await req.db.collection('users').findOne({ discord_id: decoded.userId });
-        
+
         if (!user) {
             return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
         }
@@ -224,8 +298,8 @@ router.get('/me', async (req, res) => {
                 lastLogin: user.last_login,
                 guilde_id: user.guilde_id,
                 role: user.role,
-                bleach_id: user.bleach_id,
-                bleach_name: user.bleach_name
+                bbs_id: user.bbs_id,
+                bbs_name: user.bbs_name
             }
         });
 
@@ -243,7 +317,7 @@ router.post('/logout', async (req, res) => {
     try {
         const { JWT_SECRET } = getDiscordConfig();
         const token = req.headers.authorization?.replace('Bearer ', '');
-        
+
         if (token) {
             const decoded = jwt.verify(token, JWT_SECRET);
             // Optionnel: marquer le token comme invalide en base (blacklist)
@@ -289,7 +363,7 @@ router.post('/debug-token', async (req, res) => {
         }
 
         const now = Math.floor(Date.now() / 1000);
-        
+
         res.json({
             success: true,
             debug: {
@@ -315,7 +389,7 @@ router.post('/debug-token', async (req, res) => {
 router.get('/debug/discord-config', (req, res) => {
     try {
         const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, JWT_SECRET, ADMIN_DISCORD_IDS } = getDiscordConfig();
-        
+
         res.json({
             success: true,
             config: {
