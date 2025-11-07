@@ -639,7 +639,7 @@
       "guilde": "Schrift D",
       "id_guilde": "@943146796002213888",
       "pseudo_bbs": "Blacky",
-      "id_bbs": null,
+      "id_bbs": "09665369",
       "pseudo_discord": "nan",
       "id_discord": "470870538919870466",
       "date_entree": null,
@@ -673,6 +673,16 @@
       "pseudo_discord": "lyl_haki",
       "id_discord": "1250936137363751013",
       "date_entree": "31/03/2025",
+      "statut": "Membre"
+    },
+        {
+      "guilde": "Schrift D",
+      "id_guilde": "@943146796002213888",
+      "pseudo_bbs": "Frantz",
+      "id_bbs": "42994306",
+      "pseudo_discord": "Frantz",
+      "id_discord": "556401809636196352",
+      "date_entree": null,
       "statut": "Membre"
     },
     {
@@ -772,6 +782,16 @@
       "id_bbs": "36202177",
       "pseudo_discord": "Solowing#8772",
       "id_discord": "318469353471475712",
+      "date_entree": "07/05/2023",
+      "statut": "Membre"
+    },
+    {
+      "guilde": "Schrift D",
+      "id_guilde": "@943146796002213888",
+      "pseudo_bbs": "義 Zaraki",
+      "id_bbs": "22820619",
+      "pseudo_discord": "yantorp",
+      "id_discord": "1021131513649184829",
       "date_entree": "07/05/2023",
       "statut": "Membre"
     },
