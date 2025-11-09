@@ -184,19 +184,19 @@ router.post('/bulk', async (req, res) => {
 
     // Validation de chaque score
     for (const score of scores) {
-      const { user_id, cycle_id, rotation_id, guild_id, score: scoreValue } = score;
+      const { user_id, cycle_id, rotation_id, guild_id, raw_score } = score;
 
-      if (!user_id || !cycle_id || !rotation_id || !guild_id || scoreValue === undefined) {
+      if (!user_id || !cycle_id || !rotation_id || !guild_id || raw_score === undefined) {
         return res.status(400).json({
           success: false,
-          message: 'Chaque score doit contenir user_id, cycle_id, rotation_id, guild_id et score'
+          message: 'Chaque score doit contenir user_id, cycle_id, rotation_id, guild_id et raw_score'
         });
       }
 
-      if (typeof scoreValue !== 'number') {
+      if (typeof raw_score !== 'number') {
         return res.status(400).json({
           success: false,
-          message: 'Tous les scores doivent être des nombres'
+          message: 'Tous les raw_score doivent être des nombres'
         });
       }
     }
@@ -250,8 +250,10 @@ router.post('/bulk', async (req, res) => {
     const finalScores = [];
 
     for (const score of scores) {
-      let finalScore = score.score;
+      const rawScore = score.raw_score;
+      let finalScore = rawScore;
       const currentRotationIndex = rotationIndexMap.get(score.rotation_id);
+      let isDifferential = false;
 
       // Logique de soustraction : 1 rotation sur 2 (index impairs)
       if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
@@ -265,7 +267,8 @@ router.post('/bulk', async (req, res) => {
         });
 
         if (previousScore) {
-          finalScore = Math.max(0, score.score - previousScore.score);
+          finalScore = Math.max(0, rawScore - previousScore.raw_score);
+          isDifferential = true;
         }
       }
 
@@ -274,8 +277,9 @@ router.post('/bulk', async (req, res) => {
         cycle_id: score.cycle_id,
         rotation_id: score.rotation_id,
         guild_id: score.guild_id,
+        raw_score: rawScore,
         score: finalScore,
-        is_differential: currentRotationIndex > 0 && currentRotationIndex % 2 === 1,
+        is_differential: isDifferential,
         created_at: new Date(),
         updated_at: new Date()
       };
@@ -346,21 +350,21 @@ router.post('/bulk', async (req, res) => {
 // POST créer un nouveau score
 router.post('/', async (req, res) => {
   try {
-    const { user_id, cycle_id, rotation_id, guild_id, score } = req.body;
+    const { user_id, cycle_id, rotation_id, guild_id, raw_score } = req.body;
 
     // Validation des champs requis
-    if (!user_id || !cycle_id || !rotation_id || !guild_id || score === undefined) {
+    if (!user_id || !cycle_id || !rotation_id || !guild_id || raw_score === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Les champs user_id, cycle_id, rotation_id, guild_id et score sont requis'
+        message: 'Les champs user_id, cycle_id, rotation_id, guild_id et raw_score sont requis'
       });
     }
 
-    // Vérifier que le score est un nombre
-    if (typeof score !== 'number') {
+    // Vérifier que le raw_score est un nombre
+    if (typeof raw_score !== 'number') {
       return res.status(400).json({
         success: false,
-        message: 'Le score doit être un nombre'
+        message: 'Le raw_score doit être un nombre'
       });
     }
 
@@ -383,7 +387,7 @@ router.post('/', async (req, res) => {
     });
 
     const currentRotationIndex = rotationIndexMap.get(rotation_id);
-    let finalScore = score;
+    let finalScore = raw_score;
     let isDifferential = false;
 
     // Logique de soustraction : 1 rotation sur 2 (index impairs)
@@ -398,7 +402,7 @@ router.post('/', async (req, res) => {
       });
 
       if (previousScore) {
-        finalScore = Math.max(0, score - previousScore.score);
+        finalScore = Math.max(0, raw_score - previousScore.raw_score);
         isDifferential = true;
       }
     }
@@ -408,6 +412,7 @@ router.post('/', async (req, res) => {
       cycle_id,
       rotation_id,
       guild_id,
+      raw_score,
       score: finalScore,
       is_differential: isDifferential,
       created_at: new Date(),
@@ -422,7 +427,7 @@ router.post('/', async (req, res) => {
       message: 'Score créé avec succès',
       details: {
         finalScore: finalScore,
-        rawScore: score,
+        rawScore: raw_score,
         isDifferential: isDifferential,
         rotationIndex: currentRotationIndex
       }
@@ -435,7 +440,7 @@ router.post('/', async (req, res) => {
 // PUT modifier un score
 router.put('/:id', async (req, res) => {
   try {
-    const { user_id, cycle_id, rotation_id, guild_id, score } = req.body;
+    const { user_id, cycle_id, rotation_id, guild_id, raw_score } = req.body;
 
     // Récupérer le score existant pour avoir les données actuelles
     const existingScore = await req.db.collection('scores').findOne({
@@ -455,12 +460,12 @@ router.put('/:id', async (req, res) => {
     if (rotation_id) updateData.rotation_id = rotation_id;
     if (guild_id) updateData.guild_id = guild_id;
 
-    // Si le score est modifié, appliquer la logique différentielle
-    if (score !== undefined) {
-      if (typeof score !== 'number') {
+    // Si le raw_score est modifié, appliquer la logique différentielle
+    if (raw_score !== undefined) {
+      if (typeof raw_score !== 'number') {
         return res.status(400).json({
           success: false,
-          message: 'Le score doit être un nombre'
+          message: 'Le raw_score doit être un nombre'
         });
       }
 
@@ -485,7 +490,7 @@ router.put('/:id', async (req, res) => {
       });
 
       const currentRotationIndex = rotationIndexMap.get(targetRotationId);
-      let finalScore = score;
+      let finalScore = raw_score;
       let isDifferential = false;
 
       if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
@@ -498,12 +503,13 @@ router.put('/:id', async (req, res) => {
         });
 
         if (previousScore) {
-          const calculation = score - previousScore.score;
+          const calculation = raw_score - previousScore.raw_score;
           finalScore = Math.max(0, calculation);
           isDifferential = true;
         }
       }
 
+      updateData.raw_score = raw_score;
       updateData.score = finalScore;
       updateData.is_differential = isDifferential;
     }
@@ -520,8 +526,9 @@ router.put('/:id', async (req, res) => {
     res.json({ 
       success: true, 
       message: 'Score mis à jour avec succès',
-      details: score !== undefined ? {
+      details: raw_score !== undefined ? {
         finalScore: updateData.score,
+        rawScore: updateData.raw_score,
         isDifferential: updateData.is_differential
       } : null
     });

@@ -48,7 +48,9 @@ router.get('/:id/membres', async (req, res) => {
           role: 1,
           is_admin: 1,
           last_login: 1,
-          global_name: 1
+          global_name: 1,
+          bbs_id: 1,
+          bbs_name: 1
         }
       }
     ).toArray();
