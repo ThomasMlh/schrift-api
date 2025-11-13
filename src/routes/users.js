@@ -69,7 +69,8 @@ router.get('/', async (req, res) => {
       const searchTerm = search.trim();
       query.$or = [
         { username: { $regex: searchTerm, $options: 'i' } },
-        { global_name: { $regex: searchTerm, $options: 'i' } }
+        { global_name: { $regex: searchTerm, $options: 'i' } },
+        { bbs_name: { $regex: searchTerm, $options: 'i' } }
       ];
     }
 
@@ -122,10 +123,154 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET podium des joueurs par cycle
+router.get('/podium', async (req, res) => {
+  try {
+    const { cycle_id, guild_id } = req.query;
+
+    // Validation du cycle_id obligatoire
+    if (!cycle_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Le paramètre cycle_id est obligatoire'
+      });
+    }
+
+    // Construction du pipeline d'agrégation
+    const matchStage = {
+      cycle_id: cycle_id
+    };
+
+    // Ajouter le filtre guilde si spécifié
+    if (guild_id) {
+      matchStage.guild_id = guild_id;
+    }
+
+    const pipeline = [
+      // Étape 1: Filtrer les scores par cycle (et guilde si spécifiée)
+      {
+        $match: matchStage
+      },
+      // Étape 2: Grouper par user_id pour calculer la moyenne des scores
+      {
+        $group: {
+          _id: "$user_id",
+          averageScore: { $avg: "$score" },
+          totalScores: { $sum: 1 } // Compter le nombre de scores pour information
+        }
+      }
+    ];
+
+    // Debug: Vérifier les données après groupement
+    const scoresGrouped = await req.db.collection('scores')
+      .aggregate(pipeline)
+      .toArray();
+
+    // Continuer avec la jointure
+    const pipelineWithJoin = [
+      ...pipeline,
+      // Étape 3: Joindre avec la collection users pour récupérer les informations utilisateur
+      {
+        $lookup: {
+          from: 'users',
+          let: { userId: "$_id" },
+          pipeline: [
+            { 
+              $match: { 
+                $expr: { 
+                  $or: [
+                    { $eq: [{ $toString: "$_id" }, "$$userId"] }
+                  ]
+                }
+              }
+            },
+            {
+              $project: {
+                discord_id: 1,
+                global_name: 1,
+                bbs_name: 1,
+                avatar: 1
+              }
+            }
+          ],
+          as: 'user'
+        }
+      },
+      // Étape 4: Décomposer le tableau user (mais garder ceux sans user aussi pour debug)
+      {
+        $addFields: {
+          hasUser: { $gt: [{ $size: "$user" }, 0] }
+        }
+      },
+      // Étape 5: Projeter les champs finaux
+      {
+        $project: {
+          _id: 0,
+          user_id: "$_id",
+          bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
+          discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
+          global_name: { $arrayElemAt: ["$user.global_name", 0] },
+          averageScore: { $round: ["$averageScore", 2] }, // Arrondir à 2 décimales
+          avatar: { $arrayElemAt: ["$user.avatar", 0] },
+          totalScores: 1,
+          hasUser: 1
+        }
+      },
+      // Étape 6: Trier par moyenne décroissante (du plus grand au plus petit)
+      {
+        $sort: { averageScore: -1 }
+      },
+      // Étape 7: Limiter aux premiers résultats (10 pour global, 5 pour guilde spécifique)
+      {
+        $limit: guild_id ? 5 : 10
+      }
+    ];
+
+    const podium = await req.db.collection('scores')
+      .aggregate(pipelineWithJoin)
+      .toArray();
+
+    // Ajouter les positions dans le podium
+    const podiumWithRank = podium.map((player, index) => ({
+      rank: index + 1,
+      ...player
+    }));
+
+    res.json({
+      success: true,
+      podium: podiumWithRank,
+      filters: {
+        cycle_id: cycle_id,
+        guild_id: guild_id || null
+      },
+      meta: {
+        totalPlayers: podium.length,
+        cycleId: cycle_id,
+        guildSpecific: !!guild_id
+      }
+    });
+
+  } catch (error) {
+    console.error('Erreur lors de la création du podium:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erreur serveur lors de la création du podium'
+    });
+  }
+});
+
 // Route pour récupérer un utilisateur spécifique
 router.get('/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
+
+    // Vérifier si l'userId est un ObjectId valide
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Format d\'ID utilisateur invalide' 
+      });
+    }
 
     const user = await req.db.collection('users').findOne(
       { _id: new ObjectId(userId) },
@@ -161,6 +306,14 @@ router.patch('/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const updates = req.body;
+
+    // Vérifier si l'userId est un ObjectId valide
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Format d\'ID utilisateur invalide' 
+      });
+    }
 
     const result = await req.db.collection('users').updateOne(
       { _id: new ObjectId(userId) },
@@ -260,6 +413,14 @@ router.put('/:userId/guild', requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     const { guildeId, role } = req.body;
+
+    // Vérifier si l'userId est un ObjectId valide
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Format d\'ID utilisateur invalide' 
+      });
+    }
 
     if (!guildeId) {
       return res.status(400).json({ success: false, message: 'L\'ID de la guilde est requis' });
