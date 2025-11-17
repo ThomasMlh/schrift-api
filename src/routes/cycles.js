@@ -95,7 +95,9 @@ router.post('/', async (req, res) => {
         period: rotation.period,
         killer: rotation.killer,
         attack: rotation.attack,
-        alteration: rotation.alteration
+        alteration: rotation.alteration,
+        position: rotation.position,
+        rotation_id: rotation.rotation_id
       })
     );
 
@@ -154,7 +156,9 @@ router.put('/:cycleId', async (req, res) => {
           period: rotation.period,
           killer: rotation.killer,
           attack: rotation.attack,
-          alteration: rotation.alteration
+          alteration: rotation.alteration,
+          position: rotation.position,
+          rotation_id: rotation.rotation_id
         })
       );
 
@@ -250,36 +254,164 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Rotation actuelle non trouvée' });
     }
 
+    // Paramètres de query
+    const guildName = req.query.guild; // Nom de la guilde à filtrer
+
+    // Vérifier qu'il y a des scores pour cette rotation
+    const scoresCheck = await req.db.collection('scores')
+      .countDocuments({ rotation_id: rotation._id.toString() });
+
     // Récupérer les scores avec pagination, tri par score décroissant et join avec les utilisateurs
-    const scores = await req.db.collection('scores')
-      .aggregate([
-        { $match: { rotation_id: rotation._id.toString() } },
-        {
-          $lookup: {
-            from: 'users',
-            let: { userId: { $toObjectId: "$user_id" } },
-            pipeline: [
-              { $match: { $expr: { $eq: ["$_id", "$$userId"] } } }
-            ],
-            as: 'user'
-          }
-        },
-        {
-          $unwind: {
-            path: '$user',
-            preserveNullAndEmptyArrays: true // Garder les scores même si l'utilisateur n'est pas trouvé
-          }
-        },
-        { $sort: { score: -1 } },
-        { $skip: skip },
-        { $limit: actualLimit }
-      ])
+    let pipeline = [
+      { $match: { rotation_id: rotation._id.toString() } },
+      {
+        $lookup: {
+          from: 'users',
+          let: { userId: "$user_id" }, // Pas de conversion ObjectId ici
+          pipeline: [
+            { 
+              $match: { 
+                $expr: { 
+                  $or: [
+                    { $eq: ["$discord_id", "$$userId"] }, // Si user_id est un discord_id
+                    { $eq: [{ $toString: "$_id" }, "$$userId"] } // Si user_id est un ObjectId en string
+                  ]
+                }
+              }
+            }
+          ],
+          as: 'user'
+        }
+      },
+      {
+        $unwind: {
+          path: '$user',
+          preserveNullAndEmptyArrays: true // Garder les scores même si l'utilisateur n'est pas trouvé
+        }
+      }
+    ];
+
+    // Ajouter le filtrage par guilde si spécifié
+    if (guildName && guildName.trim()) {
+      pipeline.push({
+        $lookup: {
+          from: 'guildes',
+          let: { guildeId: { $toObjectId: "$user.guilde_id" } },
+          pipeline: [
+            { 
+              $match: { 
+                $expr: { 
+                  $and: [
+                    { $eq: ["$_id", "$$guildeId"] },
+                    { $eq: ["$name", guildName.trim()] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: 'guilde'
+        }
+      });
+
+      pipeline.push({
+        $match: {
+          "guilde.0": { $exists: true } // Ne garder que ceux qui ont une guilde correspondante
+        }
+      });
+    }
+
+    // Pipeline pour récupérer tous les scores (sans pagination d'abord pour calculer les ranks)
+    let pipelineForRanking = [
+      { $match: { rotation_id: rotation._id.toString() } },
+      {
+        $lookup: {
+          from: 'users',
+          let: { userId: "$user_id" }, // Pas de conversion ObjectId ici
+          pipeline: [
+            { 
+              $match: { 
+                $expr: { 
+                  $or: [
+                    { $eq: ["$discord_id", "$$userId"] }, // Si user_id est un discord_id
+                    { $eq: [{ $toString: "$_id" }, "$$userId"] } // Si user_id est un ObjectId en string
+                  ]
+                }
+              }
+            }
+          ],
+          as: 'user'
+        }
+      },
+      {
+        $unwind: {
+          path: '$user',
+          preserveNullAndEmptyArrays: true // Garder les scores même si l'utilisateur n'est pas trouvé
+        }
+      }
+    ];
+
+    // Ajouter le filtrage par guilde si spécifié
+    if (guildName && guildName.trim()) {
+      pipelineForRanking.push({
+        $lookup: {
+          from: 'guildes',
+          let: { guildeId: { $toObjectId: "$user.guilde_id" } },
+          pipeline: [
+            { 
+              $match: { 
+                $expr: { 
+                  $and: [
+                    { $eq: ["$_id", "$$guildeId"] },
+                    { $eq: ["$name", guildName.trim()] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: 'guilde'
+        }
+      });
+
+      pipelineForRanking.push({
+        $match: {
+          "guilde.0": { $exists: true } // Ne garder que ceux qui ont une guilde correspondante
+        }
+      });
+    }
+
+    // Ajouter le tri (sans pagination pour le moment)
+    pipelineForRanking.push(
+      { $sort: { score: -1 } }
+    );
+
+    const allScores = await req.db.collection('scores')
+      .aggregate(pipelineForRanking)
       .toArray();
 
-    // Compter le total pour la pagination
-    const totalCount = await req.db.collection('scores').countDocuments({ 
-      _id: rotation._id.toString() 
+    // Calculer les ranks en tenant compte des égalités
+    let currentRank = 1;
+    let previousScore = null;
+    let playersWithSameScore = 0;
+
+    const scoresWithRank = allScores.map((scoreDoc, index) => {
+      if (previousScore !== null && scoreDoc.score !== previousScore) {
+        // Le score a changé, mettre à jour le rank
+        currentRank = index + 1;
+      }
+      
+      previousScore = scoreDoc.score;
+      
+      return {
+        ...scoreDoc,
+        rank: currentRank
+      };
     });
+
+    // Appliquer la pagination sur les résultats avec rank
+    const totalCount = scoresWithRank.length;
+    const startIndex = skip;
+    const endIndex = skip + actualLimit;
+    const scores = scoresWithRank.slice(startIndex, endIndex);
 
     const totalPages = Math.ceil(totalCount / actualLimit);
 
@@ -288,6 +420,9 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       data: scores,
       cycle: cycle.name,
       rotation: currentRotation,
+      filters: {
+        guild: guildName || null
+      },
       pagination: {
         currentPage: page,
         totalPages,
