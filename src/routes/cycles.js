@@ -22,12 +22,19 @@ router.get('/', async (req, res) => {
       .find()
       .toArray();
 
-    // Trier les cycles par la start_date de la première rotation
+    // Trier les cycles par la start_date la plus récente (première rotation)
     cycles.sort((a, b) => {
-      const dateA = a.rotations && a.rotations.length > 0 ? new Date(a.rotations[0].start_date) : new Date(0);
-      const dateB = b.rotations && b.rotations.length > 0 ? new Date(b.rotations[0].start_date) : new Date(0);
+      // Fonction pour parser le format DD/MM/YYYY
+      const parseDate = (dateStr) => {
+        if (!dateStr) return new Date(0);
+        const [day, month, year] = dateStr.split('/');
+        return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      };
+
+      const dateA = a.rotations && a.rotations.length > 0 ? parseDate(a.rotations[0].start_date) : new Date(0);
+      const dateB = b.rotations && b.rotations.length > 0 ? parseDate(b.rotations[0].start_date) : new Date(0);
       
-      // Tri décroissant (plus récents en premier)
+      // Tri décroissant (dates les plus récentes en premier)
       return dateB.getTime() - dateA.getTime();
     });
 

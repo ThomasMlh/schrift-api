@@ -259,6 +259,297 @@ router.get('/podium', async (req, res) => {
   }
 });
 
+// GET podium complet des joueurs par cycle_name et rotation_id
+router.get('/podium/full', async (req, res) => {
+  try {
+    const { cycle_name, rotation_id, guild_name, page = 1, limit = 50 } = req.query;
+
+    // Validation des paramètres obligatoires
+    if (!cycle_name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Le paramètre cycle_name est obligatoire'
+      });
+    }
+    
+    // Validation et conversion des paramètres de pagination
+    const pageNumber = Math.max(1, parseInt(page, 10) || 1);
+    const limitNumber = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
+    const skip = (pageNumber - 1) * limitNumber;
+
+    // Rechercher le cycle par son nom
+    const cycle = await req.db.collection('cycles').findOne({
+      name: cycle_name
+    });
+
+    if (!cycle) {
+      return res.status(404).json({
+        success: false,
+        message: `Cycle avec le nom "${cycle_name}" non trouvé`
+      });
+    }
+
+    // Vérifier que la rotation_id existe dans ce cycle (si spécifiée)
+    if (rotation_id) {
+      const rotationExists = cycle.rotations.some(
+        (rotation) => rotation._id.toString() === rotation_id
+      );
+
+      if (!rotationExists) {
+        return res.status(404).json({
+          success: false,
+          message: `Rotation avec l'ID "${rotation_id}" non trouvée dans le cycle "${cycle_name}"`
+        });
+      }
+    }
+
+    // Si guild_name est spécifié, rechercher la guilde correspondante
+    let guildId = null;
+    if (guild_name && guild_name.trim()) {
+      const guild = await req.db.collection('guildes').findOne({
+        name: guild_name.trim()
+      });
+
+      if (!guild) {
+        return res.status(404).json({
+          success: false,
+          message: `Guilde avec le nom "${guild_name}" non trouvée`
+        });
+      }
+
+      guildId = guild._id.toString();
+    }
+
+    // Construction du pipeline d'agrégation pour les scores de cette rotation spécifique
+    const matchStage = {
+      cycle_id: cycle._id.toString()
+    };
+
+    // Ajouter le filtre rotation si spécifié
+    if (rotation_id) {
+      matchStage.rotation_id = rotation_id;
+    }
+
+    // Ajouter le filtre guilde si spécifié
+    if (guildId) {
+      matchStage.guild_id = guildId;
+    }
+
+    let pipelineForRanking;
+    
+    if (rotation_id) {
+      // Pipeline pour une rotation spécifique (scores individuels)
+      pipelineForRanking = [
+        // Étape 1: Filtrer les scores par cycle et rotation (et guilde si spécifiée)
+        {
+          $match: matchStage
+        },
+        // Étape 2: Joindre avec la collection users pour récupérer les informations utilisateur
+        {
+          $lookup: {
+            from: 'users',
+            let: { userId: "$user_id" },
+            pipeline: [
+              { 
+                $match: { 
+                  $expr: { 
+                    $or: [
+                      { $eq: [{ $toString: "$_id" }, "$$userId"] },
+                      { $eq: ["$discord_id", "$$userId"] }
+                    ]
+                  }
+                }
+              },
+              {
+                $project: {
+                  discord_id: 1,
+                  global_name: 1,
+                  bbs_name: 1,
+                  avatar: 1
+                }
+              }
+            ],
+            as: 'user'
+          }
+        },
+        // Étape 3: Ajouter info sur la présence d'utilisateur
+        {
+          $addFields: {
+            hasUser: { $gt: [{ $size: "$user" }, 0] }
+          }
+        },
+        // Étape 4: Projeter les champs finaux avec score individuel
+        {
+          $project: {
+            _id: 0,
+            user_id: "$user_id",
+            bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
+            discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
+            global_name: { $arrayElemAt: ["$user.global_name", 0] },
+            score: "$score", // Score individuel pour cette rotation
+            raw_score: "$raw_score",
+            is_differential: "$is_differential",
+            avatar: { $arrayElemAt: ["$user.avatar", 0] },
+            hasUser: 1
+          }
+        },
+        // Étape 5: Trier par score décroissant (du plus grand au plus petit)
+        {
+          $sort: { score: -1 }
+        }
+      ];
+    } else {
+      // Pipeline pour tout le cycle (moyennes des scores)
+      pipelineForRanking = [
+        // Étape 1: Filtrer les scores par cycle (et guilde si spécifiée)
+        {
+          $match: matchStage
+        },
+        // Étape 2: Grouper par user_id pour calculer la moyenne des scores
+        {
+          $group: {
+            _id: "$user_id",
+            averageScore: { $avg: "$score" },
+            totalScores: { $sum: 1 }, // Compter le nombre de scores pour information
+            totalRawScore: { $sum: "$raw_score" }
+          }
+        },
+        // Étape 3: Joindre avec la collection users pour récupérer les informations utilisateur
+        {
+          $lookup: {
+            from: 'users',
+            let: { userId: "$_id" },
+            pipeline: [
+              { 
+                $match: { 
+                  $expr: { 
+                    $or: [
+                      { $eq: [{ $toString: "$_id" }, "$$userId"] },
+                      { $eq: ["$discord_id", "$$userId"] }
+                    ]
+                  }
+                }
+              },
+              {
+                $project: {
+                  discord_id: 1,
+                  global_name: 1,
+                  bbs_name: 1,
+                  avatar: 1
+                }
+              }
+            ],
+            as: 'user'
+          }
+        },
+        // Étape 4: Ajouter info sur la présence d'utilisateur
+        {
+          $addFields: {
+            hasUser: { $gt: [{ $size: "$user" }, 0] }
+          }
+        },
+        // Étape 5: Projeter les champs finaux avec moyenne
+        {
+          $project: {
+            _id: 0,
+            user_id: "$_id",
+            bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
+            discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
+            global_name: { $arrayElemAt: ["$user.global_name", 0] },
+            averageScore: { $round: ["$averageScore", 2] }, // Moyenne arrondie à 2 décimales
+            totalScores: 1,
+            totalRawScore: 1,
+            avatar: { $arrayElemAt: ["$user.avatar", 0] },
+            hasUser: 1
+          }
+        },
+        // Étape 6: Trier par moyenne décroissante (du plus grand au plus petit)
+        {
+          $sort: { averageScore: -1 }
+        }
+      ];
+    }
+
+    // Exécuter le pipeline complet pour calculer les ranks (sans pagination)
+    const allResults = await req.db.collection('scores').aggregate(pipelineForRanking).toArray();
+    
+    // Calculer les ranks en tenant compte des égalités
+    let currentRank = 1;
+    let previousScore = null;
+
+    const resultsWithRank = allResults.map((player, index) => {
+      // Utiliser le bon champ selon le type de podium
+      const scoreToCompare = rotation_id ? player.score : player.averageScore;
+      
+      if (previousScore !== null && scoreToCompare !== previousScore) {
+        // Le score a changé, mettre à jour le rank
+        currentRank = index + 1;
+      }
+      
+      previousScore = scoreToCompare;
+      
+      return {
+        rank: currentRank,
+        ...player
+      };
+    });
+
+    // Appliquer la pagination sur les résultats avec rank
+    const totalCount = resultsWithRank.length;
+    const startIndex = skip;
+    const endIndex = skip + limitNumber;
+    const podiumWithRank = resultsWithRank.slice(startIndex, endIndex);
+
+    const totalPages = Math.ceil(totalCount / limitNumber);
+
+    // Récupérer les informations de la rotation pour l'affichage (si spécifiée)
+    const rotationInfo = rotation_id ? cycle.rotations.find(r => r._id.toString() === rotation_id) : null;
+
+    // Calculer la moyenne générale des scores pour cette rotation (si spécifiée)
+    let overallAverageScore = null;
+    if (rotation_id && allResults.length > 0) {
+      const totalScore = allResults.reduce((sum, player) => sum + (player.score || 0), 0);
+      overallAverageScore = Math.round((totalScore / allResults.length) * 100) / 100; // Arrondi à 2 décimales
+    }
+
+    res.json({
+      success: true,
+      data: podiumWithRank,
+      pagination: {
+        currentPage: pageNumber,
+        totalPages,
+        totalCount,
+        hasNextPage: pageNumber < totalPages,
+        hasPrevPage: pageNumber > 1,
+        itemsPerPage: limitNumber,
+        itemsOnPage: podiumWithRank.length
+      },
+      filters: {
+        cycle_name: cycle_name,
+        cycle_id: cycle._id.toString(),
+        rotation_id: rotation_id || null,
+        guild_name: guild_name || null
+      },
+      meta: {
+        totalPlayers: totalCount,
+        cycleName: cycle_name,
+        rotationInfo: rotationInfo,
+        guildSpecific: !!guild_name,
+        fullPodium: true,
+        podiumType: rotation_id ? 'individual_scores' : 'average_scores', // Indiquer le type de podium
+        ...(rotation_id && overallAverageScore !== null && { averageScore: overallAverageScore }) // Ajouter moyenne générale si rotation spécifique
+      }
+    });
+
+  } catch (error) {
+    console.error('Erreur lors de la création du podium complet:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erreur serveur lors de la création du podium complet'
+    });
+  }
+});
+
 // Route pour récupérer un utilisateur spécifique
 router.get('/:userId', async (req, res) => {
   try {
