@@ -1,6 +1,6 @@
 import express from "express";
 import { ObjectId } from "mongodb";
-import { requireDb } from "../middleware/auth.js";
+import { requireDb, requireBulkAccess } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -180,7 +180,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // POST créer plusieurs scores en lot (saisie groupée)
-router.post("/bulk", async (req, res) => {
+router.post("/bulk", requireBulkAccess, async (req, res) => {
   try {
     const scores = req.body;
 
@@ -192,7 +192,8 @@ router.post("/bulk", async (req, res) => {
       });
     }
 
-    // Validation de chaque score
+    // Validation de chaque score et vérification des droits de guilde
+    const guildIds = new Set();
     for (const score of scores) {
       const { user_id, cycle_id, rotation_id, guild_id, raw_score } = score;
 
@@ -214,6 +215,22 @@ router.post("/bulk", async (req, res) => {
         return res.status(400).json({
           success: false,
           message: "Tous les raw_score doivent être des nombres"
+        });
+      }
+
+      guildIds.add(guild_id);
+    }
+
+    // Vérification des droits de guilde pour chef/sous-chef
+    if (!req.user.hasFullAccess) {
+      // Chef ou sous-chef : vérifier que tous les scores sont pour leur guilde
+      const allowedGuildId = req.user.allowedGuildId;
+      const invalidGuilds = Array.from(guildIds).filter(guildId => guildId !== allowedGuildId);
+      
+      if (invalidGuilds.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez saisir des scores que pour votre guilde (${allowedGuildId}). Guildes non autorisées détectées : ${invalidGuilds.join(', ')}`
         });
       }
     }
@@ -272,11 +289,6 @@ router.post("/bulk", async (req, res) => {
       const indexB = rotationIndexMap.get(b.rotation_id) || 0;
       return indexA - indexB;
     });
-
-    console.log('Scores triés par rotation index:', sortedScores.map(s => ({
-      rotation_id: s.rotation_id,
-      index: rotationIndexMap.get(s.rotation_id)
-    })));
 
     // Préparer les scores finaux avec calculs différentiels
     const finalScores = [];

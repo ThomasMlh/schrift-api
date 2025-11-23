@@ -25,6 +25,51 @@ export function requireAdmin(req, res, next) {
   }
 }
 
+// Middleware pour les opérations bulk - Admin ou Chef/Sous-Chef de guilde
+export function requireBulkAccess(req, res, next) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'Token d\'authentification requis' });
+  }
+
+  try {
+    const jwtSecret = process.env.JWT_SECRET;
+    const decoded = jwt.verify(token, jwtSecret);
+
+    req.user = decoded; // Ajouter les infos du token à la requête
+
+    // Si c'est un admin, accès total
+    if (decoded.isAdmin) {
+      req.user.hasFullAccess = true;
+      return next();
+    }
+
+    // Sinon, vérifier si c'est chef ou sous-chef
+    if (decoded.role === 'chef' || decoded.role === 'sous-chef') {
+      if (!decoded.guilde_id) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Chef/Sous-chef doit être assigné à une guilde' 
+        });
+      }
+      req.user.hasFullAccess = false;
+      req.user.allowedGuildId = decoded.guilde_id;
+      return next();
+    }
+
+    // Ni admin, ni chef, ni sous-chef
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Droits insuffisants. Seuls les admins, chefs et sous-chefs peuvent effectuer cette opération' 
+    });
+
+  } catch (err) {
+    return res.status(403).json({ success: false, message: 'Token invalide ou expiré' });
+  }
+}
+
 // Middleware simple pour éviter d'appeler la DB avant qu'elle soit prête
 export function requireDb(req, res, next) {
   if (!req.app.locals.db && !req.db) {
