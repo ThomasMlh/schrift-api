@@ -1,6 +1,6 @@
 import express from "express";
 import { ObjectId } from "mongodb";
-import { requireDb, requireBulkAccess } from "../middleware/auth.js";
+import { requireDb, requireScoresAccess } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -180,7 +180,7 @@ router.get("/:id", async (req, res) => {
 });
 
 // POST créer plusieurs scores en lot (saisie groupée)
-router.post("/bulk", requireBulkAccess, async (req, res) => {
+router.post("/bulk", requireScoresAccess, async (req, res) => {
   try {
     const scores = req.body;
 
@@ -616,9 +616,9 @@ router.post("/", async (req, res) => {
 });
 
 // PUT modifier un score
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireScoresAccess, async (req, res) => {
   try {
-    const { user_id, cycle_id, rotation_id, guild_id, raw_score } = req.body;
+    const { user_id, cycle_id, rotation_id, guild_id, score } = req.body;
 
     // Récupérer le score existant pour avoir les données actuelles
     const existingScore = await req.db.collection("scores").findOne({
@@ -640,12 +640,12 @@ router.put("/:id", async (req, res) => {
     if (rotation_id) updateData.rotation_id = rotation_id;
     if (guild_id) updateData.guild_id = guild_id;
 
-    // Si le raw_score est modifié, appliquer la logique différentielle
-    if (raw_score !== undefined) {
-      if (typeof raw_score !== "number") {
+    // Si le score est modifié, recalculer le raw_score selon la logique différentielle
+    if (score !== undefined) {
+      if (typeof score !== "number") {
         return res.status(400).json({
           success: false,
-          message: "Le raw_score doit être un nombre"
+          message: "Le score doit être un nombre"
         });
       }
 
@@ -670,9 +670,10 @@ router.put("/:id", async (req, res) => {
       });
 
       const currentRotationIndex = rotationIndexMap.get(targetRotationId);
-      let finalScore = raw_score;
+      let calculatedRawScore = score; // Par défaut, raw_score = score
       let isDifferential = false;
 
+      // Si c'est une rotation différentielle (index impair), recalculer le raw_score
       if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
         const previousRotationId =
           cycle.rotations[currentRotationIndex - 1]._id.toString();
@@ -684,14 +685,14 @@ router.put("/:id", async (req, res) => {
         });
 
         if (previousScore) {
-          const calculation = raw_score - previousScore.raw_score;
-          finalScore = Math.max(0, calculation);
+          // Recalculer raw_score = score + previousScore.raw_score
+          calculatedRawScore = score + previousScore.raw_score;
           isDifferential = true;
         }
       }
 
-      updateData.raw_score = raw_score;
-      updateData.score = finalScore;
+      updateData.score = score;
+      updateData.raw_score = calculatedRawScore;
       updateData.is_differential = isDifferential;
     }
 
@@ -707,7 +708,7 @@ router.put("/:id", async (req, res) => {
 
     // Recalculer les scores différentiels suivants si on a modifié un score de base
     let recalculatedCount = 0;
-    if (raw_score !== undefined) {
+    if (score !== undefined) {
       const targetCycleId = cycle_id || existingScore.cycle_id;
       const targetUserId = user_id || existingScore.user_id;
       const targetRotationId = rotation_id || existingScore.rotation_id;
@@ -736,7 +737,7 @@ router.put("/:id", async (req, res) => {
               });
 
               if (existingDifferentialScore) {
-                const newFinalScore = Math.max(0, existingDifferentialScore.raw_score - raw_score);
+                const newFinalScore = Math.max(0, existingDifferentialScore.raw_score - updateData.raw_score);
                 
                 await req.db.collection("scores").updateOne(
                   { _id: existingDifferentialScore._id },
@@ -761,7 +762,7 @@ router.put("/:id", async (req, res) => {
       success: true,
       message: "Score mis à jour avec succès" + (recalculatedCount > 0 ? ` et ${recalculatedCount} scores différentiels recalculés` : ""),
       details:
-        raw_score !== undefined
+        score !== undefined
           ? {
               finalScore: updateData.score,
               rawScore: updateData.raw_score,

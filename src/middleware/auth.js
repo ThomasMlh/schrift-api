@@ -25,8 +25,8 @@ export function requireAdmin(req, res, next) {
   }
 }
 
-// Middleware pour les opérations bulk - Admin ou Chef/Sous-Chef de guilde
-export function requireBulkAccess(req, res, next) {
+// Middleware pour les scores - Admin ou Chef/Sous-Chef de guilde
+export function requireScoresAccess(req, res, next) {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
