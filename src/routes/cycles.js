@@ -266,11 +266,17 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
 
     // Vérifier qu'il y a des scores pour cette rotation
     const scoresCheck = await req.db.collection('scores')
-      .countDocuments({ rotation_id: rotation._id.toString() });
+      .countDocuments({ 
+        rotation_id: rotation.rotation_id,
+        cycle_id: cycleId 
+      });
 
     // Récupérer les scores avec pagination, tri par score décroissant et join avec les utilisateurs
     let pipeline = [
-      { $match: { rotation_id: rotation._id.toString() } },
+      { $match: { 
+        rotation_id: rotation.rotation_id,
+        cycle_id: cycleId 
+      } },
       {
         $lookup: {
           from: 'users',
@@ -284,6 +290,19 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
                     { $eq: [{ $toString: "$_id" }, "$$userId"] } // Si user_id est un ObjectId en string
                   ]
                 }
+              }
+            },
+            {
+              $project: {
+                _id: 1,
+                avatar: 1,
+                bbs_id: 1,
+                bbs_name: 1,
+                discord_id: 1,
+                global_name: 1,
+                guilde_id: 1,
+                role: 1,
+                username: 1
               }
             }
           ],
@@ -329,7 +348,10 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
 
     // Pipeline pour récupérer tous les scores (sans pagination d'abord pour calculer les ranks)
     let pipelineForRanking = [
-      { $match: { rotation_id: rotation._id.toString() } },
+      { $match: { 
+        rotation_id: rotation.rotation_id,
+        cycle_id: cycleId 
+      } },
       {
         $lookup: {
           from: 'users',
@@ -343,6 +365,19 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
                     { $eq: [{ $toString: "$_id" }, "$$userId"] } // Si user_id est un ObjectId en string
                   ]
                 }
+              }
+            },
+            {
+              $project: {
+                _id: 1,
+                avatar: 1,
+                bbs_id: 1,
+                bbs_name: 1,
+                discord_id: 1,
+                global_name: 1,
+                guilde_id: 1,
+                role: 1,
+                username: 1
               }
             }
           ],

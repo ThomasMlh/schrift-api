@@ -46,7 +46,22 @@ router.get("/", async (req, res) => {
           $lookup: {
             from: "users",
             let: { userId: { $toObjectId: "$user_id" } },
-            pipeline: [{ $match: { $expr: { $eq: ["$_id", "$$userId"] } } }],
+            pipeline: [
+              { $match: { $expr: { $eq: ["$_id", "$$userId"] } } },
+              {
+                $project: {
+                  _id: 1,
+                  discord_id: 1,
+                  avatar: 1,
+                  bbs_id: 1,
+                  bbs_name: 1,
+                  global_name: 1,
+                  guilde_id: 1,
+                  role: 1,
+                  username: 1
+                }
+              }
+            ],
             as: "user"
           }
         },
@@ -57,7 +72,8 @@ router.get("/", async (req, res) => {
           $match: {
             $or: [
               { "user.global_name": { $regex: searchTerm, $options: "i" } },
-              { "user.username": { $regex: searchTerm, $options: "i" } }
+              { "user.username": { $regex: searchTerm, $options: "i" } },
+              { "user.bbs_name": { $regex: searchTerm, $options: "i" } }
             ]
           }
         },
@@ -73,7 +89,22 @@ router.get("/", async (req, res) => {
           $lookup: {
             from: "users",
             let: { userId: { $toObjectId: "$user_id" } },
-            pipeline: [{ $match: { $expr: { $eq: ["$_id", "$$userId"] } } }],
+            pipeline: [
+              { $match: { $expr: { $eq: ["$_id", "$$userId"] } } },
+              {
+                $project: {
+                  _id: 1,
+                  avatar: 1,
+                  bbs_id: 1,
+                  bbs_name: 1,
+                  discord_id: 1,
+                  global_name: 1,
+                  guilde_id: 1,
+                  role: 1,
+                  username: 1
+                }
+              }
+            ],
             as: "user"
           }
         },
@@ -97,7 +128,22 @@ router.get("/", async (req, res) => {
           $lookup: {
             from: "users",
             let: { userId: { $toObjectId: "$user_id" } },
-            pipeline: [{ $match: { $expr: { $eq: ["$_id", "$$userId"] } } }],
+            pipeline: [
+              { $match: { $expr: { $eq: ["$_id", "$$userId"] } } },
+              {
+                $project: {
+                  _id: 1,
+                  avatar: 1,
+                  bbs_id: 1,
+                  bbs_name: 1,
+                  discord_id: 1,
+                  global_name: 1,
+                  guilde_id: 1,
+                  role: 1,
+                  username: 1
+                }
+              }
+            ],
             as: "user"
           }
         },
@@ -115,6 +161,12 @@ router.get("/", async (req, res) => {
               },
               {
                 "user.username": {
+                  $regex: req.query.search.trim(),
+                  $options: "i"
+                }
+              },
+              {
+                "user.bbs_name": {
                   $regex: req.query.search.trim(),
                   $options: "i"
                 }
@@ -159,6 +211,226 @@ router.get("/", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// GET comparateur entre joueurs ou guildes
+router.get("/compare", async (req, res) => {
+  try {
+    const { type, entity1, entity2, cycle_id, rotation_id } = req.query;
+
+    // Validation des paramètres obligatoires
+    if (!type || !entity1 || !entity2) {
+      return res.status(400).json({
+        success: false,
+        message: "Les paramètres type, entity1 et entity2 sont obligatoires"
+      });
+    }
+
+    if (type !== "players" && type !== "guilds") {
+      return res.status(400).json({
+        success: false,
+        message: "Le type doit être 'players' ou 'guilds'"
+      });
+    }
+
+    // Validation spécifique pour les joueurs (ObjectId)
+    if (type === "players") {
+      try {
+        if (entity1) new ObjectId(entity1);
+        if (entity2) new ObjectId(entity2);
+      } catch (err) {
+        return res.status(400).json({
+          success: false,
+          message: `ID invalide: ${err.message}`
+        });
+      }
+    }
+
+    // Construction des filtres selon les paramètres
+    const baseFilter = {};
+    
+    if (cycle_id && rotation_id) {
+      // Cas spécifique : cycle ET rotation spécifiés
+      baseFilter.cycle_id = cycle_id;
+      baseFilter.rotation_id = rotation_id;
+    } else if (cycle_id) {
+      // Seulement cycle spécifié
+      baseFilter.cycle_id = cycle_id;
+    } else if (rotation_id) {
+      // Seulement rotation spécifiée - filtrage direct
+      baseFilter.rotation_id = rotation_id;
+    }
+    // Si ni cycle_id ni rotation_id : pas de filtre temporel (tous les scores)
+    
+    console.log("BaseFilter final:", baseFilter);
+
+    let comparisonResults;
+
+    if (type === "players") {
+      // Comparaison entre joueurs (utilise discord_id)
+      comparisonResults = await compareEntities(
+        req.db,
+        "user_id",
+        entity1,
+        entity2,
+        baseFilter,
+        { type: "players" }
+      );
+    } else {
+      // Comparaison entre guildes (utilise guild_id avec le nom de la guilde)
+      comparisonResults = await compareEntities(
+        req.db,
+        "guild_id", 
+        entity1,
+        entity2,
+        baseFilter,
+        { type: "guilds" }
+      );
+    }
+
+    res.json({
+      success: true,
+      comparison: comparisonResults,
+      filters: {
+        type,
+        entity1,
+        entity2,
+        cycle_id: cycle_id || null,
+        rotation_id: rotation_id || null
+      }
+    });
+  } catch (err) {
+    console.error("Erreur dans route compare:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fonction helper pour comparer les entités 
+async function compareEntities(db, fieldName, entity1, entity2, baseFilter, options) {
+  const results = {};
+
+  for (const entityId of [entity1, entity2]) {
+    // Test simple : vérifier si l'entité a des scores
+    const directScoreCount = await db.collection("scores").countDocuments({ [fieldName]: entityId });
+    
+    if (directScoreCount === 0) {
+      results[entityId] = {
+        entityInfo: null,
+        stats: {
+          averageScore: 0,
+          averageRawScore: 0,
+          totalScores: 0,
+          maxScore: 0,
+          minScore: 0,
+          maxRawScore: 0,
+          minRawScore: 0
+        }
+      };
+      continue;
+    }
+
+    // Construire le filtre avec les critères additionnels
+    const filter = { ...baseFilter, [fieldName]: entityId };
+    
+    // Pipeline d'agrégation pour calculer les statistiques
+    const pipeline = [
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          averageScore: { $avg: "$score" },
+          averageRawScore: { $avg: "$raw_score" },
+          totalScores: { $sum: 1 },
+          maxScore: { $max: "$score" },
+          minScore: { $min: "$score" },
+          maxRawScore: { $max: "$raw_score" },
+          minRawScore: { $min: "$raw_score" }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          averageScore: { $round: ["$averageScore", 2] },
+          averageRawScore: { $round: ["$averageRawScore", 2] },
+          totalScores: 1,
+          maxScore: 1,
+          minScore: 1,
+          maxRawScore: 1,
+          minRawScore: 1
+        }
+      }
+    ];
+
+    const stats = await db.collection("scores").aggregate(pipeline).toArray();
+    
+    // Récupérer les informations de l'entité
+    let entityInfo = null;
+    try {
+      if (options.type === "players") {
+        entityInfo = await db.collection("users").findOne({ _id: new ObjectId(entityId) });
+      } else {
+        entityInfo = await db.collection("guildes").findOne({ name: entityId });
+      }
+    } catch (error) {
+      // Si erreur de recherche, entityInfo reste null
+    }
+
+    results[entityId] = {
+      entityInfo,
+      stats: stats.length > 0 ? stats[0] : {
+        averageScore: 0,
+        averageRawScore: 0,
+        totalScores: 0,
+        maxScore: 0,
+        minScore: 0,
+        maxRawScore: 0,
+        minRawScore: 0
+      }
+    };
+  }
+
+  // Calculer les différences
+  const entity1Stats = results[entity1].stats;
+  const entity2Stats = results[entity2].stats;
+
+  const differences = {
+    averageScore: {
+      difference: entity1Stats.averageScore - entity2Stats.averageScore,
+      percentage: entity2Stats.averageScore !== 0 
+        ? ((entity1Stats.averageScore - entity2Stats.averageScore) / entity2Stats.averageScore * 100)
+        : null
+    },
+    averageRawScore: {
+      difference: entity1Stats.averageRawScore - entity2Stats.averageRawScore,
+      percentage: entity2Stats.averageRawScore !== 0 
+        ? ((entity1Stats.averageRawScore - entity2Stats.averageRawScore) / entity2Stats.averageRawScore * 100)
+        : null
+    },
+    totalScores: {
+      difference: entity1Stats.totalScores - entity2Stats.totalScores,
+      percentage: entity2Stats.totalScores !== 0 
+        ? ((entity1Stats.totalScores - entity2Stats.totalScores) / entity2Stats.totalScores * 100)
+        : null
+    }
+  };
+
+  // Déterminer le "gagnant" basé sur la moyenne
+  let winner = null;
+  if (entity1Stats.averageScore > entity2Stats.averageScore) {
+    winner = entity1;
+  } else if (entity2Stats.averageScore > entity1Stats.averageScore) {
+    winner = entity2;
+  }
+
+  return {
+    entities: results,
+    differences,
+    winner,
+    summary: {
+      entity1: { id: entity1, averageScore: entity1Stats.averageScore, totalScores: entity1Stats.totalScores },
+      entity2: { id: entity2, averageScore: entity2Stats.averageScore, totalScores: entity2Stats.totalScores }
+    }
+  };
+}
 
 // GET un score spécifique par ID
 router.get("/:id", async (req, res) => {
@@ -882,5 +1154,18 @@ router.get("/cycle/:cycleId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Fonction utilitaire pour décrire la portée de la comparaison
+function getScopeDescription(cycle_id, rotation_id) {
+  if (rotation_id && cycle_id) {
+    return "Rotation spécifique d'un cycle";
+  } else if (cycle_id) {
+    return "Cycle complet";
+  } else if (rotation_id) {
+    return "Rotation spécifique (tous cycles)";
+  } else {
+    return "Tous les scores";
+  }
+}
 
 export default router;

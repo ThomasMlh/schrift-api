@@ -186,11 +186,16 @@ router.get('/podium', async (req, res) => {
             },
             {
               $project: {
-                discord_id: 1,
-                global_name: 1,
-                bbs_name: 1,
-                avatar: 1
-              }
+                  _id: 1,
+                  discord_id: 1,
+                  avatar: 1,
+                  bbs_id: 1,
+                  bbs_name: 1,
+                  global_name: 1,
+                  guilde_id: 1,
+                  role: 1,
+                  username: 1
+                }
             }
           ],
           as: 'user'
@@ -289,16 +294,24 @@ router.get('/podium/full', async (req, res) => {
       });
     }
 
-    // Vérifier que la rotation_id existe dans ce cycle (si spécifiée)
+    // Vérifier que la rotation_id existe (si spécifiée)
+    let rotationDoc = null;
     if (rotation_id) {
-      const rotationExists = cycle.rotations.some(
-        (rotation) => rotation._id.toString() === rotation_id
-      );
+      try {
+        rotationDoc = await req.db.collection('rotations').findOne({
+          _id: new ObjectId(rotation_id)
+        });
 
-      if (!rotationExists) {
-        return res.status(404).json({
+        if (!rotationDoc) {
+          return res.status(404).json({
+            success: false,
+            message: `Rotation avec l'ID "${rotation_id}" non trouvée`
+          });
+        }
+      } catch (error) {
+        return res.status(400).json({
           success: false,
-          message: `Rotation avec l'ID "${rotation_id}" non trouvée dans le cycle "${cycle_name}"`
+          message: `Format d'ID de rotation invalide: "${rotation_id}"`
         });
       }
     }
@@ -503,7 +516,23 @@ router.get('/podium/full', async (req, res) => {
     const totalPages = Math.ceil(totalCount / limitNumber);
 
     // Récupérer les informations de la rotation pour l'affichage (si spécifiée)
-    const rotationInfo = rotation_id ? cycle.rotations.find(r => r._id.toString() === rotation_id) : null;
+    let rotationInfo = null;
+    if (rotationDoc) {
+      // Trouver les métadonnées de cette rotation dans le cycle
+      const cycleRotationMeta = cycle.rotations.find(r => r.rotation_id === rotation_id);
+      
+      // Combiner les données de la collection rotations avec les métadonnées du cycle
+      rotationInfo = {
+        ...rotationDoc,
+        ...(cycleRotationMeta && {
+          start_date: cycleRotationMeta.start_date,
+          end_date: cycleRotationMeta.end_date,
+          period: cycleRotationMeta.period,
+          position: cycleRotationMeta.position,
+          _id: cycleRotationMeta._id  // ID interne du cycle pour compatibilité
+        })
+      };
+    }
 
     // Calculer la moyenne générale des scores pour cette rotation (si spécifiée)
     let overallAverageScore = null;
