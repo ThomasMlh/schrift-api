@@ -552,7 +552,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     // Créer un map des rotations avec leur index pour l'ordre
     const rotationIndexMap = new Map();
     cycle.rotations.forEach((rotation, index) => {
-      rotationIndexMap.set(rotation._id.toString(), index);
+      rotationIndexMap.set(rotation.rotation_id, index);
     });
 
     // SOLUTION 1: Trier les scores par index de rotation pour traitement dans le bon ordre
@@ -564,6 +564,8 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
     // Préparer les scores finaux avec calculs différentiels
     const finalScores = [];
+    // Map pour stocker les scores du lot actuel par user_id et rotation_id
+    const currentBatchScores = new Map();
 
     for (const score of sortedScores) {
       const rawScore = score.raw_score;
@@ -575,16 +577,28 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
         // Chercher le score de la rotation précédente pour ce user
         const previousRotationId =
-          cycle.rotations[currentRotationIndex - 1]._id.toString();
+          cycle.rotations[currentRotationIndex - 1].rotation_id;
 
-        const previousScore = await req.db.collection("scores").findOne({
-          user_id: score.user_id,
-          cycle_id: score.cycle_id,
-          rotation_id: previousRotationId
-        });
+        // D'abord chercher dans le lot actuel
+        const batchKey = `${score.user_id}-${previousRotationId}`;
+        let previousRawScore = currentBatchScores.get(batchKey);
 
-        if (previousScore) {
-          finalScore = Math.max(0, rawScore - previousScore.raw_score);
+        // Si pas dans le lot, chercher en base de données
+        if (previousRawScore === undefined) {
+          const previousScore = await req.db.collection("scores").findOne({
+            user_id: score.user_id,
+            cycle_id: score.cycle_id,
+            rotation_id: previousRotationId
+          });
+
+          if (previousScore) {
+            previousRawScore = previousScore.raw_score;
+          }
+        }
+
+        // Si on a trouvé le score précédent (lot ou DB), calculer le différentiel
+        if (previousRawScore !== undefined) {
+          finalScore = Math.max(0, rawScore - previousRawScore);
           isDifferential = true;
         }
       }
@@ -602,6 +616,10 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       };
 
       finalScores.push(scoreData);
+      
+      // Stocker ce score dans le map du lot pour les calculs suivants
+      const currentKey = `${score.user_id}-${score.rotation_id}`;
+      currentBatchScores.set(currentKey, rawScore);
     }
 
     // SOLUTION 2: Fonction pour recalculer les scores différentiels affectés
@@ -611,7 +629,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       // Chercher toutes les rotations suivantes qui sont différentielles pour ce user
       for (let i = rotationIndex + 1; i < cycle.rotations.length; i++) {
         if (i % 2 === 1) { // Rotation différentielle (index impair)
-          const nextRotationId = cycle.rotations[i]._id.toString();
+          const nextRotationId = cycle.rotations[i].rotation_id;
           
           const existingDifferentialScore = await req.db.collection("scores").findOne({
             user_id: userId,
@@ -621,7 +639,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
           if (existingDifferentialScore) {
             // Recalculer ce score différentiel
-            const previousRotationId = cycle.rotations[i - 1]._id.toString();
+            const previousRotationId = cycle.rotations[i - 1].rotation_id;
             const previousScore = await req.db.collection("scores").findOne({
               user_id: userId,
               cycle_id: cycleId,
@@ -770,7 +788,7 @@ router.post("/", async (req, res) => {
 
     // Assurer que la rotation appartient bien au cycle
     const rotationExists = cycle.rotations.some(
-      (rotation) => rotation._id.toString() === rotation_id
+      (rotation) => rotation.rotation_id === rotation_id
     );
     if (!rotationExists) {
       return res.status(400).json({
@@ -782,7 +800,7 @@ router.post("/", async (req, res) => {
     // Créer un map des rotations avec leur index pour l'ordre
     const rotationIndexMap = new Map();
     cycle.rotations.forEach((rotation, index) => {
-      rotationIndexMap.set(rotation._id.toString(), index);
+      rotationIndexMap.set(rotation.rotation_id, index);
     });
 
     // Vérifier l'existence d'un score pour ce user/cycle/rotation
@@ -809,7 +827,7 @@ router.post("/", async (req, res) => {
     if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
       // Chercher le score de la rotation précédente pour ce user
       const previousRotationId =
-        cycle.rotations[currentRotationIndex - 1]._id.toString();
+        cycle.rotations[currentRotationIndex - 1].rotation_id;
 
       const previousScore = await req.db.collection("scores").findOne({
         user_id: user_id,
@@ -842,7 +860,7 @@ router.post("/", async (req, res) => {
     if (currentRotationIndex % 2 === 0) {
       for (let i = currentRotationIndex + 1; i < cycle.rotations.length; i++) {
         if (i % 2 === 1) { // Rotation différentielle
-          const nextRotationId = cycle.rotations[i]._id.toString();
+          const nextRotationId = cycle.rotations[i].rotation_id;
           
           const existingDifferentialScore = await req.db.collection("scores").findOne({
             user_id: user_id,
@@ -938,7 +956,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
 
       const rotationIndexMap = new Map();
       cycle.rotations.forEach((rotation, index) => {
-        rotationIndexMap.set(rotation._id.toString(), index);
+        rotationIndexMap.set(rotation.rotation_id, index);
       });
 
       const currentRotationIndex = rotationIndexMap.get(targetRotationId);
@@ -948,7 +966,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
       // Si c'est une rotation différentielle (index impair), recalculer le raw_score
       if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
         const previousRotationId =
-          cycle.rotations[currentRotationIndex - 1]._id.toString();
+          cycle.rotations[currentRotationIndex - 1].rotation_id;
 
         const previousScore = await req.db.collection("scores").findOne({
           user_id: targetUserId,
@@ -992,7 +1010,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
       if (cycle) {
         const rotationIndexMap = new Map();
         cycle.rotations.forEach((rotation, index) => {
-          rotationIndexMap.set(rotation._id.toString(), index);
+          rotationIndexMap.set(rotation.rotation_id, index);
         });
         
         const currentRotationIndex = rotationIndexMap.get(targetRotationId);
@@ -1000,7 +1018,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         if (currentRotationIndex % 2 === 0) { // Score de base modifié
           for (let i = currentRotationIndex + 1; i < cycle.rotations.length; i++) {
             if (i % 2 === 1) { // Rotation différentielle
-              const nextRotationId = cycle.rotations[i]._id.toString();
+              const nextRotationId = cycle.rotations[i].rotation_id;
               
               const existingDifferentialScore = await req.db.collection("scores").findOne({
                 user_id: targetUserId,
