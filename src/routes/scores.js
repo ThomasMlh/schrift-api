@@ -597,8 +597,13 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         }
 
         // Si on a trouvé le score précédent (lot ou DB), calculer le différentiel
+        // Sinon, le score reste égal au raw_score (pas de soustraction)
         if (previousRawScore !== undefined) {
           finalScore = Math.max(0, rawScore - previousRawScore);
+          isDifferential = true;
+        } else {
+          // Pas de score précédent trouvé, on garde le raw_score tel quel
+          finalScore = rawScore;
           isDifferential = true;
         }
       }
@@ -837,6 +842,10 @@ router.post("/", async (req, res) => {
 
       if (previousScore) {
         finalScore = Math.max(0, raw_score - previousScore.raw_score);
+        isDifferential = true;
+      } else {
+        // Pas de score précédent trouvé, on garde le raw_score tel quel
+        finalScore = raw_score;
         isDifferential = true;
       }
     }
