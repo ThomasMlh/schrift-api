@@ -198,10 +198,7 @@ router.get('/', async (req, res) => {
 
         // Filtre par killer (recherche exacte dans le tableau)
         if (killer && killer.trim()) {
-            const killerTerm = killer.trim();
-            // Échapper les caractères spéciaux de regex pour une recherche littérale exacte
-            const escapedTerm = killerTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            query.killers = { $regex: new RegExp(`^${escapedTerm}$`, 'i') };
+            query.killers = { $regex: new RegExp(killer.trim(), 'i') };
         }
 
         // Filtre par type d'attaque (R pour Rouge, B pour Bleue)

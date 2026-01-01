@@ -70,7 +70,9 @@ router.get('/', async (req, res) => {
       query.$or = [
         { username: { $regex: searchTerm, $options: 'i' } },
         { global_name: { $regex: searchTerm, $options: 'i' } },
-        { bbs_name: { $regex: searchTerm, $options: 'i' } }
+        { bbs_name: { $regex: searchTerm, $options: 'i' } },
+        { discord_id: { $regex: searchTerm, $options: 'i' } },
+        { bbs_id: { $regex: searchTerm, $options: 'i' } }
       ];
     }
 
