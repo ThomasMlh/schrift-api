@@ -260,9 +260,7 @@ router.get("/compare", async (req, res) => {
       baseFilter.rotation_id = rotation_id;
     }
     // Si ni cycle_id ni rotation_id : pas de filtre temporel (tous les scores)
-    
-    console.log("BaseFilter final:", baseFilter);
-
+  
     let comparisonResults;
 
     if (type === "players") {

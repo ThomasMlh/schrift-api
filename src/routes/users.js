@@ -888,4 +888,255 @@ router.get('/without-guild', async (req, res) => {
   }
 });
 
+// GET statistiques personnelles d'un joueur par user_id
+router.get('/:user_id/stats', async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    const { cycle_id } = req.query;
+
+    // Vérifier que l'utilisateur existe
+    const user = await req.db.collection('users').findOne({
+      $or: [
+        { _id: new ObjectId(user_id) },
+        { discord_id: user_id },
+        { bbs_id: user_id }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé'
+      });
+    }
+
+    // Construire le filtre pour les scores
+    const scoreFilter = {
+      user_id: user._id.toString()
+    };
+
+    // Filtrer par cycle si spécifié
+    if (cycle_id) {
+      scoreFilter.cycle_id = cycle_id;
+    }
+
+    // Récupérer tous les scores de l'utilisateur avec les détails des rotations
+    const scoresWithRotations = await req.db.collection('scores')
+      .aggregate([
+        { $match: scoreFilter },
+        {
+          $lookup: {
+            from: 'rotations',
+            let: { rotationId: { $toObjectId: "$rotation_id" } },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$_id", "$$rotationId"] } } },
+              {
+                $project: {
+                  _id: 1,
+                  killer: 1,
+                  attack: 1,
+                  alteration: 1,
+                  position: 1,
+                  cycle_id: 1,
+                  start_date: 1,
+                  end_date: 1
+                }
+              }
+            ],
+            as: 'rotation'
+          }
+        },
+        {
+          $unwind: {
+            path: "$rotation",
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
+          $project: {
+            _id: 1,
+            score: 1,
+            cycle_id: 1,
+            rotation_id: 1,
+            rotation_killer: "$rotation.killer",
+            rotation_attack: "$rotation.attack",
+            rotation_alteration: "$rotation.alteration",
+            rotation_position: "$rotation.position",
+            rotation_start_date: "$rotation.start_date",
+            rotation_end_date: "$rotation.end_date",
+            created_at: 1
+          }
+        }
+      ])
+      .toArray();
+
+    if (scoresWithRotations.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          user: {
+            _id: user._id,
+            discord_id: user.discord_id,
+            username: user.username,
+            global_name: user.global_name,
+            bbs_id: user.bbs_id,
+            bbs_name: user.bbs_name,
+            avatar: user.avatar
+          },
+          stats: {
+            totalScores: 0,
+            averageScore: 0,
+            bestRotation: null,
+            worstRotation: null,
+            totalPoints: 0
+          },
+          filters: {
+            cycle_id: cycle_id || null
+          }
+        }
+      });
+    }
+
+    // Calculer les statistiques globales
+    const totalScores = scoresWithRotations.length;
+    const totalPoints = scoresWithRotations.reduce((sum, s) => sum + (s.score || 0), 0);
+    const averageScore = totalPoints / totalScores;
+
+    // Grouper par rotation pour trouver la meilleure et la pire
+    const rotationStats = {};
+    scoresWithRotations.forEach(score => {
+      if (!score.rotation_id) return;
+      
+      if (!rotationStats[score.rotation_id]) {
+        rotationStats[score.rotation_id] = {
+          rotation_id: score.rotation_id,
+          rotation_killer: score.rotation_killer,
+          rotation_attack: score.rotation_attack,
+          rotation_alteration: score.rotation_alteration,
+          rotation_position: score.rotation_position,
+          cycle_id: score.cycle_id,
+          scores: [],
+          totalScore: 0,
+          count: 0
+        };
+      }
+      
+      rotationStats[score.rotation_id].scores.push(score.score);
+      rotationStats[score.rotation_id].totalScore += score.score || 0;
+      rotationStats[score.rotation_id].count += 1;
+    });
+
+    // Calculer la moyenne pour chaque rotation
+    const rotationAverages = Object.values(rotationStats).map(rotation => ({
+      rotation_id: rotation.rotation_id,
+      rotation_killer: rotation.rotation_killer,
+      rotation_attack: rotation.rotation_attack,
+      rotation_alteration: rotation.rotation_alteration,
+      rotation_position: rotation.rotation_position,
+      cycle_id: rotation.cycle_id,
+      averageScore: rotation.totalScore / rotation.count,
+      totalScore: rotation.totalScore,
+      scoreCount: rotation.count,
+      scores: rotation.scores
+    }));
+
+    // Trier pour trouver la meilleure et la pire rotation
+    rotationAverages.sort((a, b) => b.averageScore - a.averageScore);
+
+    const bestRotation = rotationAverages.length > 0 ? {
+      rotation_id: rotationAverages[0].rotation_id,
+      rotation_killer: rotationAverages[0].rotation_killer,
+      rotation_attack: rotationAverages[0].rotation_attack,
+      rotation_alteration: rotationAverages[0].rotation_alteration,
+      rotation_position: rotationAverages[0].rotation_position,
+      cycle_id: rotationAverages[0].cycle_id,
+      averageScore: Math.round(rotationAverages[0].averageScore * 100) / 100,
+      totalScore: rotationAverages[0].totalScore,
+      scoreCount: rotationAverages[0].scoreCount
+    } : null;
+
+    const worstRotation = rotationAverages.length > 0 ? {
+      rotation_id: rotationAverages[rotationAverages.length - 1].rotation_id,
+      rotation_killer: rotationAverages[rotationAverages.length - 1].rotation_killer,
+      rotation_attack: rotationAverages[rotationAverages.length - 1].rotation_attack,
+      rotation_alteration: rotationAverages[rotationAverages.length - 1].rotation_alteration,
+      rotation_position: rotationAverages[rotationAverages.length - 1].rotation_position,
+      cycle_id: rotationAverages[rotationAverages.length - 1].cycle_id,
+      averageScore: Math.round(rotationAverages[rotationAverages.length - 1].averageScore * 100) / 100,
+      totalScore: rotationAverages[rotationAverages.length - 1].totalScore,
+      scoreCount: rotationAverages[rotationAverages.length - 1].scoreCount
+    } : null;
+
+    // Trouver le meilleur score unique
+    const bestScore = Math.max(...scoresWithRotations.map(s => s.score || 0));
+    const bestScoreDetails = scoresWithRotations.find(s => s.score === bestScore);
+
+    // Trouver le pire score unique
+    const worstScore = Math.min(...scoresWithRotations.map(s => s.score || 0));
+    const worstScoreDetails = scoresWithRotations.find(s => s.score === worstScore);
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          _id: user._id,
+          discord_id: user.discord_id,
+          username: user.username,
+          global_name: user.global_name,
+          bbs_id: user.bbs_id,
+          bbs_name: user.bbs_name,
+          avatar: user.avatar,
+          guilde_id: user.guilde_id,
+          role: user.role
+        },
+        stats: {
+          totalScores: totalScores,
+          averageScore: Math.round(averageScore * 100) / 100,
+          totalPoints: totalPoints,
+          bestRotation: bestRotation,
+          worstRotation: worstRotation,
+          bestScore: {
+            score: bestScore,
+            rotation_id: bestScoreDetails?.rotation_id,
+            rotation_killer: bestScoreDetails?.rotation_killer,
+            rotation_attack: bestScoreDetails?.rotation_attack,
+            rotation_alteration: bestScoreDetails?.rotation_alteration,
+            rotation_position: bestScoreDetails?.rotation_position,
+            cycle_id: bestScoreDetails?.cycle_id
+          },
+          worstScore: {
+            score: worstScore,
+            rotation_id: worstScoreDetails?.rotation_id,
+            rotation_killer: worstScoreDetails?.rotation_killer,
+            rotation_attack: worstScoreDetails?.rotation_attack,
+            rotation_alteration: worstScoreDetails?.rotation_alteration,
+            rotation_position: worstScoreDetails?.rotation_position,
+            cycle_id: worstScoreDetails?.cycle_id
+          },
+          allRotations: rotationAverages.map(r => ({
+            rotation_id: r.rotation_id,
+            rotation_killer: r.rotation_killer,
+            rotation_attack: r.rotation_attack,
+            rotation_alteration: r.rotation_alteration,
+            rotation_position: r.rotation_position,
+            cycle_id: r.cycle_id,
+            averageScore: Math.round(r.averageScore * 100) / 100,
+            scoreCount: r.scoreCount
+          }))
+        },
+        filters: {
+          cycle_id: cycle_id || null
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Erreur lors de la récupération des statistiques du joueur:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erreur serveur lors de la récupération des statistiques'
+    });
+  }
+});
+
 export default router;
