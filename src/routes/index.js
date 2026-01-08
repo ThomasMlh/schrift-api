@@ -8,6 +8,7 @@ import scoresRouter from './scores.js';
 import adminRouter from './admin.js';
 import authRouter from './auth.js';
 import usersRouter from './users.js';
+import guidesRouter from './guides.js';
 
 const router = express.Router();
 
@@ -20,5 +21,6 @@ router.use('/scores', scoresRouter);
 router.use('/admin', adminRouter);
 router.use('/auth', authRouter);
 router.use('/users', usersRouter);
+router.use('/guides', guidesRouter);
 
 export default router;
