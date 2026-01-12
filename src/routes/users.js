@@ -217,7 +217,7 @@ router.get('/podium', async (req, res) => {
           bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
           discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
           global_name: { $arrayElemAt: ["$user.global_name", 0] },
-          averageScore: { $round: ["$averageScore", 2] }, // Arrondir à 2 décimales
+          averageScore: { $round: ["$averageScore", 0] }, // Arrondir à un entier
           avatar: { $arrayElemAt: ["$user.avatar", 0] },
           totalScores: 1,
           hasUser: 1
@@ -471,7 +471,7 @@ router.get('/podium/full', async (req, res) => {
             bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
             discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
             global_name: { $arrayElemAt: ["$user.global_name", 0] },
-            averageScore: { $round: ["$averageScore", 2] }, // Moyenne arrondie à 2 décimales
+            averageScore: { $round: ["$averageScore", 0] }, // Moyenne arrondie à un entier
             totalScores: 1,
             totalRawScore: 1,
             avatar: { $arrayElemAt: ["$user.avatar", 0] },
@@ -540,7 +540,7 @@ router.get('/podium/full', async (req, res) => {
     let overallAverageScore = null;
     if (rotation_id && allResults.length > 0) {
       const totalScore = allResults.reduce((sum, player) => sum + (player.score || 0), 0);
-      overallAverageScore = Math.round((totalScore / allResults.length) * 100) / 100; // Arrondi à 2 décimales
+      overallAverageScore = Math.round(totalScore / allResults.length); // Arrondi à un entier
     }
 
     res.json({
@@ -1000,7 +1000,7 @@ router.get('/:user_id/stats', async (req, res) => {
     // Calculer les statistiques globales
     const totalScores = scoresWithRotations.length;
     const totalPoints = scoresWithRotations.reduce((sum, s) => sum + (s.score || 0), 0);
-    const averageScore = totalPoints / totalScores;
+    const averageScore = Math.round(totalPoints / totalScores);
 
     // Grouper par rotation pour trouver la meilleure et la pire
     const rotationStats = {};
@@ -1050,7 +1050,7 @@ router.get('/:user_id/stats', async (req, res) => {
       rotation_alteration: rotationAverages[0].rotation_alteration,
       rotation_position: rotationAverages[0].rotation_position,
       cycle_id: rotationAverages[0].cycle_id,
-      averageScore: Math.round(rotationAverages[0].averageScore * 100) / 100,
+      averageScore: Math.round(rotationAverages[0].averageScore),
       totalScore: rotationAverages[0].totalScore,
       scoreCount: rotationAverages[0].scoreCount
     } : null;
@@ -1062,7 +1062,7 @@ router.get('/:user_id/stats', async (req, res) => {
       rotation_alteration: rotationAverages[rotationAverages.length - 1].rotation_alteration,
       rotation_position: rotationAverages[rotationAverages.length - 1].rotation_position,
       cycle_id: rotationAverages[rotationAverages.length - 1].cycle_id,
-      averageScore: Math.round(rotationAverages[rotationAverages.length - 1].averageScore * 100) / 100,
+      averageScore: Math.round(rotationAverages[rotationAverages.length - 1].averageScore),
       totalScore: rotationAverages[rotationAverages.length - 1].totalScore,
       scoreCount: rotationAverages[rotationAverages.length - 1].scoreCount
     } : null;
@@ -1091,7 +1091,7 @@ router.get('/:user_id/stats', async (req, res) => {
         },
         stats: {
           totalScores: totalScores,
-          averageScore: Math.round(averageScore * 100) / 100,
+          averageScore: averageScore,
           totalPoints: totalPoints,
           bestRotation: bestRotation,
           worstRotation: worstRotation,
@@ -1120,7 +1120,7 @@ router.get('/:user_id/stats', async (req, res) => {
             rotation_alteration: r.rotation_alteration,
             rotation_position: r.rotation_position,
             cycle_id: r.cycle_id,
-            averageScore: Math.round(r.averageScore * 100) / 100,
+            averageScore: Math.round(r.averageScore),
             scoreCount: r.scoreCount
           }))
         },

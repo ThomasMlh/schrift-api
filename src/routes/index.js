@@ -9,6 +9,10 @@ import adminRouter from './admin.js';
 import authRouter from './auth.js';
 import usersRouter from './users.js';
 import guidesRouter from './guides.js';
+import buildsRouter from './builds.js';
+import skillsRouter from './skills.js';
+import accessoriesRouter from './accessories.js';
+import accessoriesSubeffectRouter from './accessories_subeffect.js';
 
 const router = express.Router();
 
@@ -22,5 +26,9 @@ router.use('/admin', adminRouter);
 router.use('/auth', authRouter);
 router.use('/users', usersRouter);
 router.use('/guides', guidesRouter);
+router.use('/builds', buildsRouter);
+router.use('/skills', skillsRouter);
+router.use('/accessories', accessoriesRouter);
+router.use('/accessories-subeffect', accessoriesSubeffectRouter);
 
 export default router;
