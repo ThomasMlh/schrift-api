@@ -14,7 +14,7 @@ export function requireAdmin(req, res, next) {
     const decoded = jwt.verify(token, jwtSecret);
 
     // Vérifier que c'est bien un token admin
-    if (!decoded.isAdmin) {
+    if (!decoded.is_admin) {
       return res.status(403).json({ success: false, message: 'Droits administrateur requis' });
     }
 
@@ -41,7 +41,7 @@ export function requireScoresAccess(req, res, next) {
     req.user = decoded; // Ajouter les infos du token à la requête
 
     // Si c'est un admin, accès total
-    if (decoded.isAdmin) {
+    if (decoded.is_admin) {
       req.user.hasFullAccess = true;
       return next();
     }

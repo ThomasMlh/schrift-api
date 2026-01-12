@@ -38,7 +38,7 @@ const requireAdmin = async (req, res, next) => {
 
     const decoded = jwt.verify(token, getJwtSecret());
 
-    if (!decoded.isAdmin) {
+    if (!decoded.is_admin) {
       return res.status(403).json({ success: false, message: 'Accès refusé - Admin requis' });
     }
 

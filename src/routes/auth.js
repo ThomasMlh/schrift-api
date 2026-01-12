@@ -229,8 +229,7 @@ router.post('/discord/callback', async (req, res) => {
 
         // Créer un JWT
         const jwtPayload = {
-            userId: userData.id,
-            id: savedUser._id,
+            _id: savedUser._id,
             username: userData.username,
             global_name: userData.global_name,
             discord_id: userData.id,
@@ -239,7 +238,7 @@ router.post('/discord/callback', async (req, res) => {
             bbs_id: user.bbs_id,
             bbs_name: user.bbs_name,
             avatar: userData.avatar,
-            isAdmin: isAdmin,
+            is_admin: isAdmin,
             exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) // 7 jours
         };
 
