@@ -13,6 +13,7 @@ import buildsRouter from './builds.js';
 import skillsRouter from './skills.js';
 import accessoriesRouter from './accessories.js';
 import accessoriesSubeffectRouter from './accessories_subeffect.js';
+import podiumRouter from './podium.js';
 
 const router = express.Router();
 
@@ -30,5 +31,6 @@ router.use('/builds', buildsRouter);
 router.use('/skills', skillsRouter);
 router.use('/accessories', accessoriesRouter);
 router.use('/accessories-subeffect', accessoriesSubeffectRouter);
+router.use('/podium', podiumRouter);
 
 export default router;
