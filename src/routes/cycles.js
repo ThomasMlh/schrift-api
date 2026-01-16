@@ -264,19 +264,40 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
     // Paramètres de query
     const guildName = req.query.guild; // Nom de la guilde à filtrer
 
+    // Si guild_name est spécifié, rechercher la guilde correspondante
+    let guildId = null;
+    if (guildName && guildName.trim()) {
+      const guild = await req.db.collection('guildes').findOne({
+        name: guildName.trim()
+      });
+
+      if (!guild) {
+        return res.status(404).json({
+          success: false,
+          message: `Guilde avec le nom "${guildName}" non trouvée`
+        });
+      }
+
+      guildId = guild._id.toString();
+    }
+
+    // Construire le match stage avec le filtre guilde si nécessaire
+    const matchStage = {
+      rotation_id: rotation.rotation_id,
+      cycle_id: cycleId
+    };
+
+    if (guildId) {
+      matchStage.guild_id = guildId;
+    }
+
     // Vérifier qu'il y a des scores pour cette rotation
     const scoresCheck = await req.db.collection('scores')
-      .countDocuments({ 
-        rotation_id: rotation.rotation_id,
-        cycle_id: cycleId 
-      });
+      .countDocuments(matchStage);
 
     // Récupérer les scores avec pagination, tri par score décroissant et join avec les utilisateurs
     let pipeline = [
-      { $match: { 
-        rotation_id: rotation.rotation_id,
-        cycle_id: cycleId 
-      } },
+      { $match: matchStage },
       {
         $lookup: {
           from: 'users',
@@ -316,42 +337,10 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
         }
       }
     ];
-
-    // Ajouter le filtrage par guilde si spécifié
-    if (guildName && guildName.trim()) {
-      pipeline.push({
-        $lookup: {
-          from: 'guildes',
-          let: { guildeId: { $toObjectId: "$user.guilde_id" } },
-          pipeline: [
-            { 
-              $match: { 
-                $expr: { 
-                  $and: [
-                    { $eq: ["$_id", "$$guildeId"] },
-                    { $eq: ["$name", guildName.trim()] }
-                  ]
-                }
-              }
-            }
-          ],
-          as: 'guilde'
-        }
-      });
-
-      pipeline.push({
-        $match: {
-          "guilde.0": { $exists: true } // Ne garder que ceux qui ont une guilde correspondante
-        }
-      });
-    }
 
     // Pipeline pour récupérer tous les scores (sans pagination d'abord pour calculer les ranks)
     let pipelineForRanking = [
-      { $match: { 
-        rotation_id: rotation.rotation_id,
-        cycle_id: cycleId 
-      } },
+      { $match: matchStage },
       {
         $lookup: {
           from: 'users',
@@ -391,35 +380,6 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
         }
       }
     ];
-
-    // Ajouter le filtrage par guilde si spécifié
-    if (guildName && guildName.trim()) {
-      pipelineForRanking.push({
-        $lookup: {
-          from: 'guildes',
-          let: { guildeId: { $toObjectId: "$user.guilde_id" } },
-          pipeline: [
-            { 
-              $match: { 
-                $expr: { 
-                  $and: [
-                    { $eq: ["$_id", "$$guildeId"] },
-                    { $eq: ["$name", guildName.trim()] }
-                  ]
-                }
-              }
-            }
-          ],
-          as: 'guilde'
-        }
-      });
-
-      pipelineForRanking.push({
-        $match: {
-          "guilde.0": { $exists: true } // Ne garder que ceux qui ont une guilde correspondante
-        }
-      });
-    }
 
     // Ajouter le tri (sans pagination pour le moment)
     pipelineForRanking.push(

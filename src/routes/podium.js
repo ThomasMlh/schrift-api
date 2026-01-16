@@ -80,13 +80,31 @@ router.get('/', async (req, res) => {
           as: 'user'
         }
       },
-      // Étape 4: Ajouter info sur la présence d'utilisateur
+      // Étape 4: Joindre avec la collection guildes
+      {
+        $lookup: {
+          from: 'guildes',
+          let: { guildeId: { $arrayElemAt: ["$user.guilde_id", 0] } },
+          pipeline: [
+            { 
+              $match: { 
+                $expr: { 
+                  $eq: [{ $toString: "$_id" }, "$$guildeId"]
+                }
+              }
+            },
+            { $project: { name: 1 } }
+          ],
+          as: 'guild'
+        }
+      },
+      // Étape 5: Ajouter info sur la présence d'utilisateur
       {
         $addFields: {
           hasUser: { $gt: [{ $size: "$user" }, 0] }
         }
       },
-      // Étape 5: Projeter les champs finaux
+      // Étape 6: Projeter les champs finaux
       {
         $project: {
           _id: 0,
@@ -96,15 +114,16 @@ router.get('/', async (req, res) => {
           global_name: { $arrayElemAt: ["$user.global_name", 0] },
           averageScore: { $round: ["$averageScore", 0] },
           avatar: { $arrayElemAt: ["$user.avatar", 0] },
+          guild_name: { $arrayElemAt: ["$guild.name", 0] },
           totalScores: 1,
           hasUser: 1
         }
       },
-      // Étape 6: Trier par moyenne décroissante
+      // Étape 7: Trier par moyenne décroissante
       {
         $sort: { averageScore: -1 }
       },
-      // Étape 7: Limiter aux premiers résultats
+      // Étape 8: Limiter aux premiers résultats
       {
         $limit: guild_id ? 5 : 10
       }
@@ -253,11 +272,29 @@ router.get('/full', async (req, res) => {
                   discord_id: 1,
                   global_name: 1,
                   bbs_name: 1,
-                  avatar: 1
+                  avatar: 1,
+                  guilde_id: 1
                 }
               }
             ],
             as: 'user'
+          }
+        },
+        {
+          $lookup: {
+            from: 'guildes',
+            let: { guildeId: { $arrayElemAt: ["$user.guilde_id", 0] } },
+            pipeline: [
+              { 
+                $match: { 
+                  $expr: { 
+                    $eq: [{ $toString: "$_id" }, "$$guildeId"]
+                  }
+                }
+              },
+              { $project: { name: 1 } }
+            ],
+            as: 'guild'
           }
         },
         {
@@ -276,6 +313,7 @@ router.get('/full', async (req, res) => {
             raw_score: "$raw_score",
             is_differential: "$is_differential",
             avatar: { $arrayElemAt: ["$user.avatar", 0] },
+            guild_name: { $arrayElemAt: ["$guild.name", 0] },
             hasUser: 1
           }
         },
@@ -313,11 +351,29 @@ router.get('/full', async (req, res) => {
                   discord_id: 1,
                   global_name: 1,
                   bbs_name: 1,
-                  avatar: 1
+                  avatar: 1,
+                  guilde_id: 1
                 }
               }
             ],
             as: 'user'
+          }
+        },
+        {
+          $lookup: {
+            from: 'guildes',
+            let: { guildeId: { $arrayElemAt: ["$user.guilde_id", 0] } },
+            pipeline: [
+              { 
+                $match: { 
+                  $expr: { 
+                    $eq: [{ $toString: "$_id" }, "$$guildeId"]
+                  }
+                }
+              },
+              { $project: { name: 1 } }
+            ],
+            as: 'guild'
           }
         },
         {
@@ -336,6 +392,7 @@ router.get('/full', async (req, res) => {
             totalScores: 1,
             totalRawScore: 1,
             avatar: { $arrayElemAt: ["$user.avatar", 0] },
+            guild_name: { $arrayElemAt: ["$guild.name", 0] },
             hasUser: 1
           }
         },
