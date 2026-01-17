@@ -20,6 +20,7 @@ router.get('/', async (req, res) => {
 
     const cycles = await req.db.collection('cycles')
       .find()
+      .sort({ year: -1 })
       .toArray();
 
     // Trier les cycles par la start_date la plus récente (première rotation)
@@ -122,9 +123,13 @@ router.post('/', async (req, res) => {
       _id: new ObjectId()
     }));
 
+    // Prendre l'année en cours
+    const currentYear = new Date().getFullYear();
+
     const cycle = {
       name,
       rotations: rotationsWithIds,
+      year: currentYear,
       created_at: new Date(),
       updated_at: new Date()
     };
