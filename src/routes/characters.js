@@ -138,6 +138,16 @@ router.post("/", requireAdmin, async (req, res) => {
         ].filter(Boolean);
       }
 
+      let bannerDoc = await req.db.collection("banners").findOne({
+        $or: [
+          { name: cleanedChar["Loterie"] },
+          { url: cleanedChar["URL Portail"] },
+          { portail: cleanedChar["Portail"] }
+        ]
+      });
+
+      const banner_id = bannerDoc ? bannerDoc._id : null;
+
       sanitizedCharacters.push({
         name: cleanedChar["Nom personnage"] || "",
         search_name: searchName,
@@ -164,6 +174,7 @@ router.post("/", requireAdmin, async (req, res) => {
         version_name: cleanedChar["Nom version"] || "",
         banner: cleanedChar["Loterie"] || "",
         banner_url: cleanedChar["URL Portail"] || "",
+        banner_id,
         stats: {
           end: cleanedChar["END"] || null,
           atk: cleanedChar["ATK"] || null,
@@ -695,6 +706,16 @@ router.post("/update", requireAdmin, async (req, res) => {
           ].filter(Boolean);
         }
 
+        let bannerDoc = await req.db.collection("banners").findOne({
+          $or: [
+            { name: cleanedChar["Loterie"] },
+            { url: cleanedChar["URL Portail"] },
+            { portail: cleanedChar["Portail"] }
+          ]
+        });
+
+        const banner_id = bannerDoc ? bannerDoc._id : null;
+
         const characterData = {
           name: cleanedChar["Nom personnage"] || "",
           search_name: searchName,
@@ -724,6 +745,7 @@ router.post("/update", requireAdmin, async (req, res) => {
           version_name: cleanedChar["Nom version"] || "",
           banner: cleanedChar["Loterie"] || "",
           banner_url: cleanedChar["URL Portail"] || "",
+          banner_id,
           stats: {
             end: cleanedChar["END"] || null,
             atk: cleanedChar["ATK"] || null,
