@@ -588,7 +588,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // PATCH /builds/:id - Mettre à jour un build
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', extractUser, async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -609,6 +609,42 @@ router.patch('/:id', async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Build non trouvé'
+      });
+    }
+
+    // Vérifier que l'utilisateur a le droit de modifier ce build
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentification requise'
+      });
+    }
+
+    // Récupérer l'ID MongoDB de l'utilisateur courant
+    let currentUserId = null;
+    const userIdentifier = req.user?.userId || req.user?.discord_id;
+    
+    if (userIdentifier) {
+      let user;
+      if (ObjectId.isValid(userIdentifier)) {
+        user = await req.db.collection('users').findOne({ _id: new ObjectId(userIdentifier) });
+      } else {
+        user = await req.db.collection('users').findOne({ discord_id: userIdentifier });
+      }
+      
+      if (user) {
+        currentUserId = user._id.toString();
+      }
+    }
+
+    // Seul le propriétaire ou un admin peut modifier
+    const isOwner = existingBuild.user_id === currentUserId;
+    const isAdmin = req.user.is_admin === true;
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Vous n\'avez pas la permission de modifier ce build'
       });
     }
 
@@ -797,8 +833,12 @@ router.patch('/:id', async (req, res) => {
       }
     }
 
-    // Mettre à jour
+    // Mettre à jour - forcer isValid à false si ce n'est pas un admin qui modifie
     updates.updated_at = new Date();
+    
+    if (!isAdmin) {
+      updates.isValid = false;
+    }
 
     const result = await req.db.collection('builds').updateOne(
       { _id: new ObjectId(id) },
