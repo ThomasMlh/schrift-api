@@ -425,7 +425,7 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
     res.json({ 
       success: true, 
       data: scores,
-      cycle: cycle.name,
+      cycle: cycle,
       rotation: currentRotation,
       filters: {
         guild: guildName || null
