@@ -285,6 +285,7 @@ router.get('/me', async (req, res) => {
                 username: user.username,
                 global_name: user.global_name,
                 avatar: user.avatar,
+                banner: user.banner,
                 isAdmin: user.is_admin,
                 lastLogin: user.last_login,
                 guilde_id: user.guilde_id,

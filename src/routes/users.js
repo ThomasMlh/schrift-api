@@ -83,6 +83,7 @@ router.get('/', async (req, res) => {
           discord_id: 1,
           username: 1,
           avatar: 1,
+          banner: 1,
           guilde_id: 1,
           role: 1,
           is_admin: 1,
@@ -146,6 +147,7 @@ router.get('/:userId', async (req, res) => {
           discord_id: 1,
           username: 1,
           avatar: 1,
+          banner: 1,
           guilde_id: 1,
           role: 1,
           is_admin: 1,
@@ -394,6 +396,7 @@ router.get('/without-guild', async (req, res) => {
           discord_id: 1,
           username: 1,
           avatar: 1,
+          banner: 1,
           is_admin: 1,
           last_login: 1,
           global_name: 1,
@@ -619,6 +622,75 @@ router.get('/:user_id/stats', async (req, res) => {
     const worstScore = Math.min(...scoresWithRotations.map(s => s.score || 0));
     const worstScoreDetails = scoresWithRotations.find(s => s.score === worstScore);
 
+    // Calculer le classement global et dans la guilde
+    let globalRank = null;
+    let guildRank = null;
+    let totalPlayers = null;
+    let totalGuildPlayers = null;
+
+    // Classement global basé sur le score moyen
+    const allUserStats = await req.db.collection('scores')
+      .aggregate([
+        ...(cycle_id ? [{ $match: { cycle_id: cycle_id } }] : []),
+        {
+          $group: {
+            _id: "$user_id",
+            averageScore: { $avg: "$score" },
+            totalScore: { $sum: "$score" },
+            count: { $sum: 1 }
+          }
+        },
+        {
+          $sort: { averageScore: -1 }
+        }
+      ])
+      .toArray();
+
+    totalPlayers = allUserStats.length;
+    const userRankIndex = allUserStats.findIndex(u => u._id === user._id.toString());
+    if (userRankIndex !== -1) {
+      globalRank = userRankIndex + 1;
+    }
+
+    // Classement dans la guilde si l'utilisateur a une guilde
+    if (user.guilde_id) {
+      // Récupérer tous les membres de la guilde
+      const guildMembers = await req.db.collection('users')
+        .find({ guilde_id: user.guilde_id })
+        .toArray();
+      
+      const guildMemberIds = guildMembers.map(m => m._id.toString());
+
+      // Calculer les stats pour chaque membre de la guilde
+      const guildUserStats = await req.db.collection('scores')
+        .aggregate([
+          {
+            $match: {
+              user_id: { $in: guildMemberIds },
+              ...(cycle_id ? { cycle_id: cycle_id } : {})
+            }
+          },
+          {
+            $group: {
+              _id: "$user_id",
+              averageScore: { $avg: "$score" },
+              totalScore: { $sum: "$score" },
+              count: { $sum: 1 }
+            }
+          },
+          {
+            $sort: { averageScore: -1 }
+          }
+        ])
+        .toArray();
+
+      totalGuildPlayers = guildUserStats.length;
+      const guildRankIndex = guildUserStats.findIndex(u => u._id === user._id.toString());
+      if (guildRankIndex !== -1) {
+        guildRank = guildRankIndex + 1;
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -666,7 +738,13 @@ router.get('/:user_id/stats', async (req, res) => {
             cycle_id: r.cycle_id,
             averageScore: Math.round(r.averageScore),
             scoreCount: r.scoreCount
-          }))
+          })),
+          ranking: {
+            global: globalRank,
+            totalPlayers: totalPlayers,
+            guild: guildRank,
+            totalGuildPlayers: totalGuildPlayers
+          }
         },
         filters: {
           cycle_id: cycle_id || null
