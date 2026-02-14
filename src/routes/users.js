@@ -691,6 +691,118 @@ router.get('/:user_id/stats', async (req, res) => {
       }
     }
 
+    // Calculer le percentile
+    const percentile = totalPlayers && globalRank 
+      ? Math.round((1 - (globalRank - 1) / totalPlayers) * 100) 
+      : null;
+
+    // Récupérer le score moyen du top 1 (écart avec le meilleur)
+    const top1AverageScore = allUserStats.length > 0 ? allUserStats[0].averageScore : null;
+    const gapWithTop1 = top1AverageScore ? Math.round(top1AverageScore - averageScore) : null;
+
+    // Calculer le meilleur cycle (grouper par cycle)
+    const cycleStats = {};
+    scoresWithRotations.forEach(score => {
+      if (!score.cycle_id) return;
+      
+      if (!cycleStats[score.cycle_id]) {
+        cycleStats[score.cycle_id] = {
+          cycle_id: score.cycle_id,
+          totalScore: 0,
+          count: 0,
+          scores: []
+        };
+      }
+      
+      cycleStats[score.cycle_id].scores.push(score.score);
+      cycleStats[score.cycle_id].totalScore += score.score || 0;
+      cycleStats[score.cycle_id].count += 1;
+    });
+
+    // Calculer la moyenne pour chaque cycle et trouver le meilleur
+    const cycleAverages = Object.values(cycleStats).map(cycle => ({
+      cycle_id: cycle.cycle_id,
+      averageScore: cycle.totalScore / cycle.count,
+      totalScore: cycle.totalScore,
+      scoreCount: cycle.count
+    }));
+    cycleAverages.sort((a, b) => b.averageScore - a.averageScore);
+
+    const bestCycle = cycleAverages.length > 0 ? {
+      cycle_id: cycleAverages[0].cycle_id,
+      averageScore: Math.round(cycleAverages[0].averageScore),
+      totalScore: cycleAverages[0].totalScore,
+      scoreCount: cycleAverages[0].scoreCount
+    } : null;
+
+    // Récupérer le nom du meilleur cycle
+    if (bestCycle) {
+      const cycleDoc = await req.db.collection('cycles').findOne({
+        _id: new ObjectId(bestCycle.cycle_id)
+      });
+      if (cycleDoc) {
+        bestCycle.cycle_name = cycleDoc.name;
+      }
+    }
+
+    // Calculer l'ancienneté (première participation)
+    const sortedScores = [...scoresWithRotations].sort((a, b) => 
+      new Date(a.created_at) - new Date(b.created_at)
+    );
+    const firstParticipation = sortedScores.length > 0 
+      ? sortedScores[0].created_at 
+      : null;
+
+    // Compter les builds créés par cet utilisateur
+    const buildsCount = await req.db.collection('builds').countDocuments({
+      user_id: user._id.toString()
+    });
+
+    // Calculer l'évolution temporelle (scores moyens par cycle)
+    const temporalEvolution = cycleAverages.map(cycle => ({
+      cycle_id: cycle.cycle_id,
+      averageScore: Math.round(cycle.averageScore),
+      scoreCount: cycle.scoreCount
+    }));
+
+    // Récupérer les informations complètes des cycles pour l'évolution temporelle
+    if (temporalEvolution.length > 0) {
+      const cycleIds = temporalEvolution.map(c => new ObjectId(c.cycle_id));
+      const cycles = await req.db.collection('cycles')
+        .find({ _id: { $in: cycleIds } })
+        .toArray();
+      
+      const cycleMap = {};
+      cycles.forEach(c => {
+        cycleMap[c._id.toString()] = {
+          name: c.name,
+          year: c.year,
+          startDate: c.rotations && c.rotations[0] ? c.rotations[0].start_date : null
+        };
+      });
+      
+      temporalEvolution.forEach(te => {
+        const cycleInfo = cycleMap[te.cycle_id];
+        te.cycle_name = cycleInfo?.name || 'Inconnu';
+        te.year = cycleInfo?.year;
+        te.start_date = cycleInfo?.startDate;
+      });
+
+      // Helper pour parser la date DD/MM/YYYY
+      const parseDate = (dateStr) => {
+        if (!dateStr) return new Date(0);
+        const [day, month, year] = dateStr.split('/');
+        return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      };
+
+      // Trier par date chronologique (du plus ancien au plus récent)
+      temporalEvolution.sort((a, b) => {
+        const dateA = parseDate(a.start_date);
+        const dateB = parseDate(b.start_date);
+        return dateA.getTime() - dateB.getTime();
+      });
+    }
+
     res.json({
       success: true,
       data: {
@@ -743,8 +855,14 @@ router.get('/:user_id/stats', async (req, res) => {
             global: globalRank,
             totalPlayers: totalPlayers,
             guild: guildRank,
-            totalGuildPlayers: totalGuildPlayers
-          }
+            totalGuildPlayers: totalGuildPlayers,
+            percentile: percentile,
+            gapWithTop1: gapWithTop1
+          },
+          bestCycle: bestCycle,
+          firstParticipation: firstParticipation,
+          buildsCount: buildsCount,
+          temporalEvolution: temporalEvolution
         },
         filters: {
           cycle_id: cycle_id || null
