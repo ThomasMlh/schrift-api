@@ -803,6 +803,125 @@ router.get('/:user_id/stats', async (req, res) => {
       });
     }
 
+    // Calculer le taux de miss (scores à 0)
+    const missCount = scoresWithRotations.filter(s => s.score === 0).length;
+    const missRate = totalScores > 0 ? Math.round((missCount / totalScores) * 100) : 0;
+
+    // Calculer la tendance sur les 5 dernières rotations (si cycle sélectionné)
+    let recentTrend = null;
+    if (cycle_id && scoresWithRotations.length >= 5) {
+      // Trier par date (du plus récent au plus ancien)
+      const sortedByDate = [...scoresWithRotations].sort((a, b) => {
+        const dateA = a.rotation_start_date ? parseDate(a.rotation_start_date) : new Date(a.created_at);
+        const dateB = b.rotation_start_date ? parseDate(b.rotation_start_date) : new Date(b.created_at);
+        return dateB.getTime() - dateA.getTime();
+      });
+
+      // Prendre les 5 dernières rotations
+      const last5Scores = sortedByDate.slice(0, 5);
+      
+      // Calculer la moyenne des 3 premières (plus récentes) vs les 2 dernières
+      const recentAvg = last5Scores.slice(0, 3).reduce((sum, s) => sum + s.score, 0) / 3;
+      const olderAvg = last5Scores.slice(3, 5).reduce((sum, s) => sum + s.score, 0) / 2;
+      
+      const diff = recentAvg - olderAvg;
+      const diffPercentage = olderAvg > 0 ? Math.round((diff / olderAvg) * 100) : 0;
+      
+      // Déterminer la tendance
+      let direction = 'stable';
+      if (diffPercentage > 5) {
+        direction = 'up';
+      } else if (diffPercentage < -5) {
+        direction = 'down';
+      }
+      
+      recentTrend = {
+        direction: direction,
+        percentage: Math.abs(diffPercentage),
+        recentAverage: Math.round(recentAvg),
+        previousAverage: Math.round(olderAvg),
+        scores: last5Scores.map(s => ({
+          score: s.score,
+          rotation_killer: s.rotation_killer,
+          rotation_attack: s.rotation_attack,
+          rotation_position: s.rotation_position,
+          rotation_start_date: s.rotation_start_date
+        }))
+      };
+    }
+
+    // Calculer les rivaux (joueurs proches dans le classement)
+    let rivals = [];
+    if (globalRank && allUserStats.length > 0) {
+      const userIndex = globalRank - 1;
+      const startIndex = Math.max(0, userIndex - 3);
+      const endIndex = Math.min(allUserStats.length, userIndex + 4);
+      
+      const rivalsCandidates = allUserStats.slice(startIndex, endIndex);
+      
+      // Récupérer les informations complètes des rivaux
+      const rivalUserIds = rivalsCandidates
+        .map(r => r._id)
+        .filter(id => id !== user._id.toString());
+      
+      if (rivalUserIds.length > 0) {
+        const rivalUsers = await req.db.collection('users')
+          .find({ _id: { $in: rivalUserIds.map(id => new ObjectId(id)) } })
+          .toArray();
+        
+        // Récupérer les noms de guildes pour les rivaux
+        const guildIds = [...new Set(rivalUsers.map(u => u.guilde_id).filter(Boolean))];
+        
+        let guilds = [];
+        if (guildIds.length > 0) {
+          // Récupérer les guildes avec leurs IDs comme ObjectId
+          try {
+            guilds = await req.db.collection('guildes')
+              .find({ _id: { $in: guildIds.map(id => new ObjectId(id)) } })
+              .toArray();
+          } catch (err) {
+            console.error('Error fetching guilds:', err.message);
+          }
+        }
+        
+        const guildMap = {};
+        guilds.forEach(g => {
+          // Stocker avec la clé string pour correspondre à guilde_id des users
+          const guildId = typeof g._id === 'string' ? g._id : g._id.toString();
+          guildMap[guildId] = g.name;
+        });
+        
+        const rivalUsersMap = {};
+        rivalUsers.forEach(u => {
+          rivalUsersMap[u._id.toString()] = u;
+        });
+        
+        rivals = rivalsCandidates
+          .filter(r => r._id !== user._id.toString())
+          .map((rival, idx) => {
+            const rivalUser = rivalUsersMap[rival._id];
+            const rivalRank = startIndex + rivalsCandidates.findIndex(c => c._id === rival._id) + 1;
+            const scoreDiff = Math.round(rival.averageScore - averageScore);
+            
+            const guildName = rivalUser?.guilde_id ? guildMap[rivalUser.guilde_id] : null;
+                        
+            return {
+              rank: rivalRank,
+              user_id: rival._id,
+              discord_id: rivalUser?.discord_id,
+              global_name: rivalUser?.global_name,
+              bbs_name: rivalUser?.bbs_name,
+              avatar: rivalUser?.avatar,
+              guilde_id: rivalUser?.guilde_id,
+              guild_name: guildName,
+              averageScore: Math.round(rival.averageScore),
+              scoreDifference: scoreDiff
+            };
+          })
+          .slice(0, 6); // Limiter à 6 rivaux max (3 avant + 3 après)
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -862,7 +981,11 @@ router.get('/:user_id/stats', async (req, res) => {
           bestCycle: bestCycle,
           firstParticipation: firstParticipation,
           buildsCount: buildsCount,
-          temporalEvolution: temporalEvolution
+          temporalEvolution: temporalEvolution,
+          missRate: missRate,
+          missCount: missCount,
+          recentTrend: recentTrend,
+          rivals: rivals
         },
         filters: {
           cycle_id: cycle_id || null
