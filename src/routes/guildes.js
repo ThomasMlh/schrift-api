@@ -61,6 +61,71 @@ router.get('/:id/membres', async (req, res) => {
   }
 });
 
+// Récupérer les statistiques d'une guilde
+router.get('/:id/stats', async (req, res) => {
+  try {
+    const guildeId = req.params.id;
+    const cycleId = req.query.cycle_id;
+
+    // Vérifier que la guilde existe
+    const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
+    if (!guilde) {
+      return res.status(404).json({ success: false, message: 'Guilde non trouvée' });
+    }
+
+    // Récupérer tous les membres de la guilde
+    const membres = await req.db.collection('users')
+      .find({ guilde_id: guildeId })
+      .toArray();
+
+    if (membres.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          totalMembers: 0,
+          averageScore: 0,
+          totalScores: 0,
+          bestScore: 0,
+          totalPoints: 0
+        }
+      });
+    }
+
+    // Créer un tableau des IDs des membres
+    const membersIds = membres.map(m => m._id.toString());
+
+    // Construire la requête pour les scores
+    const scoresQuery = { user_id: { $in: membersIds } };
+    if (cycleId) {
+      scoresQuery.cycle_id = cycleId;
+    }
+
+    // Récupérer tous les scores des membres
+    const scores = await req.db.collection('scores')
+      .find(scoresQuery)
+      .toArray();
+
+    // Calculer les statistiques
+    const totalScores = scores.length;
+    const totalPoints = scores.reduce((sum, score) => sum + (score.score || 0), 0);
+    const averageScore = totalScores > 0 ? Math.round(totalPoints / totalScores) : 0;
+    const bestScore = totalScores > 0 ? Math.max(...scores.map(s => s.score || 0)) : 0;
+
+    const stats = {
+      totalMembers: membres.length,
+      averageScore,
+      totalScores,
+      bestScore,
+      totalPoints
+    };
+
+    res.json({ success: true, data: stats });
+  } catch (err) {
+    console.error('Error fetching guild stats:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Ajouter une guilde
 router.post('/', async (req, res) => {
   try {
