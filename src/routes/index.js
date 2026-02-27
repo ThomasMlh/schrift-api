@@ -15,6 +15,8 @@ import accessoriesRouter from './accessories.js';
 import accessoriesSubeffectRouter from './accessories_subeffect.js';
 import podiumRouter from './podium.js';
 import bannersRouter from './banners.js';
+import ocrRouter from './ocr.js';
+import ocrDebugRouter from './ocr-debug.js';
 
 const router = express.Router();
 
@@ -34,5 +36,7 @@ router.use('/accessories', accessoriesRouter);
 router.use('/accessories-subeffect', accessoriesSubeffectRouter);
 router.use('/podium', podiumRouter);
 router.use('/banners', bannersRouter);
+router.use('/ocr', ocrRouter);
+router.use('/ocr/debug', ocrDebugRouter);
 
 export default router;

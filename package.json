@@ -20,10 +20,13 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "fastest-levenshtein": "^1.0.16",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.20.0",
     "nodemon": "^3.1.10",
-    "ssh2-sftp-client": "^12.0.1"
+    "sharp": "^0.34.5",
+    "ssh2-sftp-client": "^12.0.1",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@babel/cli": "^7.28.3",

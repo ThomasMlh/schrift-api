@@ -30,15 +30,27 @@ export function requireScoresAccess(req, res, next) {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
+  console.log('🔍 requireScoresAccess - Auth header:', authHeader ? 'présent' : 'absent');
+  console.log('🔍 Token extrait:', token ? 'présent (longueur: ' + token.length + ')' : 'absent');
+
   if (!token) {
     return res.status(401).json({ success: false, message: 'Token d\'authentification requis' });
   }
 
   try {
     const jwtSecret = process.env.JWT_SECRET;
+    console.log('🔍 JWT_SECRET:', jwtSecret ? 'présent' : 'ABSENT - PROBLEME!');
     const decoded = jwt.verify(token, jwtSecret);
 
     req.user = decoded; // Ajouter les infos du token à la requête
+
+    // 🔍 DEBUG: Afficher les infos du token
+    console.log('🔍 Token decoded:', {
+      username: decoded.username,
+      is_admin: decoded.is_admin,
+      role: decoded.role,
+      guilde_id: decoded.guilde_id
+    });
 
     // Si c'est un admin, accès total
     if (decoded.is_admin) {
@@ -66,6 +78,7 @@ export function requireScoresAccess(req, res, next) {
     });
 
   } catch (err) {
+    console.error('🔍 Erreur vérification token:', err.name, err.message);
     return res.status(403).json({ success: false, message: 'Token invalide ou expiré' });
   }
 }
