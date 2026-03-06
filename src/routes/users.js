@@ -154,7 +154,8 @@ router.get('/:userId', async (req, res) => {
           last_login: 1,
           global_name: 1,
           bbs_id: 1,
-          bbs_name: 1
+          bbs_name: 1,
+          is_authorized: 1
         }
       }
     );

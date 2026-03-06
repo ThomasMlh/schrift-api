@@ -38,14 +38,15 @@ const getDiscordConfig = () => ({
     DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET,
     DISCORD_REDIRECT_URI: process.env.DISCORD_REDIRECT_URI,
     JWT_SECRET: process.env.JWT_SECRET,
-    ADMIN_DISCORD_IDS: process.env.ADMIN_DISCORD_IDS ? process.env.ADMIN_DISCORD_IDS.split(',') : []
+    ADMIN_DISCORD_IDS: process.env.ADMIN_DISCORD_IDS ? process.env.ADMIN_DISCORD_IDS.split(',') : [],
+    DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID
 });
 
 // Route pour échanger le code d'autorisation contre un token
 router.post('/discord/callback', async (req, res) => {
     try {
         const { code, redirect_uri } = req.body; // ✅ Récupérer aussi redirect_uri
-        const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, JWT_SECRET, ADMIN_DISCORD_IDS } = getDiscordConfig();
+        const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, JWT_SECRET, ADMIN_DISCORD_IDS, DISCORD_GUILD_ID } = getDiscordConfig();
 
         if (!code) {
             return res.status(400).json({ success: false, message: 'Code d\'autorisation manquant' });
@@ -161,6 +162,19 @@ router.post('/discord/callback', async (req, res) => {
             console.log('💾 Données utilisateur mises en cache pour', userData.username);
         }
 
+        // Vérifier si l'utilisateur fait partie de la guild requise
+        const isAuthorized = DISCORD_GUILD_ID
+            ? guilds.some(g => g.id === DISCORD_GUILD_ID)
+            : true;
+
+        if (!isAuthorized) {
+            console.warn('⛔ Utilisateur non autorisé (guild manquante):', userData.username);
+            return res.status(403).json({
+                success: false,
+                message: 'Vous n\'êtes pas autorisé à vous connecter. Vous devez être membre du serveur Discord.'
+            });
+        }
+
         // Vérifier si l'utilisateur est administrateur
         const isAdmin = ADMIN_DISCORD_IDS.includes(userData.id);
 
@@ -210,7 +224,7 @@ router.post('/discord/callback', async (req, res) => {
             role: existingUser?.role || roleInfo || null,
             // Autres données
             is_admin: isAdmin,
-            guilds: guilds,
+            is_authorized: isAuthorized,
             last_login: new Date(),
             access_token: tokenData.access_token,
             refresh_token: tokenData.refresh_token,
@@ -239,6 +253,7 @@ router.post('/discord/callback', async (req, res) => {
             bbs_name: user.bbs_name,
             avatar: userData.avatar,
             is_admin: isAdmin,
+            is_authorized: isAuthorized,
             exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) // 7 jours
         };
 
@@ -249,6 +264,7 @@ router.post('/discord/callback', async (req, res) => {
             token: jwtToken,
             user: {
                 global_name: userData.global_name,
+                isAuthorized: isAuthorized
             }
         });
 
@@ -291,7 +307,8 @@ router.get('/me', async (req, res) => {
                 guilde_id: user.guilde_id,
                 role: user.role,
                 bbs_id: user.bbs_id,
-                bbs_name: user.bbs_name
+                bbs_name: user.bbs_name,
+                isAuthorized: user.is_authorized
             }
         });
 
