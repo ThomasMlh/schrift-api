@@ -90,7 +90,8 @@ router.get('/', async (req, res) => {
           last_login: 1,
           global_name: 1,
           bbs_id: 1,
-          bbs_name: 1
+          bbs_name: 1,
+          is_authorized: 1
         }
       })
       .sort({ last_login: -1 }) // Trier par dernière connexion (plus récents en premier)
