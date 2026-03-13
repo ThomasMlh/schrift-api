@@ -46,18 +46,17 @@ async function connectToDatabase() {
     if(process.env.NODE_ENV === 'production') {
       console.log('⚠️  Mode production : connexion MongoDB optimisée pour Vercel');
       await client.connect();
-      const db = client.db('schrift');
+      cachedDb = client.db('schrift');
     } else {
       console.log('⚠️  Mode développement : connexion MongoDB standard');
       await client.connect();
-      const db = client.db('schrift-test');
+      cachedDb = client.db('schrift-test');
     }
 
     cachedClient = client;
-    cachedDb = db;
 
     console.log('✅ Connecté à MongoDB');
-    return { client, db };
+    return { client: cachedClient, db: cachedDb };
   } catch (err) {
     console.error('❌ Connexion MongoDB échouée:', err.message);
     throw err;
