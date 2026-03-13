@@ -20,7 +20,6 @@ async function setupAdmin() {
       console.error('❌ MONGODB_URI manquant dans .env');
       process.exit(1);
     }
-
     const client = new MongoClient(uri);
     await client.connect();
     const db = client.db('schrift');

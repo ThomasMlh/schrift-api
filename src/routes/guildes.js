@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireDb } from '../middleware/auth.js';
+import { requireDb, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -368,6 +368,145 @@ router.post('/:id/membres', async (req, res) => {
   } catch (err) {
     console.error('Erreur lors de l\'ajout du membre:', err);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+// Exécuter un draft : retirer puis réassigner des joueurs en bulk
+router.post('/draft', requireAdmin, async (req, res) => {
+  try {
+    const { moves } = req.body;
+
+    if (!Array.isArray(moves) || moves.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Un tableau de mouvements est requis'
+      });
+    }
+
+    // Valider chaque mouvement
+    for (const move of moves) {
+      if (!move.userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Chaque mouvement doit contenir userId'
+        });
+      }
+      if (!ObjectId.isValid(move.userId)) {
+        return res.status(400).json({
+          success: false,
+          message: `ID utilisateur invalide: ${move.userId}`
+        });
+      }
+      if (move.toGuildId && !ObjectId.isValid(move.toGuildId)) {
+        return res.status(400).json({
+          success: false,
+          message: `ID guilde invalide: ${move.toGuildId}`
+        });
+      }
+    }
+
+    // Vérifier que toutes les guildes cibles existent (hors retraits)
+    const targetGuildIds = [...new Set(moves.filter(m => m.toGuildId).map(m => m.toGuildId))];
+    let guilds = [];
+    if (targetGuildIds.length > 0) {
+      guilds = await req.db.collection('guildes').find({
+        _id: { $in: targetGuildIds.map(id => new ObjectId(id)) }
+      }).toArray();
+
+      if (guilds.length !== targetGuildIds.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'Une ou plusieurs guildes cibles n\'existent pas'
+        });
+      }
+    }
+
+    // Vérifier que tous les utilisateurs existent
+    const userIds = moves.map(m => m.userId);
+    const users = await req.db.collection('users').find({
+      _id: { $in: userIds.map(id => new ObjectId(id)) }
+    }).toArray();
+
+    if (users.length !== userIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Un ou plusieurs utilisateurs n\'existent pas'
+      });
+    }
+
+    // Étape 1 : Retirer tous les joueurs concernés de leur guilde
+    const userObjectIds = userIds.map(id => new ObjectId(id));
+    await req.db.collection('users').updateMany(
+      { _id: { $in: userObjectIds } },
+      { $set: { guilde_id: null, role: null } }
+    );
+
+    // Étape 2 : Calculer les effectifs finaux par guilde pour vérifier la limite de 20
+    // Compter les membres actuels (hors ceux du draft)
+    const guildCounts = {};
+    for (const guildId of targetGuildIds) {
+      const count = await req.db.collection('users').countDocuments({
+        guilde_id: guildId,
+        _id: { $nin: userObjectIds }
+      });
+      guildCounts[guildId] = count;
+    }
+
+    // Vérifier que chaque guilde ne dépassera pas 20 membres (ignorer les retraits)
+    for (const move of moves) {
+      if (!move.toGuildId) continue;
+      guildCounts[move.toGuildId] = (guildCounts[move.toGuildId] || 0) + 1;
+      if (guildCounts[move.toGuildId] > 20) {
+        // Rollback : remettre les users dans leur guilde d'origine
+        const userMap = {};
+        users.forEach(u => { userMap[u._id.toString()] = u; });
+        for (const m of moves) {
+          const originalUser = userMap[m.userId];
+          if (originalUser && originalUser.guilde_id) {
+            await req.db.collection('users').updateOne(
+              { _id: new ObjectId(m.userId) },
+              { $set: { guilde_id: originalUser.guilde_id, role: originalUser.role } }
+            );
+          }
+        }
+        const guildName = guilds.find(g => g._id.toString() === move.toGuildId)?.name || move.toGuildId;
+        return res.status(400).json({
+          success: false,
+          message: `La guilde ${guildName} dépasserait la limite de 20 membres`
+        });
+      }
+    }
+
+    // Étape 3 : Réassigner chaque joueur dans sa nouvelle guilde (ou laisser sans guilde)
+    const results = [];
+    for (const move of moves) {
+      if (move.toGuildId) {
+        const role = move.role || 'membre';
+        await req.db.collection('users').updateOne(
+          { _id: new ObjectId(move.userId) },
+          { $set: { guilde_id: move.toGuildId, role } }
+        );
+      }
+      // Si toGuildId est null, le joueur reste sans guilde (déjà retiré à l'étape 1)
+      const user = users.find(u => u._id.toString() === move.userId);
+      results.push({
+        userId: move.userId,
+        username: user?.global_name || user?.username || 'Inconnu',
+        toGuildId: move.toGuildId || null,
+        toGuildName: move.toGuildId
+          ? (guilds.find(g => g._id.toString() === move.toGuildId)?.name || 'Inconnue')
+          : 'Aucune guilde'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `${moves.length} joueur(s) déplacé(s) avec succès`,
+      results
+    });
+  } catch (err) {
+    console.error('Erreur lors de l\'exécution du draft:', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur lors du draft' });
   }
 });
 

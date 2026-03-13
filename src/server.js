@@ -30,6 +30,7 @@ if (!uri) {
   console.error('❌ MONGODB_URI manquant');
   process.exit(1);
 }
+    console.log(uri);
 
 const client = new MongoClient(uri);
 
@@ -37,9 +38,15 @@ let db;
 
 async function initDb() {
   try {
-    await client.connect();
-    db = client.db('schrift');
-    
+    if(process.env.NODE_ENV === 'production') {
+      console.log('⚠️  Mode production : connexion MongoDB optimisée pour Vercel');
+      await client.connect();
+      db = client.db('schrift');
+    } else {
+      console.log('⚠️  Mode développement : connexion MongoDB standard');
+      await client.connect();
+      db = client.db('schrift-test');
+    }
     // Rendre la DB accessible aux routes via app.locals
     app.locals.db = db;
     

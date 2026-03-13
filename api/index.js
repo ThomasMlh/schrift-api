@@ -43,8 +43,15 @@ async function connectToDatabase() {
       socketTimeoutMS: 45000,
     });
 
-    await client.connect();
-    const db = client.db('schrift');
+    if(process.env.NODE_ENV === 'production') {
+      console.log('⚠️  Mode production : connexion MongoDB optimisée pour Vercel');
+      await client.connect();
+      const db = client.db('schrift');
+    } else {
+      console.log('⚠️  Mode développement : connexion MongoDB standard');
+      await client.connect();
+      const db = client.db('schrift-test');
+    }
 
     cachedClient = client;
     cachedDb = db;
