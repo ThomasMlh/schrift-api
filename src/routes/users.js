@@ -127,6 +127,99 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Route pour récupérer les utilisateurs sans guilde avec pagination
+router.get('/without-guild', async (req, res) => {
+  try {
+    // Paramètres de pagination avec valeurs par défaut
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+
+    // Limiter le nombre max par page pour éviter les abus
+    const maxLimit = 200;
+    const actualLimit = Math.min(limit, maxLimit);
+
+    // Paramètre de recherche optionnel
+    const { search } = req.query;
+
+    // Construire la requête de base (sans guilde)
+    const query = {
+      $or: [
+        { guilde_id: null },
+        { guilde_id: { $exists: false } }
+      ]
+    };
+
+    // Ajouter filtre de recherche si présent
+    if (search && search.trim()) {
+      const searchTerm = search.trim();
+      query.$and = [
+        query,
+        {
+          $or: [
+            { username: { $regex: searchTerm, $options: 'i' } },
+            { global_name: { $regex: searchTerm, $options: 'i' } }
+          ]
+        }
+      ];
+      // Restructurer la requête pour éviter les conflits
+      delete query.$or;
+      query.$and.unshift({
+        $or: [
+          { guilde_id: null },
+          { guilde_id: { $exists: false } }
+        ]
+      });
+    }
+
+    const users = await req.db.collection('users')
+      .find(query, {
+        projection: {
+          _id: 1,
+          discord_id: 1,
+          username: 1,
+          avatar: 1,
+          banner: 1,
+          is_admin: 1,
+          last_login: 1,
+          global_name: 1,
+          guilde_id: 1,
+          role: 1,
+          bbs_name: 1,
+          bbs_id: 1
+        }
+      })
+      .sort({ last_login: -1 })
+      .skip(skip)
+      .limit(actualLimit)
+      .toArray();
+
+    const totalCount = await req.db.collection('users').countDocuments(query);
+    const totalPages = Math.ceil(totalCount / actualLimit);
+
+    res.json({
+      success: true,
+      users,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalCount,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        itemsPerPage: actualLimit,
+        itemsOnPage: users.length
+      },
+      // Retourner les filtres actifs pour le frontend
+      activeFilters: {
+        search: search || null
+      }
+    });
+  } catch (error) {
+    console.error('Erreur lors de la récupération des utilisateurs sans guilde:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
 // Route pour récupérer un utilisateur spécifique
 router.get('/:userId', async (req, res) => {
   try {
@@ -342,97 +435,6 @@ router.put('/:userId/guild', requireAdmin, async (req, res) => {
     res.json({ success: true, message: `${user.global_name || 'Utilisateur'} déplacé vers la nouvelle guilde` });
   } catch (error) {
     console.error('Erreur lors du changement de guilde:', error);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
-  }
-});
-
-// Route pour récupérer les utilisateurs sans guilde avec pagination
-router.get('/without-guild', async (req, res) => {
-  try {
-    // Paramètres de pagination avec valeurs par défaut
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const skip = (page - 1) * limit;
-
-    // Limiter le nombre max par page pour éviter les abus
-    const maxLimit = 200;
-    const actualLimit = Math.min(limit, maxLimit);
-
-    // Paramètre de recherche optionnel
-    const { search } = req.query;
-
-    // Construire la requête de base (sans guilde)
-    const query = {
-      $or: [
-        { guilde_id: null },
-        { guilde_id: { $exists: false } }
-      ]
-    };
-
-    // Ajouter filtre de recherche si présent
-    if (search && search.trim()) {
-      const searchTerm = search.trim();
-      query.$and = [
-        query,
-        {
-          $or: [
-            { username: { $regex: searchTerm, $options: 'i' } },
-            { global_name: { $regex: searchTerm, $options: 'i' } }
-          ]
-        }
-      ];
-      // Restructurer la requête pour éviter les conflits
-      delete query.$or;
-      query.$and.unshift({
-        $or: [
-          { guilde_id: null },
-          { guilde_id: { $exists: false } }
-        ]
-      });
-    }
-
-    const users = await req.db.collection('users')
-      .find(query, {
-        projection: {
-          _id: 1,
-          discord_id: 1,
-          username: 1,
-          avatar: 1,
-          banner: 1,
-          is_admin: 1,
-          last_login: 1,
-          global_name: 1,
-          guilde_id: 1,
-          role: 1
-        }
-      })
-      .sort({ last_login: -1 })
-      .skip(skip)
-      .limit(actualLimit)
-      .toArray();
-
-    const totalCount = await req.db.collection('users').countDocuments(query);
-    const totalPages = Math.ceil(totalCount / actualLimit);
-
-    res.json({
-      success: true,
-      users,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: users.length
-      },
-      // Retourner les filtres actifs pour le frontend
-      activeFilters: {
-        search: search || null
-      }
-    });
-  } catch (error) {
-    console.error('Erreur lors de la récupération des utilisateurs sans guilde:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
