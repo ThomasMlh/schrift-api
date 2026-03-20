@@ -91,10 +91,13 @@ router.get('/', async (req, res) => {
           global_name: 1,
           bbs_id: 1,
           bbs_name: 1,
-          is_authorized: 1
+          is_authorized: 1,
+          is_banned: 1,
+          ban_reason: 1,
+          banned_at: 1
         }
       })
-      .sort({ last_login: -1 }) // Trier par dernière connexion (plus récents en premier)
+      .sort({ bbs_name: 1 })
       .skip(skip)
       .limit(actualLimit)
       .toArray();
@@ -186,10 +189,13 @@ router.get('/without-guild', async (req, res) => {
           guilde_id: 1,
           role: 1,
           bbs_name: 1,
-          bbs_id: 1
+          bbs_id: 1,
+          is_banned: 1,
+          ban_reason: 1,
+          banned_at: 1
         }
       })
-      .sort({ last_login: -1 })
+      .sort({ bbs_name: 1 })
       .skip(skip)
       .limit(actualLimit)
       .toArray();
@@ -249,7 +255,10 @@ router.get('/:userId', async (req, res) => {
           global_name: 1,
           bbs_id: 1,
           bbs_name: 1,
-          is_authorized: 1
+          is_authorized: 1,
+          is_banned: 1,
+          ban_reason: 1,
+          banned_at: 1
         }
       }
     );
@@ -1003,6 +1012,99 @@ router.get('/:user_id/stats', async (req, res) => {
       success: false, 
       message: 'Erreur serveur lors de la récupération des statistiques'
     });
+  }
+});
+
+// Route pour bannir un utilisateur (admin seulement)
+router.post('/:userId/ban', requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Format d\'ID utilisateur invalide'
+      });
+    }
+
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    if (user.is_admin) {
+      return res.status(403).json({ success: false, message: 'Impossible de bannir un administrateur' });
+    }
+
+    if (user.is_banned) {
+      return res.status(400).json({ success: false, message: 'Cet utilisateur est déjà banni' });
+    }
+
+    await req.db.collection('users').updateOne(
+      { _id: new ObjectId(userId) },
+      {
+        $set: {
+          is_banned: true,
+          ban_reason: reason || null,
+          banned_at: new Date(),
+          banned_by: req.user.discord_id
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      message: `${user.global_name || user.username} a été banni avec succès`
+    });
+  } catch (error) {
+    console.error('Erreur lors du bannissement:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+// Route pour débannir un utilisateur (admin seulement)
+router.post('/:userId/unban', requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Format d\'ID utilisateur invalide'
+      });
+    }
+
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    if (!user.is_banned) {
+      return res.status(400).json({ success: false, message: 'Cet utilisateur n\'est pas banni' });
+    }
+
+    await req.db.collection('users').updateOne(
+      { _id: new ObjectId(userId) },
+      {
+        $set: {
+          is_banned: false,
+          ban_reason: null,
+          banned_at: null,
+          banned_by: null
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      message: `${user.global_name || user.username} a été débanni avec succès`
+    });
+  } catch (error) {
+    console.error('Erreur lors du débannissement:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 

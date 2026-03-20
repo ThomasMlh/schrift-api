@@ -162,7 +162,22 @@ router.post('/discord/callback', async (req, res) => {
             console.log('💾 Données utilisateur mises en cache pour', userData.username);
         }
 
-        // Vérifier si l'utilisateur fait partie de la guild requise
+        // Vérifier si l'utilisateur est administrateur
+        const isAdmin = ADMIN_DISCORD_IDS.includes(userData.id);
+
+        const existingUser = await req.db.collection('users').findOne({ discord_id: userData.id });
+
+        // 1. Vérifier si l'utilisateur est banni
+        if (existingUser?.is_banned) {
+            console.warn('⛔ Utilisateur banni:', userData.username);
+            return res.status(403).json({
+                success: false,
+                message: 'Votre compte a été banni.',
+                reason: existingUser.ban_reason || null
+            });
+        }
+
+        // 2. Vérifier si l'utilisateur fait partie de la guild requise
         const isAuthorized = DISCORD_GUILD_ID
             ? guilds.some(g => g.id === DISCORD_GUILD_ID)
             : true;
@@ -174,11 +189,6 @@ router.post('/discord/callback', async (req, res) => {
                 message: 'Vous n\'êtes pas autorisé à vous connecter. Vous devez être membre du serveur Discord.'
             });
         }
-
-        // Vérifier si l'utilisateur est administrateur
-        const isAdmin = ADMIN_DISCORD_IDS.includes(userData.id);
-
-        const existingUser = await req.db.collection('users').findOne({ discord_id: userData.id });
         
         let playerInfo = null;
         if (players.joueurs && Array.isArray(players.joueurs)) {
