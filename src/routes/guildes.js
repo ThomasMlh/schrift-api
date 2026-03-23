@@ -10,7 +10,9 @@ router.use(requireDb);
 // Récupérer toutes les guildes
 router.get('/', async (req, res) => {
   try {
-    const guildes = await req.db.collection('guildes').find().toArray();
+    const includeDisabled = req.query.include_disabled === 'true';
+    const filter = includeDisabled ? {} : { disabled: { $ne: true } };
+    const guildes = await req.db.collection('guildes').find(filter).toArray();
     guildes.sort((a, b) => a.name.localeCompare(b.name));
     res.status(200).json(guildes);
   } catch (err) {
@@ -191,6 +193,41 @@ router.put('/:id', async (req, res) => {
     );
 
     res.status(200).json({ success: true, message: `Guilde renommée en ${name.trim()}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Activer/Désactiver une guilde
+router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
+  try {
+    const guildeId = req.params.id;
+    const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
+    if (!guilde) {
+      return res.status(404).json({ success: false, message: 'Guilde non trouvée' });
+    }
+
+    const newDisabledState = !guilde.disabled;
+
+    // Si on désactive la guilde, retirer tous les membres
+    if (newDisabledState) {
+      await req.db.collection('users').updateMany(
+        { guilde_id: guildeId },
+        { $set: { guilde_id: null, role: null } }
+      );
+    }
+
+    await req.db.collection('guildes').updateOne(
+      { _id: new ObjectId(guildeId) },
+      { $set: { disabled: newDisabledState } }
+    );
+
+    const action = newDisabledState ? 'désactivée' : 'réactivée';
+    res.status(200).json({
+      success: true,
+      message: `Guilde ${guilde.name} ${action} avec succès`,
+      disabled: newDisabledState
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
