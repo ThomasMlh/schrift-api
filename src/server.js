@@ -13,9 +13,13 @@ const app = express();
 app.use(express.json({limit: '1000mb'}));
 app.use(express.urlencoded({limit: '1000mb', extended: true}));
 
-// Configuration CORS simplifiée pour JWT
+// Configuration CORS
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? ['https://www.bbs-schrift.fr', 'https://bbs-schrift.fr']
+  : ['http://localhost:5173'];
+
 app.use(cors({
-  origin: '*',
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true

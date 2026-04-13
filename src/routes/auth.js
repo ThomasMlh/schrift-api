@@ -45,15 +45,15 @@ const getDiscordConfig = () => ({
 // Route pour échanger le code d'autorisation contre un token
 router.post('/discord/callback', async (req, res) => {
     try {
-        const { code, redirect_uri } = req.body; // ✅ Récupérer aussi redirect_uri
+        const { code } = req.body;
         const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, JWT_SECRET, ADMIN_DISCORD_IDS, DISCORD_GUILD_ID } = getDiscordConfig();
 
         if (!code) {
             return res.status(400).json({ success: false, message: 'Code d\'autorisation manquant' });
         }
 
-        // Utiliser la redirect_uri du frontend ou fallback sur celle de l'env
-        const finalRedirectUri = redirect_uri || DISCORD_REDIRECT_URI;
+        // Toujours utiliser la redirect_uri configurée côté serveur (sécurité)
+        const finalRedirectUri = DISCORD_REDIRECT_URI;
 
         // Échanger le code contre un access token
         const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
@@ -210,35 +210,29 @@ router.post('/discord/callback', async (req, res) => {
         }
 
         // Créer ou mettre à jour l'utilisateur en base de données
+        // Note: les tokens Discord ne sont PAS stockés en DB (sécurité)
         const user = {
             discord_id: userData.id,
             username: userData.username,
-            global_name: userData.global_name, // Nom d'affichage Discord
+            global_name: userData.global_name,
             discriminator: userData.discriminator,
             avatar: userData.avatar,
             email: userData.email,
-            // Informations étendues
-            locale: userData.locale, // Langue de l'utilisateur
-            flags: userData.flags, // Badges Discord
-            premium_type: userData.premium_type, // Nitro status
+            locale: userData.locale,
+            flags: userData.flags,
+            premium_type: userData.premium_type,
             public_flags: userData.public_flags,
-            banner: userData.banner, // Bannière de profil
+            banner: userData.banner,
             banner_color: userData.banner_color,
             accent_color: userData.accent_color,
-            // Données de connexion
             connections: connections,
-            bbs_id:  existingUser?.bbs_id || playerInfo?.id_bbs || null,
+            bbs_id: existingUser?.bbs_id || playerInfo?.id_bbs || null,
             bbs_name: existingUser?.bbs_name || playerInfo?.pseudo_bbs || null,
-            // Informations de guilde (utiliser les données du JSON ou conserver les existantes)
             guilde_id: existingUser?.guilde_id || guildeInfo?._id?.toString() || null,
             role: existingUser?.role || roleInfo || null,
-            // Autres données
             is_admin: isAdmin,
             is_authorized: isAuthorized,
-            last_login: new Date(),
-            access_token: tokenData.access_token,
-            refresh_token: tokenData.refresh_token,
-            token_expires: new Date(Date.now() + tokenData.expires_in * 1000)
+            last_login: new Date()
         };
 
         // Upsert utilisateur
@@ -251,27 +245,30 @@ router.post('/discord/callback', async (req, res) => {
         // Récupérer l'utilisateur mis à jour pour avoir son _id
         const savedUser = await req.db.collection('users').findOne({ discord_id: userData.id });
 
-        // Créer un JWT
+        // Créer un JWT (payload minimal, les infos supplémentaires sont en DB)
         const jwtPayload = {
             _id: savedUser._id,
-            username: userData.username,
-            global_name: userData.global_name,
             discord_id: userData.id,
-            guilde_id: user.guilde_id,
-            role: user.role,
-            bbs_id: user.bbs_id,
-            bbs_name: user.bbs_name,
-            avatar: userData.avatar,
             is_admin: isAdmin,
-            is_authorized: isAuthorized,
-            exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60) // 7 jours
+            role: user.role,
+            guilde_id: user.guilde_id,
         };
 
-        const jwtToken = jwt.sign(jwtPayload, JWT_SECRET);
+        const jwtToken = jwt.sign(jwtPayload, JWT_SECRET, { expiresIn: '24h' });
+        const refreshToken = jwt.sign({ _id: savedUser._id, discord_id: userData.id, type: 'refresh' }, JWT_SECRET, { expiresIn: '7d' });
+
+        // Stocker le refresh token hashé en DB
+        const crypto = await import('crypto');
+        const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+        await req.db.collection('users').updateOne(
+            { discord_id: userData.id },
+            { $set: { refresh_token_hash: refreshTokenHash } }
+        );
 
         res.json({
             success: true,
             token: jwtToken,
+            refreshToken,
             user: {
                 global_name: userData.global_name,
                 isAuthorized: isAuthorized
@@ -280,7 +277,53 @@ router.post('/discord/callback', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Erreur lors de l\'authentification Discord:', error);
-        res.status(500).json({ success: false, message: 'Erreur serveur lors de l\'authentification', error: error.message });
+        res.status(500).json({ success: false, message: 'Erreur serveur lors de l\'authentification' });
+    }
+});
+
+// Route pour rafraîchir le JWT via refresh token
+router.post('/refresh', async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+        const { JWT_SECRET } = getDiscordConfig();
+
+        if (!refreshToken) {
+            return res.status(400).json({ success: false, message: 'Refresh token requis' });
+        }
+
+        let decoded;
+        try {
+            decoded = jwt.verify(refreshToken, JWT_SECRET);
+        } catch {
+            return res.status(401).json({ success: false, message: 'Refresh token invalide ou expiré' });
+        }
+
+        if (decoded.type !== 'refresh') {
+            return res.status(401).json({ success: false, message: 'Token invalide' });
+        }
+
+        // Vérifier que le refresh token correspond à celui en DB
+        const crypto = await import('crypto');
+        const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+        const user = await req.db.collection('users').findOne({ discord_id: decoded.discord_id, refresh_token_hash: refreshTokenHash });
+
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Refresh token révoqué' });
+        }
+
+        // Générer un nouveau JWT
+        const newToken = jwt.sign({
+            _id: user._id,
+            discord_id: user.discord_id,
+            is_admin: user.is_admin,
+            role: user.role,
+            guilde_id: user.guilde_id,
+        }, JWT_SECRET, { expiresIn: '24h' });
+
+        res.json({ success: true, token: newToken });
+    } catch (error) {
+        console.error('❌ Erreur refresh token:', error);
+        res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
 });
 
@@ -297,7 +340,7 @@ router.get('/me', async (req, res) => {
         const decoded = jwt.verify(token, JWT_SECRET);
 
         // Récupérer les infos utilisateur depuis la base
-        const user = await req.db.collection('users').findOne({ discord_id: decoded.userId });
+        const user = await req.db.collection('users').findOne({ discord_id: decoded.discord_id });
 
         if (!user) {
             return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
@@ -342,8 +385,8 @@ router.post('/logout', async (req, res) => {
             // Optionnel: marquer le token comme invalide en base (blacklist)
             // ou mettre à jour la dernière déconnexion
             await req.db.collection('users').updateOne(
-                { discord_id: decoded.userId },
-                { $set: { last_logout: new Date() } }
+                { discord_id: decoded.discord_id },
+                { $set: { last_logout: new Date(), refresh_token_hash: null } }
             );
         }
 
@@ -354,86 +397,72 @@ router.post('/logout', async (req, res) => {
     }
 });
 
-// Route pour déboguer les tokens JWT
-router.post('/debug-token', async (req, res) => {
-    try {
-        const { token } = req.body;
-        const { JWT_SECRET } = getDiscordConfig();
-
-        if (!token) {
-            return res.status(400).json({ success: false, message: 'Token requis dans le body' });
-        }
-
-        let decoded = null;
-        let isValid = false;
-        let error = null;
-
+// Routes de debug (désactivées en production)
+if (process.env.NODE_ENV !== 'production') {
+    router.post('/debug-token', async (req, res) => {
         try {
-            decoded = jwt.verify(token, JWT_SECRET);
-            isValid = true;
-        } catch (err) {
-            error = err.message;
-            // Essayons de décoder sans vérifier la signature pour voir le contenu
+            const { token } = req.body;
+            const { JWT_SECRET } = getDiscordConfig();
+
+            if (!token) {
+                return res.status(400).json({ success: false, message: 'Token requis dans le body' });
+            }
+
+            let decoded = null;
+            let isValid = false;
+            let error = null;
+
             try {
-                decoded = jwt.decode(token);
-            } catch (decodeErr) {
-                decoded = null;
-            }
-        }
-
-        const now = Math.floor(Date.now() / 1000);
-
-        res.json({
-            success: true,
-            debug: {
-                isValid,
-                error,
-                decoded,
-                currentTime: now,
-                currentTimeISO: new Date().toISOString(),
-                hasJwtSecret: !!JWT_SECRET,
-                jwtSecretLength: JWT_SECRET ? JWT_SECRET.length : 0,
-                tokenExpired: decoded && decoded.exp ? decoded.exp < now : null,
-                timeUntilExpiry: decoded && decoded.exp ? decoded.exp - now : null
-            }
-        });
-
-    } catch (error) {
-        console.error('Erreur lors du debug du token:', error);
-        res.status(500).json({ success: false, message: 'Erreur serveur' });
-    }
-});
-
-// Route de debug pour vérifier la configuration Discord
-router.get('/debug/discord-config', (req, res) => {
-    try {
-        const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, JWT_SECRET, ADMIN_DISCORD_IDS } = getDiscordConfig();
-
-        res.json({
-            success: true,
-            config: {
-                hasClientId: !!DISCORD_CLIENT_ID,
-                clientIdPreview: DISCORD_CLIENT_ID ? `${DISCORD_CLIENT_ID.substring(0, 8)}...` : null,
-                hasClientSecret: !!DISCORD_CLIENT_SECRET,
-                clientSecretLength: DISCORD_CLIENT_SECRET ? DISCORD_CLIENT_SECRET.length : 0,
-                redirectUri: DISCORD_REDIRECT_URI,
-                hasJwtSecret: !!JWT_SECRET,
-                jwtSecretLength: JWT_SECRET ? JWT_SECRET.length : 0,
-                adminCount: ADMIN_DISCORD_IDS ? ADMIN_DISCORD_IDS.length : 0,
-                envVars: {
-                    NODE_ENV: process.env.NODE_ENV,
-                    hasDiscordClientId: !!process.env.DISCORD_CLIENT_ID,
-                    hasDiscordClientSecret: !!process.env.DISCORD_CLIENT_SECRET,
-                    hasDiscordRedirectUri: !!process.env.DISCORD_REDIRECT_URI,
-                    hasJwtSecret: !!process.env.JWT_SECRET,
-                    hasAdminIds: !!process.env.ADMIN_DISCORD_IDS
+                decoded = jwt.verify(token, JWT_SECRET);
+                isValid = true;
+            } catch (err) {
+                error = err.message;
+                try {
+                    decoded = jwt.decode(token);
+                } catch (decodeErr) {
+                    decoded = null;
                 }
             }
-        });
-    } catch (error) {
-        console.error('Erreur lors du debug de la config Discord:', error);
-        res.status(500).json({ success: false, message: 'Erreur serveur' });
-    }
-});
+
+            const now = Math.floor(Date.now() / 1000);
+
+            res.json({
+                success: true,
+                debug: {
+                    isValid,
+                    error,
+                    decoded,
+                    currentTime: now,
+                    currentTimeISO: new Date().toISOString(),
+                    tokenExpired: decoded && decoded.exp ? decoded.exp < now : null,
+                    timeUntilExpiry: decoded && decoded.exp ? decoded.exp - now : null
+                }
+            });
+
+        } catch (error) {
+            console.error('Erreur lors du debug du token:', error);
+            res.status(500).json({ success: false, message: 'Erreur serveur' });
+        }
+    });
+
+    router.get('/debug/discord-config', (req, res) => {
+        try {
+            const { DISCORD_CLIENT_ID, DISCORD_REDIRECT_URI, ADMIN_DISCORD_IDS } = getDiscordConfig();
+
+            res.json({
+                success: true,
+                config: {
+                    hasClientId: !!DISCORD_CLIENT_ID,
+                    clientIdPreview: DISCORD_CLIENT_ID ? `${DISCORD_CLIENT_ID.substring(0, 8)}...` : null,
+                    redirectUri: DISCORD_REDIRECT_URI,
+                    adminCount: ADMIN_DISCORD_IDS ? ADMIN_DISCORD_IDS.length : 0,
+                }
+            });
+        } catch (error) {
+            console.error('Erreur lors du debug de la config Discord:', error);
+            res.status(500).json({ success: false, message: 'Erreur serveur' });
+        }
+    });
+}
 
 export default router;

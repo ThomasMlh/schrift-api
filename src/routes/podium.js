@@ -165,7 +165,14 @@ router.get('/', async (req, res) => {
 // GET podium complet des joueurs par cycle_name et rotation_id
 router.get('/full', async (req, res) => {
   try {
-    const { cycle_name, rotation_id, guild_name, page = 1, limit = 50 } = req.query;
+    const {
+      cycle_name,
+      rotation_id,
+      guild_name,
+      ranking_type = 'average',
+      page = 1,
+      limit = 50,
+    } = req.query;
 
     // Validation des paramètres obligatoires
     if (!cycle_name) {
@@ -179,6 +186,14 @@ router.get('/full', async (req, res) => {
     const pageNumber = Math.max(1, parseInt(page, 10) || 1);
     const limitNumber = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
     const skip = (pageNumber - 1) * limitNumber;
+
+    const normalizedRankingType = String(ranking_type).toLowerCase();
+    if (!rotation_id && !['average', 'max'].includes(normalizedRankingType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ranking_type doit être "average" ou "max"'
+      });
+    }
 
     // Rechercher le cycle par son nom
     const cycle = await req.db.collection('cycles').findOne({
@@ -320,13 +335,17 @@ router.get('/full', async (req, res) => {
         { $sort: { score: -1 } }
       ];
     } else {
-      // Pipeline pour tout le cycle (moyennes)
+      // Pipeline pour tout le cycle (moyennes / total) par joueur ET par guilde
       pipelineForRanking = [
         { $match: matchStage },
         {
           $group: {
-            _id: "$user_id",
+            _id: {
+              user_id: "$user_id",
+              guild_id: "$guild_id"
+            },
             averageScore: { $avg: "$score" },
+            totalScore: { $sum: "$score" },
             totalScores: { $sum: 1 },
             totalRawScore: { $sum: "$raw_score" }
           }
@@ -334,7 +353,7 @@ router.get('/full', async (req, res) => {
         {
           $lookup: {
             from: 'users',
-            let: { userId: "$_id" },
+            let: { userId: "$_id.user_id" },
             pipeline: [
               { 
                 $match: { 
@@ -362,7 +381,7 @@ router.get('/full', async (req, res) => {
         {
           $lookup: {
             from: 'guildes',
-            let: { guildeId: { $arrayElemAt: ["$user.guilde_id", 0] } },
+            let: { guildeId: "$_id.guild_id" },
             pipeline: [
               { 
                 $match: { 
@@ -384,11 +403,14 @@ router.get('/full', async (req, res) => {
         {
           $project: {
             _id: 0,
-            user_id: "$_id",
+            user_id: "$_id.user_id",
+            score_guild_id: "$_id.guild_id",
             bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
             discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
             global_name: { $arrayElemAt: ["$user.global_name", 0] },
+            user_guild_id: { $arrayElemAt: ["$user.guilde_id", 0] },
             averageScore: { $round: ["$averageScore", 0] },
+            totalScore: { $round: ["$totalScore", 0] },
             totalScores: 1,
             totalRawScore: 1,
             avatar: { $arrayElemAt: ["$user.avatar", 0] },
@@ -396,19 +418,61 @@ router.get('/full', async (req, res) => {
             hasUser: 1
           }
         },
-        { $sort: { averageScore: -1 } }
+        {
+          $sort: {
+            [normalizedRankingType === 'max' ? 'totalScore' : 'averageScore']:
+              -1,
+          },
+        }
       ];
     }
 
     // Exécuter le pipeline complet
     const allResults = await req.db.collection('scores').aggregate(pipelineForRanking).toArray();
+
+    // En mode cycle sans filtre de guilde, un joueur peut avoir des scores dans plusieurs guildes.
+    // On conserve une entrée par joueur: priorité à sa guilde actuelle, sinon meilleure entrée triée.
+    let rankingSource = allResults;
+    if (!rotation_id && !guildId) {
+      const byUser = new Map();
+
+      for (const entry of allResults) {
+        const existing = byUser.get(entry.user_id);
+        const isCurrentGuildEntry =
+          entry.user_guild_id && entry.score_guild_id === entry.user_guild_id;
+        const existingIsCurrentGuildEntry =
+          existing &&
+          existing.user_guild_id &&
+          existing.score_guild_id === existing.user_guild_id;
+
+        if (!existing) {
+          byUser.set(entry.user_id, entry);
+          continue;
+        }
+
+        // Si une entrée correspond à la guilde actuelle du joueur, elle est prioritaire.
+        if (isCurrentGuildEntry && !existingIsCurrentGuildEntry) {
+          byUser.set(entry.user_id, entry);
+        }
+      }
+
+      rankingSource = Array.from(byUser.values());
+      rankingSource.sort((a, b) => {
+        const key = normalizedRankingType === 'max' ? 'totalScore' : 'averageScore';
+        return (b[key] || 0) - (a[key] || 0);
+      });
+    }
     
     // Calculer les ranks
     let currentRank = 1;
     let previousScore = null;
 
-    const resultsWithRank = allResults.map((player, index) => {
-      const scoreToCompare = rotation_id ? player.score : player.averageScore;
+    const resultsWithRank = rankingSource.map((player, index) => {
+      const scoreToCompare = rotation_id
+        ? player.score
+        : normalizedRankingType === 'max'
+        ? player.totalScore
+        : player.averageScore;
       
       if (index > 0 && previousScore !== null && scoreToCompare !== previousScore) {
         currentRank++;
@@ -449,9 +513,9 @@ router.get('/full', async (req, res) => {
 
     // Calculer la moyenne générale
     let overallAverageScore = null;
-    if (rotation_id && allResults.length > 0) {
-      const totalScore = allResults.reduce((sum, player) => sum + (player.score || 0), 0);
-      overallAverageScore = Math.round(totalScore / allResults.length);
+    if (rotation_id && rankingSource.length > 0) {
+      const totalScore = rankingSource.reduce((sum, player) => sum + (player.score || 0), 0);
+      overallAverageScore = Math.round(totalScore / rankingSource.length);
     }
 
     res.json({
@@ -470,7 +534,8 @@ router.get('/full', async (req, res) => {
         cycle_name: cycle_name,
         cycle_id: cycle._id.toString(),
         rotation_id: rotation_id || null,
-        guild_name: guild_name || null
+        guild_name: guild_name || null,
+        ranking_type: rotation_id ? null : normalizedRankingType
       },
       meta: {
         totalPlayers: totalCount,
@@ -478,7 +543,11 @@ router.get('/full', async (req, res) => {
         rotationInfo: rotationInfo,
         guildSpecific: !!guild_name,
         fullPodium: true,
-        podiumType: rotation_id ? 'individual_scores' : 'average_scores',
+        podiumType: rotation_id
+          ? 'individual_scores'
+          : normalizedRankingType === 'max'
+          ? 'max_scores'
+          : 'average_scores',
         ...(rotation_id && overallAverageScore !== null && { averageScore: overallAverageScore })
       }
     });
