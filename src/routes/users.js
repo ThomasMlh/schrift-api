@@ -49,10 +49,17 @@ router.get('/', async (req, res) => {
     const actualLimit = Math.min(limit, maxLimit);
 
     // Paramètres de filtrage optionnels
-    const { guilde_id, role, search } = req.query;
+    const { guilde_id, role, search, is_banned } = req.query;
 
     // Construire la requête de filtrage
     const query = {};
+
+    // Filtre par statut de bannissement
+    if (is_banned === 'true') {
+      query.is_banned = true;
+    } else if (is_banned === 'false') {
+      query.is_banned = { $ne: true };
+    }
 
     // Filtre par guilde
     if (guilde_id && guilde_id.trim()) {
