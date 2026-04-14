@@ -104,7 +104,7 @@ router.get('/', async (req, res) => {
           banned_at: 1
         }
       })
-      .sort({ bbs_name: 1 })
+      .sort({ last_login: -1 })
       .skip(skip)
       .limit(actualLimit)
       .toArray();
