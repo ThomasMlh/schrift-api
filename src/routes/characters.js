@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { cleanObject } from "../utils/cleaners.js";
 import { requireAdmin, requireDb } from "../middleware/auth.js";
 import { SFTPClient } from "../utils/database.js";
+import { FTPUploader } from "../utils/ftp.js";
 
 const router = express.Router();
 
@@ -264,12 +265,25 @@ router.get("/", async (req, res) => {
         .toLowerCase()
         .replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, "")
         .trim();
+
+      // Chercher les bannières correspondantes pour inclure leurs personnages
+      const matchingBanners = await req.db
+        .collection("banners")
+        .find({
+          $or: [
+            { name: { $regex: searchTerm, $options: "i" } },
+            { portail: { $regex: searchTerm, $options: "i" } }
+          ]
+        })
+        .project({ _id: 1 })
+        .toArray();
+      const bannerIds = matchingBanners.map((b) => b._id);
+
       query.$or = [
         { search_name: { $regex: searchTerm, $options: "i" } },
         { name: { $regex: searchTerm, $options: "i" } },
-        { lottery: { $regex: searchTerm, $options: "i" } },
-        { portail: { $regex: searchTerm, $options: "i" } },
-        { version: { $regex: searchTerm, $options: "i" } }
+        { version: { $regex: searchTerm, $options: "i" } },
+        ...(bannerIds.length > 0 ? [{ banner_id: { $in: bannerIds } }] : [])
       ];
     }
 
@@ -353,13 +367,25 @@ router.get("/search", async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const actualLimit = Math.min(parseInt(limit), 100); // Max 100 pour la recherche
 
+    // Chercher les bannières correspondantes pour inclure leurs personnages
+    const matchingBanners = await req.db
+      .collection("banners")
+      .find({
+        $or: [
+          { name: { $regex: searchTerm, $options: "i" } },
+          { portail: { $regex: searchTerm, $options: "i" } }
+        ]
+      })
+      .project({ _id: 1 })
+      .toArray();
+    const bannerIds = matchingBanners.map((b) => b._id);
+
     const searchQuery = {
       $or: [
         { search_name: { $regex: searchTerm, $options: "i" } },
         { name: { $regex: searchTerm, $options: "i" } },
-        { lottery: { $regex: searchTerm, $options: "i" } },
-        { portail: { $regex: searchTerm, $options: "i" } },
-        { version: { $regex: searchTerm, $options: "i" } }
+        { version: { $regex: searchTerm, $options: "i" } },
+        ...(bannerIds.length > 0 ? [{ banner_id: { $in: bannerIds } }] : [])
       ]
     };
 
@@ -606,10 +632,23 @@ router.post("/update", requireAdmin, async (req, res) => {
       });
     }
 
+    // Connexion FTP pour upload des images
+    let ftpUploader = null;
+    try {
+      ftpUploader = new FTPUploader();
+      await ftpUploader.connect();
+      console.log("📁 FTP connecté pour upload des images");
+    } catch (ftpErr) {
+      console.warn("⚠️ Impossible de se connecter au FTP images:", ftpErr.message);
+      // On continue sans FTP, les images ne seront pas uploadées
+    }
+
     // Statistiques de traitement
     let insertedCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
+    let imagesUploaded = 0;
+    let bannersCreated = 0;
     const errors = [];
 
     // Traitement de chaque personnage
@@ -707,22 +746,40 @@ router.post("/update", requireAdmin, async (req, res) => {
         }
 
         let bannerDoc = await req.db.collection("banners").findOne({
-          $or: [
-            { name: cleanedChar["Loterie"] },
-            { url: cleanedChar["URL Portail"] },
-            { portail: cleanedChar["Portail"] }
-          ]
+          name: cleanedChar["Loterie"],
+          portail: cleanedChar["Portail"]
         });
+
+        // Si la bannière n'existe pas, la créer et uploader l'image
+        if (!bannerDoc && cleanedChar["Loterie"] && cleanedChar["Portail"]) {
+          const newBanner = {
+            name: cleanedChar["Loterie"],
+            portail: cleanedChar["Portail"],
+            url: cleanedChar["URL Portail"] || "",
+          };
+          const bannerInsertResult = await req.db.collection("banners").insertOne(newBanner);
+          bannerDoc = { _id: bannerInsertResult.insertedId, ...newBanner };
+          bannersCreated++;
+
+          // Upload de l'image de la bannière sur le FTP
+          if (ftpUploader && cleanedChar["URL Portail"]) {
+            const bannerRemotePath = `/bucket.bbs-schrift.fr/banners/${bannerDoc._id}.png`;
+            const bannerUploaded = await ftpUploader.downloadAndUpload(
+              cleanedChar["URL Portail"],
+              bannerRemotePath
+            );
+            if (bannerUploaded) {
+              console.log(`🖼️ Bannière uploadée: ${bannerDoc._id}.png`);
+              imagesUploaded++;
+            }
+          }
+        }
 
         const banner_id = bannerDoc ? bannerDoc._id : null;
 
         const characterData = {
           name: cleanedChar["Nom personnage"] || "",
           search_name: searchName,
-          link: cleanedChar["Link"] || "",
-          artwork: cleanedChar["URL Artwork"] || "",
-          attack_url: cleanedChar["URL ATK"] || "",
-          phrase_url: cleanedChar["URL Phrase"] || "",
           affinity: cleanedChar["Affinité"] || "",
           rarity: cleanedChar["Rareté"] || "",
           categories: categories,
@@ -737,14 +794,10 @@ router.post("/update", requireAdmin, async (req, res) => {
           resurrection_release: convertDateToFormat(
             cleanedChar["Date résurrection"]
           ),
-          portail: cleanedChar["Portail"] || "",
-          lottery: cleanedChar["Loterie"] || "",
           nad: cleanedChar["NAD ou SAD"] === "NAD" ? "NAD" : false,
           sad: cleanedChar["NAD ou SAD"] === "SAD" ? "SAD" : false,
           version: cleanedChar["Version"] || "",
           version_name: cleanedChar["Nom version"] || "",
-          banner: cleanedChar["Loterie"] || "",
-          banner_url: cleanedChar["URL Portail"] || "",
           banner_id,
           stats: {
             end: cleanedChar["END"] || null,
@@ -766,11 +819,14 @@ router.post("/update", requireAdmin, async (req, res) => {
           .collection("characters")
           .findOne({ search_name: searchName });
 
+        let characterId;
+
         if (existingCharacter) {
           // Mettre à jour le personnage existant
           await req.db
             .collection("characters")
             .updateOne({ search_name: searchName }, { $set: characterData });
+          characterId = existingCharacter._id;
           updatedCount++;
         } else {
           // Créer un nouveau personnage
@@ -778,7 +834,34 @@ router.post("/update", requireAdmin, async (req, res) => {
           const insertResult = await req.db
             .collection("characters")
             .insertOne(characterData);
+          characterId = insertResult.insertedId;
           insertedCount++;
+        }
+
+        // Upload des images du personnage sur le FTP
+        if (ftpUploader && characterId) {
+          const imageFields = [
+            { field: "Link", remotePath: `/bucket.bbs-schrift.fr/characters/thumb/${characterId}.png` },
+            { field: "URL Artwork", remotePath: `/bucket.bbs-schrift.fr/characters/artwork/${characterId}.png` },
+            { field: "URL Phrase", remotePath: `/bucket.bbs-schrift.fr/characters/phrase/${characterId}.png` },
+            { field: "URL ATK", remotePath: `/bucket.bbs-schrift.fr/characters/attack/${characterId}.png` },
+          ];
+
+          for (const img of imageFields) {
+            const imageUrl = cleanedChar[img.field];
+            if (!imageUrl) continue;
+
+            // Si le personnage existait déjà, vérifier si l'image existe sur le FTP
+            if (existingCharacter) {
+              const exists = await ftpUploader.fileExists(img.remotePath);
+              if (exists) continue;
+            }
+
+            const uploaded = await ftpUploader.downloadAndUpload(imageUrl, img.remotePath);
+            if (uploaded) {
+              imagesUploaded++;
+            }
+          }
         }
       } catch (charError) {
         errors.push({
@@ -788,6 +871,15 @@ router.post("/update", requireAdmin, async (req, res) => {
           error: charError.message
         });
         skippedCount++;
+      }
+    }
+
+    // Déconnexion FTP
+    if (ftpUploader) {
+      try {
+        await ftpUploader.disconnect();
+      } catch (ftpDisconnectErr) {
+        console.warn("⚠️ Erreur déconnexion FTP:", ftpDisconnectErr.message);
       }
     }
 
@@ -815,7 +907,7 @@ router.post("/update", requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      message: `Synchronisation terminée: ${insertedCount} personnages créés, ${updatedCount} mis à jour${
+      message: `Synchronisation terminée: ${insertedCount} personnages créés, ${updatedCount} mis à jour, ${bannersCreated} bannières créées, ${imagesUploaded} images uploadées${
         reorderStats
           ? ` - Tri automatique: ${reorderStats.updated} personnages réorganisés`
           : ""
@@ -825,6 +917,8 @@ router.post("/update", requireAdmin, async (req, res) => {
         inserted: insertedCount,
         updated: updatedCount,
         skipped: skippedCount,
+        bannersCreated: bannersCreated,
+        imagesUploaded: imagesUploaded,
         errors: errors.length,
         reorderStats: reorderStats || null
       },

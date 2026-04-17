@@ -124,7 +124,7 @@ const enrichTeamWithCharacters = async (team, db) => {
     // Récupérer les infos du personnage principal
     const character = await db.collection('characters').findOne(
       { _id: new ObjectId(member.id_character) },
-      { projection: { name: 1, image: 1, rarity: 1, element: 1, link: 1, affinity: 1 } }
+      { projection: { name: 1, image: 1, rarity: 1, element: 1, affinity: 1 } }
     );
 
     // Enrichir les links avec soul_traits
@@ -138,7 +138,7 @@ const enrichTeamWithCharacters = async (team, db) => {
 
         const linkCharacter = await db.collection('characters').findOne(
           { _id: new ObjectId(link.id_character) },
-          { projection: { name: 1, image: 1, rarity: 1, element: 1, link: 1, affinity: 1, soul_traits: 1 } }
+          { projection: { name: 1, image: 1, rarity: 1, element: 1, affinity: 1, soul_traits: 1 } }
         );
 
         enrichedLinks.push({
