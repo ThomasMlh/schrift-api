@@ -4,6 +4,7 @@ import { cleanObject } from "../utils/cleaners.js";
 import { requireAdmin, requireDb } from "../middleware/auth.js";
 import { SFTPClient } from "../utils/database.js";
 import { FTPUploader } from "../utils/ftp.js";
+import { notifyDiscord } from "../utils/notifyDiscord.js";
 
 const router = express.Router();
 
@@ -905,14 +906,12 @@ router.post("/update", requireAdmin, async (req, res) => {
       // On continue même si le tri échoue, ce n'est pas bloquant
     }
 
-    res.json({
-      success: true,
-      message: `Synchronisation terminée: ${insertedCount} personnages créés, ${updatedCount} mis à jour, ${bannersCreated} bannières créées, ${imagesUploaded} images uploadées${
+    const responseMessage = `Synchronisation terminée: ${insertedCount} personnages créés, ${updatedCount} mis à jour, ${bannersCreated} bannières créées, ${imagesUploaded} images uploadées${
         reorderStats
           ? ` - Tri automatique: ${reorderStats.updated} personnages réorganisés`
           : ""
-      }`,
-      statistics: {
+      }`;
+    const responseStats = {
         totalProcessed: characters.length,
         inserted: insertedCount,
         updated: updatedCount,
@@ -921,7 +920,18 @@ router.post("/update", requireAdmin, async (req, res) => {
         imagesUploaded: imagesUploaded,
         errors: errors.length,
         reorderStats: reorderStats || null
-      },
+      };
+
+    // --- Notification Discord (non bloquante) ---
+    notifyDiscord("character_update", {
+      message: responseMessage,
+      statistics: responseStats
+    });
+
+    res.json({
+      success: true,
+      message: responseMessage,
+      statistics: responseStats,
       errors: errors.length > 0 ? errors.slice(0, 10) : [] // Limiter à 10 erreurs pour éviter une réponse trop lourde
     });
   } catch (error) {

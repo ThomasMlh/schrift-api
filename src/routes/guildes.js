@@ -187,9 +187,15 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+    const updateFields = { name: name.trim() };
+    const { discord_channel_id } = req.body;
+    if (discord_channel_id !== undefined) {
+      updateFields.discord_channel_id = discord_channel_id;
+    }
+
     await req.db.collection('guildes').updateOne(
       { _id: new ObjectId(guildeId) },
-      { $set: { name: name.trim() } }
+      { $set: updateFields }
     );
 
     res.status(200).json({ success: true, message: `Guilde renommée en ${name.trim()}` });

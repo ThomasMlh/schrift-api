@@ -1,6 +1,7 @@
 import express from "express";
 import { ObjectId } from "mongodb";
 import { requireDb, requireScoresAccess } from "../middleware/auth.js";
+import { notifyDiscord } from "../utils/notifyDiscord.js";
 
 const router = express.Router();
 
@@ -723,6 +724,63 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         recalculatedIds.push(...affectedIds);
         recalculatedCount += affectedIds.length;
       }
+    }
+
+    // --- Notification Discord (non bloquante) ---
+    try {
+      // Résoudre les pseudos des joueurs
+      const userIds = [...new Set(finalScores.map(s => s.user_id))];
+      const users = await req.db.collection("users").find({
+        _id: { $in: userIds.map(id => new ObjectId(id)) }
+      }, { projection: { _id: 1, global_name: 1, username: 1, bbs_name: 1 } }).toArray();
+      const userMap = new Map(users.map(u => [u._id.toString(), u]));
+
+      // Résoudre la guilde (nom + channel Discord)
+      const firstGuildId = finalScores[0]?.guild_id;
+      let guildName = "";
+      let guildChannelId = "";
+      if (firstGuildId) {
+        const guild = await req.db.collection("guildes").findOne({ _id: new ObjectId(firstGuildId) });
+        console.log("[scores/bulk] guild_id:", firstGuildId, "→ guild:", JSON.stringify(guild));
+        guildName = guild?.name || "";
+        guildChannelId = guild?.discord_channel_id || "";
+      }
+
+      // Killer et type d'attaque de la rotation
+      const firstRotationId = finalScores[0]?.rotation_id;
+      const rotation = cycle.rotations.find(r => r.rotation_id === firstRotationId);
+      const killer = rotation?.killer || "";
+      const attack = rotation?.attack || "";
+
+      // Construire le tableau des scores triés par score décroissant
+      const sortedForNotif = [...finalScores].sort((a, b) => b.score - a.score);
+      const scoresForNotif = sortedForNotif.map((s, i) => {
+        const user = userMap.get(s.user_id);
+        const pseudo = user?.global_name || user?.bbs_name || user?.username || s.user_id;
+        return { rank: i + 1, pseudo, score: s.score, raw_score: s.raw_score };
+      });
+
+      // Résoudre le pseudo du soumetteur
+      let submittedBy = "Inconnu";
+      if (req.user?._id) {
+        const submitter = await req.db.collection("users").findOne(
+          { _id: new ObjectId(req.user._id) },
+          { projection: { global_name: 1, username: 1 } }
+        );
+        submittedBy = submitter?.global_name || submitter?.username || "Inconnu";
+      }
+
+      notifyDiscord("scores", {
+        submitted_by: submittedBy,
+        guild_name: guildName,
+        cycle_name: cycle.name || "",
+        killer,
+        attack,
+        scores: scoresForNotif,
+        summary: `${insertedCount} créés, ${updatedCount} mis à jour, ${recalculatedCount} recalculés`
+      }, guildChannelId);
+    } catch (notifErr) {
+      console.error("[scores/bulk] Erreur notification Discord (non bloquant):", notifErr.message);
     }
 
     res.status(200).json({
