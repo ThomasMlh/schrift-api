@@ -633,15 +633,19 @@ router.post("/update", requireAdmin, async (req, res) => {
       });
     }
 
-    // Connexion FTP pour upload des images
+    // Option: upload des images (désactivé par défaut pour éviter les timeouts Vercel)
+    const uploadImages = req.body?.uploadImages === true;
+
     let ftpUploader = null;
-    try {
-      ftpUploader = new FTPUploader();
-      await ftpUploader.connect();
-      console.log("📁 FTP connecté pour upload des images");
-    } catch (ftpErr) {
-      console.warn("⚠️ Impossible de se connecter au FTP images:", ftpErr.message);
-      // On continue sans FTP, les images ne seront pas uploadées
+    if (uploadImages) {
+      try {
+        ftpUploader = new FTPUploader();
+        await ftpUploader.connect();
+        console.log("📁 FTP connecté pour upload des images");
+      } catch (ftpErr) {
+        console.warn("⚠️ Impossible de se connecter au FTP images:", ftpErr.message);
+        // On continue sans FTP, les images ne seront pas uploadées
+      }
     }
 
     // Statistiques de traitement
@@ -812,6 +816,13 @@ router.post("/update", requireAdmin, async (req, res) => {
             CANCEL_RESISTANCE_MAP[
               cleanedChar["Annulation résistance Rouge/Bleue"]
             ] || null,
+          // Stocker les URLs sources pour upload batch ultérieur
+          source_images: {
+            thumbnail: cleanedChar["Link"] || null,
+            artwork: cleanedChar["URL Artwork"] || null,
+            quote: cleanedChar["URL Phrase"] || null,
+            attack: cleanedChar["URL ATK"] || null,
+          },
           updated_at: new Date()
         };
 
@@ -939,6 +950,157 @@ router.post("/update", requireAdmin, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Erreur serveur lors de la synchronisation",
+      error: error.message
+    });
+  }
+});
+
+// Route pour uploader les images par batch (évite les timeouts Vercel)
+router.post("/update/images", requireAdmin, async (req, res) => {
+  try {
+    const batchSize = Math.min(parseInt(req.body?.batchSize) || 100, 200);
+
+    // Trouver les personnages qui ont des source_images mais dont les images ne sont pas encore uploadées
+    const characters = await req.db
+      .collection("characters")
+      .find({
+        "source_images": { $exists: true },
+        "images_uploaded": { $ne: true }
+      })
+      .limit(batchSize)
+      .toArray();
+
+    if (characters.length === 0) {
+      // Compter le total restant
+      const remaining = await req.db
+        .collection("characters")
+        .countDocuments({ "source_images": { $exists: true }, "images_uploaded": { $ne: true } });
+      return res.json({
+        success: true,
+        message: "Toutes les images sont déjà uploadées",
+        statistics: { processed: 0, uploaded: 0, remaining, errors: 0 }
+      });
+    }
+
+    let ftpUploader;
+    try {
+      ftpUploader = new FTPUploader();
+      await ftpUploader.connect();
+    } catch (ftpErr) {
+      return res.status(500).json({
+        success: false,
+        message: "Impossible de se connecter au FTP",
+        error: ftpErr.message
+      });
+    }
+
+    let uploaded = 0;
+    let processed = 0;
+    const errors = [];
+
+    for (const char of characters) {
+      try {
+        const imageFields = [
+          { key: "thumbnail", remotePath: `/bucket.bbs-schrift.fr/characters/thumb/${char._id}.png` },
+          { key: "artwork", remotePath: `/bucket.bbs-schrift.fr/characters/artwork/${char._id}.png` },
+          { key: "quote", remotePath: `/bucket.bbs-schrift.fr/characters/phrase/${char._id}.png` },
+          { key: "attack", remotePath: `/bucket.bbs-schrift.fr/characters/attack/${char._id}.png` },
+        ];
+
+        let allUploaded = true;
+        for (const img of imageFields) {
+          const sourceUrl = char.source_images?.[img.key];
+          if (!sourceUrl) continue;
+
+          // Vérifier si l'image existe déjà sur le FTP
+          const exists = await ftpUploader.fileExists(img.remotePath);
+          if (exists) continue;
+
+          const success = await ftpUploader.downloadAndUpload(sourceUrl, img.remotePath);
+          if (success) {
+            uploaded++;
+          } else {
+            allUploaded = false;
+          }
+        }
+
+        // Marquer comme uploadé si toutes les images sont OK
+        if (allUploaded) {
+          await req.db.collection("characters").updateOne(
+            { _id: char._id },
+            { $set: { images_uploaded: true } }
+          );
+        }
+
+        processed++;
+      } catch (charErr) {
+        errors.push({ character: char.search_name || char.name, error: charErr.message });
+      }
+    }
+
+    // Déconnexion FTP
+    try { await ftpUploader.disconnect(); } catch { /* ignore */ }
+
+    // Aussi uploader les bannières manquantes
+    const bannersToUpload = await req.db
+      .collection("banners")
+      .find({ url: { $exists: true, $ne: "" }, images_uploaded: { $ne: true } })
+      .limit(batchSize)
+      .toArray();
+
+    let bannersUploaded = 0;
+    if (bannersToUpload.length > 0) {
+      try {
+        const bannerFtp = new FTPUploader();
+        await bannerFtp.connect();
+        for (const banner of bannersToUpload) {
+          const remotePath = `/bucket.bbs-schrift.fr/banners/${banner._id}.png`;
+          const exists = await bannerFtp.fileExists(remotePath);
+          if (!exists && banner.url) {
+            const success = await bannerFtp.downloadAndUpload(banner.url, remotePath);
+            if (success) bannersUploaded++;
+          }
+          await req.db.collection("banners").updateOne(
+            { _id: banner._id },
+            { $set: { images_uploaded: true } }
+          );
+        }
+        try { await bannerFtp.disconnect(); } catch { /* ignore */ }
+      } catch (bannerErr) {
+        console.warn("⚠️ Erreur upload bannières:", bannerErr.message);
+      }
+    }
+
+    const remaining = await req.db
+      .collection("characters")
+      .countDocuments({ "source_images": { $exists: true }, "images_uploaded": { $ne: true } });
+
+    const responseMessage = `Batch terminé: ${uploaded} images uploadées pour ${processed} personnages, ${bannersUploaded} bannières, ${remaining} restants`;
+    const responseStats = {
+      processed,
+      uploaded,
+      bannersUploaded,
+      remaining,
+      errors: errors.length
+    };
+
+    // Notification Discord (non bloquante)
+    notifyDiscord("image_upload", {
+      message: responseMessage,
+      statistics: responseStats
+    });
+
+    res.json({
+      success: true,
+      message: responseMessage,
+      statistics: responseStats,
+      errors: errors.length > 0 ? errors.slice(0, 10) : []
+    });
+  } catch (error) {
+    console.error("❌ Erreur upload images batch:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur serveur lors de l'upload des images",
       error: error.message
     });
   }
