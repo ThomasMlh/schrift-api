@@ -756,7 +756,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       const sortedForNotif = [...finalScores].sort((a, b) => b.score - a.score);
       const scoresForNotif = sortedForNotif.map((s, i) => {
         const user = userMap.get(s.user_id);
-        const pseudo = user?.global_name || user?.bbs_name || user?.username || s.user_id;
+        const pseudo = user?.bbs_name || user?.global_name || user?.username || s.user_id;
         return { rank: i + 1, pseudo, score: s.score, raw_score: s.raw_score };
       });
 
@@ -765,9 +765,9 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       if (req.user?._id) {
         const submitter = await req.db.collection("users").findOne(
           { _id: new ObjectId(req.user._id) },
-          { projection: { global_name: 1, username: 1 } }
+          { projection: { global_name: 1, username: 1, bbs_name: 1 } }
         );
-        submittedBy = submitter?.global_name || submitter?.username || "Inconnu";
+        submittedBy = submitter?.bbs_name || submitter?.global_name || submitter?.username || "Inconnu";
       }
 
       notifyDiscord("scores", {
@@ -1110,6 +1110,46 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
             }
           }
         }
+      }
+    }
+
+    // --- Notification Discord (non bloquante) ---
+    if (score !== undefined) {
+      try {
+        const targetUserId = user_id || existingScore.user_id;
+        const targetGuildId = guild_id || existingScore.guild_id;
+
+        const editedUser = await req.db.collection('users').findOne(
+          { _id: new ObjectId(targetUserId) },
+          { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+        );
+        const pseudo = editedUser?.bbs_name || editedUser?.global_name || editedUser?.username || targetUserId;
+
+        const guild = await req.db.collection('guildes').findOne({ _id: new ObjectId(targetGuildId) });
+        const guildName = guild?.name || '';
+        const guildChannelId = guild?.discord_channel_id || '';
+
+        let submittedBy = 'Inconnu';
+        if (req.user?._id) {
+          const submitter = await req.db.collection('users').findOne(
+            { _id: new ObjectId(req.user._id) },
+            { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+          );
+          submittedBy = submitter?.bbs_name ||submitter?.global_name || submitter?.username || 'Inconnu';
+        }
+
+        notifyDiscord('score_edit', {
+          submitted_by: submittedBy,
+          guild_name: guildName,
+          pseudo,
+          old_score: existingScore.score,
+          new_score: updateData.score,
+          raw_score: updateData.raw_score,
+          is_differential: updateData.is_differential,
+          recalculated_count: recalculatedCount
+        }, guildChannelId);
+      } catch (notifErr) {
+        console.error('[scores/edit] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
 

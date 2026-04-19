@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { requireDb, requireScoresAccess } from '../middleware/auth.js';
 import { processBatchScreenshots, SCREENSHOTTER_CONFIGS } from '../utils/ocrProcessor.js';
 import { findBestMatch } from '../utils/nameMatching.js';
+import { notifyDiscord } from '../utils/notifyDiscord.js';
 import sharp from 'sharp';
 
 const router = express.Router();
@@ -345,7 +346,53 @@ router.post('/submit-batch', async (req, res) => {
     if (errors.length > 0) {
       console.log(`⚠️  ${errors.length} erreurs`);
     }
-    
+
+    // --- Notification Discord (non bloquante) ---
+    try {
+      const userIds = [...new Set(insertedScores.map(s => s.user_id))];
+      const users = await req.db.collection('users').find({
+        _id: { $in: userIds.map(id => new ObjectId(id)) }
+      }, { projection: { _id: 1, global_name: 1, username: 1, bbs_name: 1 } }).toArray();
+      const userMap = new Map(users.map(u => [u._id.toString(), u]));
+
+      const guild = await req.db.collection('guildes').findOne({ _id: new ObjectId(guild_id) });
+      const guildName = guild?.name || '';
+      const guildChannelId = guild?.discord_channel_id || '';
+
+      const rotation = cycle.rotations[rotationIndex];
+      const killer = rotation?.killer || '';
+      const attack = rotation?.attack || '';
+
+      const sortedForNotif = [...insertedScores].sort((a, b) => b.score - a.score);
+      const scoresForNotif = sortedForNotif.map((s, i) => {
+        const user = userMap.get(s.user_id);
+        const pseudo = user?.global_name || user?.bbs_name || user?.username || s.user_id;
+        return { rank: i + 1, pseudo, score: s.score, raw_score: s.raw_score };
+      });
+
+      let submittedBy = 'Inconnu';
+      if (req.user?._id) {
+        const submitter = await req.db.collection('users').findOne(
+          { _id: new ObjectId(req.user._id) },
+          { projection: { global_name: 1, username: 1 } }
+        );
+        submittedBy = submitter?.global_name || submitter?.username || 'Inconnu';
+      }
+
+      notifyDiscord('scores', {
+        submitted_by: submittedBy,
+        guild_name: guildName,
+        cycle_name: cycle.name || '',
+        killer,
+        attack,
+        scores: scoresForNotif,
+        summary: `${insertedScores.length} scores via OCR (${errors.length} erreurs)`,
+        source: 'ocr'
+      }, guildChannelId);
+    } catch (notifErr) {
+      console.error('[ocr/submit-batch] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
+
     res.json({
       success: true,
       data: {
