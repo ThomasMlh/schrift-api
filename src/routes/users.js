@@ -2,6 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
 import { requireDb } from '../middleware/auth.js';
+import { notifyDiscord } from '../utils/notifyDiscord.js';
 
 const router = express.Router();
 
@@ -1061,6 +1062,25 @@ router.post('/:userId/ban', requireAdmin, async (req, res) => {
       }
     );
 
+    // Notification Discord (non bloquante)
+    try {
+      const banner = await req.db.collection('users').findOne(
+        { _id: new ObjectId(req.user._id) },
+        { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+      );
+      const bannerName = banner?.bbs_name || banner?.global_name || banner?.username || 'Inconnu';
+      const bannedName = user.bbs_name || user.global_name || user.username || 'Inconnu';
+      notifyDiscord('ban', {
+        action: 'ban',
+        banned_by: bannerName,
+        banned_user: bannedName,
+        reason: reason || null,
+        banned_at: new Date().toISOString()
+      }, process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+    } catch (notifErr) {
+      console.error('[users/ban] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
+
     res.json({
       success: true,
       message: `${user.global_name || user.username} a été banni avec succès`
@@ -1104,6 +1124,24 @@ router.post('/:userId/unban', requireAdmin, async (req, res) => {
         }
       }
     );
+
+    // Notification Discord (non bloquante)
+    try {
+      const unbanner = await req.db.collection('users').findOne(
+        { _id: new ObjectId(req.user._id) },
+        { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+      );
+      const unbannerName = unbanner?.bbs_name || unbanner?.global_name || unbanner?.username || 'Inconnu';
+      const unbannedName = user.bbs_name || user.global_name || user.username || 'Inconnu';
+      notifyDiscord('ban', {
+        action: 'unban',
+        banned_by: unbannerName,
+        banned_user: unbannedName,
+        reason: null
+      }, process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+    } catch (notifErr) {
+      console.error('[users/unban] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
 
     res.json({
       success: true,
