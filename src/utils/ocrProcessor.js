@@ -144,7 +144,7 @@ export const SCREENSHOTTER_CONFIGS = {
  * @param {string} screenshotterId - Identifiant du screenshotter
  * @returns {{ rows: Array, label: string }}
  */
-export function getScreenshotterConfig(screenshotterId) {
+export const getScreenshotterConfig = (screenshotterId) => {
   const config = SCREENSHOTTER_CONFIGS[screenshotterId];
   if (!config) {
     console.warn(`⚠️ Screenshotter inconnu: "${screenshotterId}", utilisation config par défaut`);
@@ -156,7 +156,7 @@ export function getScreenshotterConfig(screenshotterId) {
 /**
  * Convertit une image base64 en buffer
  */
-function base64ToBuffer(base64String) {
+const base64ToBuffer = (base64String) => {
   // Enlever le préfixe data:image/...;base64, si présent
   const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
   return Buffer.from(base64Data, 'base64');
@@ -169,7 +169,7 @@ function base64ToBuffer(base64String) {
  * - Augmentation agressive du contraste
  * - Binarisation avec seuil adaptatif
  */
-async function preprocessRegion(imageBuffer, region, imageWidth, imageHeight) {
+const preprocessRegion = async (imageBuffer, region, imageWidth, imageHeight) => {
   try {
     // Calculer les coordonnées absolues
     const left = Math.round(region.x * imageWidth);
@@ -197,7 +197,7 @@ async function preprocessRegion(imageBuffer, region, imageWidth, imageHeight) {
 /**
  * Effectue l'OCR sur une région spécifique avec paramètres optimisés
  */
-async function performOCR(imageBuffer, lang = 'eng', config = {}) {
+const performOCR = async (imageBuffer, lang = 'eng', config = {}) => {
   try {
     const { data: { text } } = await Tesseract.recognize(imageBuffer, lang, {
       logger: m => {
@@ -220,7 +220,7 @@ async function performOCR(imageBuffer, lang = 'eng', config = {}) {
 /**
  * Détecte si une ligne contient du texte (n'est pas vide)
  */
-async function hasVisibleText(imageBuffer, region, imageWidth, imageHeight) {
+const hasVisibleText = async (imageBuffer, region, imageWidth, imageHeight) => {
   try {
     const processedBuffer = await preprocessRegion(imageBuffer, region, imageWidth, imageHeight);
     
@@ -241,7 +241,7 @@ async function hasVisibleText(imageBuffer, region, imageWidth, imageHeight) {
  * @param {string} [screenshotterId] - Identifiant du screenshotter (pour charger sa config de zones)
  * @returns {Promise<Array>} Liste des joueurs détectés avec nom et score
  */
-export async function processGuildRankingScreenshot(base64Image, screenshotterId) {
+export const processGuildRankingScreenshot = async (base64Image, screenshotterId) => {
   try {
     const config = getScreenshotterConfig(screenshotterId);
     const playerRows = config.rows;
@@ -319,7 +319,7 @@ export async function processGuildRankingScreenshot(base64Image, screenshotterId
  * @param {Array} screenshots - Liste des screenshots à traiter
  * @param {string} [screenshotterId] - Identifiant du screenshotter
  */
-export async function processBatchScreenshots(screenshots, screenshotterId) {
+export const processBatchScreenshots = async (screenshots, screenshotterId) => {
   const results = await Promise.all(
     screenshots.map(async (screenshot, index) => {
       try {

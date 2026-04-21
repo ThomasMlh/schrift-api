@@ -3,7 +3,7 @@ import { MongoClient } from 'mongodb';
 
 let db = null;
 
-export async function connectDB() {
+export const connectDB = async () => {
   try {
     const client = new MongoClient(process.env.MONGODB_URI);
     await client.connect();
@@ -16,7 +16,7 @@ export async function connectDB() {
   }
 }
 
-export function getDB() {
+export const getDB = () => {
   if (!db) {
     throw new Error('Base de données non initialisée');
   }

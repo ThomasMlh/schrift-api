@@ -1,5 +1,5 @@
 // Fonction pour nettoyer les chaînes de caractères avec échappement
-export function cleanString(str) {
+export const cleanString = (str) => {
   if (typeof str !== 'string') return str;
   
   return str
@@ -12,7 +12,7 @@ export function cleanString(str) {
 }
 
 // Fonction récursive pour nettoyer un objet
-export function cleanObject(obj) {
+export const cleanObject = (obj) => {
   if (typeof obj === 'string') {
     return cleanString(obj);
   } else if (Array.isArray(obj)) {

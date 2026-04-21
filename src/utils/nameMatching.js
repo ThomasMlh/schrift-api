@@ -4,7 +4,7 @@ import { distance } from 'fastest-levenshtein';
  * Normalise un nom pour la comparaison
  * Enlève les caractères spéciaux, accents, espaces
  */
-export function normalizeName(name) {
+export const normalizeName = (name) => {
   if (!name) return '';
   
   return name
@@ -24,7 +24,7 @@ export function normalizeName(name) {
  * Calcule la similarité entre deux chaînes (0 à 1)
  * Utilise la distance de Levenshtein normalisée
  */
-export function calculateSimilarity(str1, str2) {
+export const calculateSimilarity = (str1, str2) => {
   if (!str1 || !str2) return 0;
   
   const maxLength = Math.max(str1.length, str2.length);
@@ -40,7 +40,7 @@ export function calculateSimilarity(str1, str2) {
  * @param {Array} guildMembers - Liste des membres de la guilde avec bbs_name
  * @returns {Object} Résultat du matching avec user, confidence, alternatives
  */
-export function findBestMatch(detectedName, guildMembers) {
+export const findBestMatch = (detectedName, guildMembers) => {
   if (!detectedName || !guildMembers || guildMembers.length === 0) {
     return {
       user: null,
@@ -113,7 +113,7 @@ export function findBestMatch(detectedName, guildMembers) {
  * Nettoie le texte OCR pour extraction du nom de joueur
  * Enlève les artifacts communs de l'OCR
  */
-export function cleanPlayerNameOCR(ocrText) {
+export const cleanPlayerNameOCR = (ocrText) => {
   if (!ocrText) return '';
   
   return ocrText
@@ -128,7 +128,7 @@ export function cleanPlayerNameOCR(ocrText) {
  * Parse un score depuis le texte OCR
  * Format attendu : "588,187,015" ou "588187015"
  */
-export function parseScore(scoreText) {
+export const parseScore = (scoreText) => {
   if (!scoreText) {
     return { value: null, error: 'Texte vide' };
   }

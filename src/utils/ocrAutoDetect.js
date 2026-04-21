@@ -9,7 +9,7 @@ const DEBUG_DIR = path.join(process.cwd(), 'debug_ocr');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function base64ToBuffer(base64String) {
+const base64ToBuffer = (base64String) => {
   const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
   return Buffer.from(base64Data, 'base64');
 }
@@ -21,7 +21,7 @@ function base64ToBuffer(base64String) {
  * On veut lire « Score personnel hebdomadaire : XXX,XXX,XXX »
  * → greyscale + normalize + sharpen suffit
  */
-async function preprocessForScores(imageBuffer) {
+const preprocessForScores = async (imageBuffer) => {
   const meta = await sharp(imageBuffer).metadata();
   const targetHeight = Math.max(meta.height, 1400);
 
@@ -46,7 +46,7 @@ async function preprocessForScores(imageBuffer) {
  *   3. Negate → texte NOIR sur fond BLANC = parfait pour Tesseract
  *   4. Resize pour que le texte fasse une bonne taille
  */
-async function preprocessForName(cropBuffer) {
+const preprocessForName = async (cropBuffer) => {
   return sharp(cropBuffer)
     .greyscale()
     .threshold(200)    // Très strict : seul le texte blanc pur (~240-255) survit
@@ -60,7 +60,7 @@ async function preprocessForName(cropBuffer) {
 /**
  * Sauvegarde un buffer PNG dans le dossier debug pour inspection.
  */
-async function saveDebug(name, buffer) {
+const saveDebug = async (name, buffer) => {
   try {
     if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR, { recursive: true });
     const filePath = path.join(DEBUG_DIR, `${name}.png`);
@@ -96,7 +96,7 @@ const IGNORED_WORDS = new Set([
  * Cette approche résout le problème des pseudos mal lus sur l'image complète
  * (portraits, diamants, badges qui polluent l'OCR global).
  */
-export async function processGuildRankingScreenshotAuto(base64Image) {
+export const processGuildRankingScreenshotAuto = async (base64Image) => {
   try {
     console.log('🔍 Début du traitement OCR automatique (2 passes)...');
 
@@ -235,7 +235,7 @@ export async function processGuildRankingScreenshotAuto(base64Image) {
  * Cherche les lignes « Score personnel hebdomadaire : XXX » dans data.lines
  * Retourne un tableau de { score, bboxProcessed }
  */
-function findScoreLines(data) {
+const findScoreLines = (data) => {
   const results = [];
 
   // Pattern flexible : tolère OCR approximatif
@@ -331,7 +331,7 @@ function findScoreLines(data) {
  *
  * On filtre tout sauf le pseudo.
  */
-function extractPlayerName(text) {
+const extractPlayerName = (text) => {
   if (!text) return null;
 
   // Nettoyer le texte brut
@@ -388,7 +388,7 @@ function extractPlayerName(text) {
  * Fallback si data.lines n'a pas de bounding boxes.
  * Parse le texte brut pour trouver les lignes de score et les pseudos au-dessus.
  */
-function fallbackParseText(text) {
+const fallbackParseText = (text) => {
   if (!text) return [];
 
   const players = [];
@@ -423,7 +423,7 @@ function fallbackParseText(text) {
 
 // ─── Utilitaire ───────────────────────────────────────────────────────────────
 
-function makePlayer(lineNumber, name, score, confidence) {
+const makePlayer = (lineNumber, name, score, confidence) => {
   return {
     lineNumber,
     detectedName: name,
@@ -443,7 +443,7 @@ function makePlayer(lineNumber, name, score, confidence) {
 /**
  * Traite plusieurs screenshots (séquentiellement pour éviter la surcharge mémoire).
  */
-export async function processBatchScreenshotsAuto(screenshots) {
+export const processBatchScreenshotsAuto = async (screenshots) => {
   console.log(`\n🎯 Traitement batch de ${screenshots.length} screenshots (mode auto, 2 passes)`);
 
   const results = [];

@@ -40,7 +40,7 @@ const client = new MongoClient(uri);
 
 let db;
 
-async function initDb() {
+const initDb = async () => {
   try {
     if(process.env.NODE_ENV === 'production') {
       console.log('⚠️  Mode production : connexion MongoDB optimisée pour Vercel');

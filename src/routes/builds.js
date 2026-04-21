@@ -1,15 +1,12 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
-import { requireDb } from '../middleware/auth.js';
+import { requireDb, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Middleware pour toutes les routes builds
 router.use(requireDb);
-
-// Configuration pour récupérer JWT_SECRET
-const getJwtSecret = () => process.env.JWT_SECRET;
 
 // Middleware pour extraire l'utilisateur du token (optionnel)
 const extractUser = async (req, res, next) => {
@@ -17,7 +14,7 @@ const extractUser = async (req, res, next) => {
     const token = req.headers.authorization?.replace('Bearer ', '');
 
     if (token) {
-      const decoded = jwt.verify(token, getJwtSecret());
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = decoded;
     }
   } catch (error) {
@@ -25,31 +22,6 @@ const extractUser = async (req, res, next) => {
     req.user = null;
   }
   next();
-};
-
-// Middleware pour vérifier que l'utilisateur est admin
-const requireAdmin = async (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-
-    if (!token) {
-      return res.status(401).json({ success: false, message: 'Token manquant' });
-    }
-
-    const decoded = jwt.verify(token, getJwtSecret());
-
-    if (!decoded.is_admin) {
-      return res.status(403).json({ success: false, message: 'Accès refusé - Admin requis' });
-    }
-
-    req.user = decoded;
-    next();
-  } catch (error) {
-    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-      return res.status(401).json({ success: false, message: 'Token invalide ou expiré' });
-    }
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
-  }
 };
 
 // Helper function pour enrichir avec les données utilisateur

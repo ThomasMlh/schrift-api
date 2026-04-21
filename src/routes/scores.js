@@ -2,6 +2,8 @@ import express from "express";
 import { ObjectId } from "mongodb";
 import { requireDb, requireScoresAccess } from "../middleware/auth.js";
 import { notifyDiscord } from "../utils/notifyDiscord.js";
+import { compareEntities } from "../services/scoreComparison.js";
+import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../services/scoreDifferential.js";
 
 const router = express.Router();
 
@@ -303,133 +305,6 @@ router.get("/compare", async (req, res) => {
   }
 });
 
-// Fonction helper pour comparer les entités 
-async function compareEntities(db, fieldName, entity1, entity2, baseFilter, options) {
-  const results = {};
-
-  for (const entityId of [entity1, entity2]) {
-    // Test simple : vérifier si l'entité a des scores
-    const directScoreCount = await db.collection("scores").countDocuments({ [fieldName]: entityId });
-    
-    if (directScoreCount === 0) {
-      results[entityId] = {
-        entityInfo: null,
-        stats: {
-          averageScore: 0,
-          averageRawScore: 0,
-          totalScores: 0,
-          maxScore: 0,
-          minScore: 0,
-          maxRawScore: 0,
-          minRawScore: 0
-        }
-      };
-      continue;
-    }
-
-    // Construire le filtre avec les critères additionnels
-    const filter = { ...baseFilter, [fieldName]: entityId };
-    
-    // Pipeline d'agrégation pour calculer les statistiques
-    const pipeline = [
-      { $match: filter },
-      {
-        $group: {
-          _id: null,
-          averageScore: { $avg: "$score" },
-          averageRawScore: { $avg: "$raw_score" },
-          totalScores: { $sum: 1 },
-          maxScore: { $max: "$score" },
-          minScore: { $min: "$score" },
-          maxRawScore: { $max: "$raw_score" },
-          minRawScore: { $min: "$raw_score" }
-        }
-      },
-      {
-        $project: {
-          _id: 0,
-          averageScore: { $round: ["$averageScore", 2] },
-          averageRawScore: { $round: ["$averageRawScore", 2] },
-          totalScores: 1,
-          maxScore: 1,
-          minScore: 1,
-          maxRawScore: 1,
-          minRawScore: 1
-        }
-      }
-    ];
-
-    const stats = await db.collection("scores").aggregate(pipeline).toArray();
-    
-    // Récupérer les informations de l'entité
-    let entityInfo = null;
-    try {
-      if (options.type === "players") {
-        entityInfo = await db.collection("users").findOne({ _id: new ObjectId(entityId) });
-      } else {
-        entityInfo = await db.collection("guildes").findOne({ name: entityId });
-      }
-    } catch (error) {
-      // Si erreur de recherche, entityInfo reste null
-    }
-
-    results[entityId] = {
-      entityInfo,
-      stats: stats.length > 0 ? stats[0] : {
-        averageScore: 0,
-        averageRawScore: 0,
-        totalScores: 0,
-        maxScore: 0,
-        minScore: 0,
-        maxRawScore: 0,
-        minRawScore: 0
-      }
-    };
-  }
-
-  // Calculer les différences
-  const entity1Stats = results[entity1].stats;
-  const entity2Stats = results[entity2].stats;
-
-  const differences = {
-    averageScore: {
-      difference: entity1Stats.averageScore - entity2Stats.averageScore,
-      percentage: entity2Stats.averageScore !== 0 
-        ? ((entity1Stats.averageScore - entity2Stats.averageScore) / entity2Stats.averageScore * 100)
-        : null
-    },
-    averageRawScore: {
-      difference: entity1Stats.averageRawScore - entity2Stats.averageRawScore,
-      percentage: entity2Stats.averageRawScore !== 0 
-        ? ((entity1Stats.averageRawScore - entity2Stats.averageRawScore) / entity2Stats.averageRawScore * 100)
-        : null
-    },
-    totalScores: {
-      difference: entity1Stats.totalScores - entity2Stats.totalScores,
-      percentage: entity2Stats.totalScores !== 0 
-        ? ((entity1Stats.totalScores - entity2Stats.totalScores) / entity2Stats.totalScores * 100)
-        : null
-    }
-  };
-
-  // Déterminer le "gagnant" basé sur la moyenne
-  let winner = null;
-  if (entity1Stats.averageScore > entity2Stats.averageScore) {
-    winner = entity1;
-  } else if (entity2Stats.averageScore > entity1Stats.averageScore) {
-    winner = entity2;
-  }
-
-  return {
-    entities: results,
-    differences,
-    winner,
-    summary: {
-      entity1: { id: entity1, averageScore: entity1Stats.averageScore, totalScores: entity1Stats.totalScores },
-      entity2: { id: entity2, averageScore: entity2Stats.averageScore, totalScores: entity2Stats.totalScores }
-    }
-  };
-}
 
 // GET un score spécifique par ID
 router.get("/:id", async (req, res) => {
@@ -549,10 +424,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     }
 
     // Créer un map des rotations avec leur index pour l'ordre
-    const rotationIndexMap = new Map();
-    cycle.rotations.forEach((rotation, index) => {
-      rotationIndexMap.set(rotation.rotation_id, index);
-    });
+    const rotationIndexMap = buildRotationIndexMap(cycle);
 
     // SOLUTION 1: Trier les scores par index de rotation pour traitement dans le bon ordre
     const sortedScores = scores.sort((a, b) => {
@@ -568,44 +440,23 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
     for (const score of sortedScores) {
       const rawScore = score.raw_score;
-      let finalScore = rawScore;
       const currentRotationIndex = rotationIndexMap.get(score.rotation_id);
-      let isDifferential = false;
 
-      // Logique de soustraction : 1 rotation sur 2 (index impairs)
-      if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
-        // Chercher le score de la rotation précédente pour ce user
-        const previousRotationId =
-          cycle.rotations[currentRotationIndex - 1].rotation_id;
-
-        // D'abord chercher dans le lot actuel
-        const batchKey = `${score.user_id}-${previousRotationId}`;
-        let previousRawScore = currentBatchScores.get(batchKey);
-
-        // Si pas dans le lot, chercher en base de données
-        if (previousRawScore === undefined) {
-          const previousScore = await req.db.collection("scores").findOne({
-            user_id: score.user_id,
-            cycle_id: score.cycle_id,
-            rotation_id: previousRotationId
-          });
-
-          if (previousScore) {
-            previousRawScore = previousScore.raw_score;
-          }
-        }
-
-        // Si on a trouvé le score précédent (lot ou DB), calculer le différentiel
-        // Sinon, le score reste égal au raw_score (pas de soustraction)
-        if (previousRawScore !== undefined) {
-          finalScore = Math.max(0, rawScore - previousRawScore);
-          isDifferential = true;
-        } else {
-          // Pas de score précédent trouvé, on garde le raw_score tel quel
-          finalScore = rawScore;
-          isDifferential = true;
-        }
+      // D'abord chercher le score précédent dans le lot actuel, puis en DB
+      const previousRotationId = currentRotationIndex > 0
+        ? cycle.rotations[currentRotationIndex - 1].rotation_id
+        : null;
+      let previousRawScore = previousRotationId
+        ? currentBatchScores.get(`${score.user_id}-${previousRotationId}`)
+        : undefined;
+      if (previousRawScore === undefined && previousRotationId) {
+        const prevScore = await req.db.collection("scores").findOne({
+          user_id: score.user_id, cycle_id: score.cycle_id, rotation_id: previousRotationId
+        });
+        if (prevScore) previousRawScore = prevScore.raw_score;
       }
+
+      const { score: finalScore, isDifferential } = computeDifferential(rawScore, currentRotationIndex, previousRawScore);
 
       const scoreData = {
         user_id: score.user_id,
@@ -625,54 +476,6 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       const currentKey = `${score.user_id}-${score.rotation_id}`;
       currentBatchScores.set(currentKey, rawScore);
     }
-
-    // SOLUTION 2: Fonction pour recalculer les scores différentiels affectés
-    const recalculateAffectedDifferentials = async (cycleId, rotationIndex, userId) => {
-      const recalculatedIds = [];
-      
-      // Chercher toutes les rotations suivantes qui sont différentielles pour ce user
-      for (let i = rotationIndex + 1; i < cycle.rotations.length; i++) {
-        if (i % 2 === 1) { // Rotation différentielle (index impair)
-          const nextRotationId = cycle.rotations[i].rotation_id;
-          
-          const existingDifferentialScore = await req.db.collection("scores").findOne({
-            user_id: userId,
-            cycle_id: cycleId,
-            rotation_id: nextRotationId
-          });
-
-          if (existingDifferentialScore) {
-            // Recalculer ce score différentiel
-            const previousRotationId = cycle.rotations[i - 1].rotation_id;
-            const previousScore = await req.db.collection("scores").findOne({
-              user_id: userId,
-              cycle_id: cycleId,
-              rotation_id: previousRotationId
-            });
-
-            if (previousScore) {
-              const newFinalScore = Math.max(0, existingDifferentialScore.raw_score - previousScore.raw_score);
-              
-              await req.db.collection("scores").updateOne(
-                { _id: existingDifferentialScore._id },
-                { 
-                  $set: { 
-                    score: newFinalScore,
-                    is_differential: true,
-                    updated_at: new Date()
-                  }
-                }
-              );
-              
-              recalculatedIds.push(existingDifferentialScore._id);
-              console.log(`Score différentiel recalculé pour rotation ${i}: ${existingDifferentialScore.score} -> ${newFinalScore}`);
-            }
-          }
-        }
-      }
-      
-      return recalculatedIds;
-    };
 
     // Traiter les scores avec upsert (insert ou update)
     let insertedCount = 0;
@@ -716,11 +519,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
       // SOLUTION 2: Si c'est un score de base (index pair), recalculer les différentiels suivants
       if (currentRotationIndex % 2 === 0) {
-        const affectedIds = await recalculateAffectedDifferentials(
-          scoreData.cycle_id, 
-          currentRotationIndex, 
-          scoreData.user_id
-        );
+        const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, scoreData.user_id, scoreData.cycle_id);
         recalculatedIds.push(...affectedIds);
         recalculatedCount += affectedIds.length;
       }
@@ -859,10 +658,7 @@ router.post("/", async (req, res) => {
     }
 
     // Créer un map des rotations avec leur index pour l'ordre
-    const rotationIndexMap = new Map();
-    cycle.rotations.forEach((rotation, index) => {
-      rotationIndexMap.set(rotation.rotation_id, index);
-    });
+    const rotationIndexMap = buildRotationIndexMap(cycle);
 
     // Vérifier l'existence d'un score pour ce user/cycle/rotation
     const existingScore = await req.db.collection("scores").findOne({
@@ -881,30 +677,18 @@ router.post("/", async (req, res) => {
     }
 
     const currentRotationIndex = rotationIndexMap.get(rotation_id);
-    let finalScore = raw_score;
-    let isDifferential = false;
 
-    // Logique de soustraction : 1 rotation sur 2 (index impairs)
-    if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
-      // Chercher le score de la rotation précédente pour ce user
-      const previousRotationId =
-        cycle.rotations[currentRotationIndex - 1].rotation_id;
-
+    // Récupérer le score précédent pour le calcul différentiel
+    let previousRawScore;
+    if (currentRotationIndex > 0) {
+      const previousRotationId = cycle.rotations[currentRotationIndex - 1].rotation_id;
       const previousScore = await req.db.collection("scores").findOne({
-        user_id: user_id,
-        cycle_id: cycle_id,
-        rotation_id: previousRotationId
+        user_id, cycle_id, rotation_id: previousRotationId
       });
-
-      if (previousScore) {
-        finalScore = Math.max(0, raw_score - previousScore.raw_score);
-        isDifferential = true;
-      } else {
-        // Pas de score précédent trouvé, on garde le raw_score tel quel
-        finalScore = raw_score;
-        isDifferential = true;
-      }
+      if (previousScore) previousRawScore = previousScore.raw_score;
     }
+
+    const { score: finalScore, isDifferential } = computeDifferential(raw_score, currentRotationIndex, previousRawScore);
 
     const scoreData = {
       user_id,
@@ -923,34 +707,8 @@ router.post("/", async (req, res) => {
     // Recalculer les scores différentiels suivants si c'est un score de base
     let recalculatedCount = 0;
     if (currentRotationIndex % 2 === 0) {
-      for (let i = currentRotationIndex + 1; i < cycle.rotations.length; i++) {
-        if (i % 2 === 1) { // Rotation différentielle
-          const nextRotationId = cycle.rotations[i].rotation_id;
-          
-          const existingDifferentialScore = await req.db.collection("scores").findOne({
-            user_id: user_id,
-            cycle_id: cycle_id,
-            rotation_id: nextRotationId
-          });
-
-          if (existingDifferentialScore) {
-            const newFinalScore = Math.max(0, existingDifferentialScore.raw_score - raw_score);
-            
-            await req.db.collection("scores").updateOne(
-              { _id: existingDifferentialScore._id },
-              { 
-                $set: { 
-                  score: newFinalScore,
-                  is_differential: true,
-                  updated_at: new Date()
-                }
-              }
-            );
-            
-            recalculatedCount++;
-          }
-        }
-      }
+      const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, user_id, cycle_id);
+      recalculatedCount = affectedIds.length;
     }
 
     res.status(201).json({
@@ -1019,10 +777,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         });
       }
 
-      const rotationIndexMap = new Map();
-      cycle.rotations.forEach((rotation, index) => {
-        rotationIndexMap.set(rotation.rotation_id, index);
-      });
+      const rotationIndexMap = buildRotationIndexMap(cycle);
 
       const currentRotationIndex = rotationIndexMap.get(targetRotationId);
       let calculatedRawScore = score; // Par défaut, raw_score = score
@@ -1073,42 +828,12 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
       });
 
       if (cycle) {
-        const rotationIndexMap = new Map();
-        cycle.rotations.forEach((rotation, index) => {
-          rotationIndexMap.set(rotation.rotation_id, index);
-        });
-        
+        const rotationIndexMap = buildRotationIndexMap(cycle);
         const currentRotationIndex = rotationIndexMap.get(targetRotationId);
         
         if (currentRotationIndex % 2 === 0) { // Score de base modifié
-          for (let i = currentRotationIndex + 1; i < cycle.rotations.length; i++) {
-            if (i % 2 === 1) { // Rotation différentielle
-              const nextRotationId = cycle.rotations[i].rotation_id;
-              
-              const existingDifferentialScore = await req.db.collection("scores").findOne({
-                user_id: targetUserId,
-                cycle_id: targetCycleId,
-                rotation_id: nextRotationId
-              });
-
-              if (existingDifferentialScore) {
-                const newFinalScore = Math.max(0, existingDifferentialScore.raw_score - updateData.raw_score);
-                
-                await req.db.collection("scores").updateOne(
-                  { _id: existingDifferentialScore._id },
-                  { 
-                    $set: { 
-                      score: newFinalScore,
-                      is_differential: true,
-                      updated_at: new Date()
-                    }
-                  }
-                );
-                
-                recalculatedCount++;
-              }
-            }
-          }
+          const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, targetUserId, targetCycleId);
+          recalculatedCount = affectedIds.length;
         }
       }
     }
@@ -1279,16 +1004,4 @@ router.get("/cycle/:cycleId", async (req, res) => {
 });
 
 // Fonction utilitaire pour décrire la portée de la comparaison
-function getScopeDescription(cycle_id, rotation_id) {
-  if (rotation_id && cycle_id) {
-    return "Rotation spécifique d'un cycle";
-  } else if (cycle_id) {
-    return "Cycle complet";
-  } else if (rotation_id) {
-    return "Rotation spécifique (tous cycles)";
-  } else {
-    return "Tous les scores";
-  }
-}
-
 export default router;

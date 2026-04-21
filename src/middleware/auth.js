@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 
 // Middleware pour vérifier le JWT
-export function requireAdmin(req, res, next) {
+export const requireAdmin = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
@@ -26,7 +26,7 @@ export function requireAdmin(req, res, next) {
 }
 
 // Middleware pour les scores - Admin ou Chef/Sous-Chef de guilde
-export function requireScoresAccess(req, res, next) {
+export const requireScoresAccess = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
@@ -84,7 +84,7 @@ export function requireScoresAccess(req, res, next) {
 }
 
 // Middleware simple pour éviter d'appeler la DB avant qu'elle soit prête
-export function requireDb(req, res, next) {
+export const requireDb = (req, res, next) => {
   if (!req.app.locals.db && !req.db) {
     return res.status(503).json({ 
       success: false, 
