@@ -342,6 +342,105 @@ export const getUserStats = async (db, user_id, { cycle_id } = {}) => {
     }
   }
 
+  // Score médian
+  const sortedScores = [...scoresWithRotations].sort((a, b) => (a.score || 0) - (b.score || 0));
+  const mid = Math.floor(sortedScores.length / 2);
+  const medianScore = sortedScores.length % 2 === 0
+    ? Math.round((sortedScores[mid - 1].score + sortedScores[mid].score) / 2)
+    : sortedScores[mid].score;
+
+  // Écart-type et coefficient de variation (consistance)
+  const variance = scoresWithRotations.reduce((sum, s) => sum + Math.pow((s.score || 0) - averageScore, 2), 0) / totalScores;
+  const stdDeviation = Math.round(Math.sqrt(variance));
+  const consistencyScore = averageScore > 0 ? Math.round((stdDeviation / averageScore) * 100) : 0;
+
+  // Cycles complets (toutes 20 rotations jouées)
+  const cyclesWithFullParticipation = Object.values(cycleStats).filter(c => c.count >= 20).length;
+
+  // Contribution à la guilde (%) par cycle
+  let guildContribution = null;
+  if (user.guilde_id) {
+    const userCycleIds = Object.keys(cycleStats);
+    if (userCycleIds.length > 0) {
+      const guildMembers = await db.collection('users').find({ guilde_id: user.guilde_id }).toArray();
+      const guildMemberIds = guildMembers.map(m => m._id.toString());
+
+      const guildCycleTotals = await db.collection('scores')
+        .aggregate([
+          { $match: { user_id: { $in: guildMemberIds }, cycle_id: { $in: userCycleIds } } },
+          { $group: { _id: '$cycle_id', guildTotal: { $sum: '$score' } } }
+        ])
+        .toArray();
+
+      const guildTotalMap = {};
+      guildCycleTotals.forEach(c => { guildTotalMap[c._id] = c.guildTotal; });
+
+      const contributionByCycle = userCycleIds
+        .map(cid => {
+          const userTotal = cycleStats[cid].totalScore;
+          const guildTotal = guildTotalMap[cid] || 0;
+          const pct = guildTotal > 0 ? Math.round((userTotal / guildTotal) * 10000) / 100 : 0;
+          return { cycle_id: cid, userTotal, guildTotal, contributionPct: pct };
+        })
+        .filter(c => c.guildTotal > 0);
+
+      const avgContribution = contributionByCycle.length > 0
+        ? Math.round(contributionByCycle.reduce((sum, c) => sum + c.contributionPct, 0) / contributionByCycle.length * 100) / 100
+        : 0;
+
+      guildContribution = { averagePct: avgContribution, byCycle: contributionByCycle };
+    }
+  }
+
+  // Performance par quartile de position (1-5, 6-10, 11-15, 16-20)
+  const quartileMap = { 'Q1 (1-5)': { totalScore: 0, count: 0 }, 'Q2 (6-10)': { totalScore: 0, count: 0 }, 'Q3 (11-15)': { totalScore: 0, count: 0 }, 'Q4 (16-20)': { totalScore: 0, count: 0 } };
+  for (const score of scoresWithRotations) {
+    const pos = score.rotation_position;
+    if (!pos) continue;
+    const key = pos <= 5 ? 'Q1 (1-5)' : pos <= 10 ? 'Q2 (6-10)' : pos <= 15 ? 'Q3 (11-15)' : 'Q4 (16-20)';
+    quartileMap[key].totalScore += score.score || 0;
+    quartileMap[key].count += 1;
+  }
+  const performanceByQuartile = Object.entries(quartileMap)
+    .filter(([, s]) => s.count > 0)
+    .map(([quartile, s]) => ({
+      quartile,
+      averageScore: Math.round(s.totalScore / s.count),
+      count: s.count
+    }));
+
+  // Performance par type d'attaque (R / B)
+  const attackMap = {};
+  for (const score of scoresWithRotations) {
+    const key = score.rotation_attack || 'Inconnu';
+    if (!attackMap[key]) attackMap[key] = { totalScore: 0, count: 0 };
+    attackMap[key].totalScore += score.score || 0;
+    attackMap[key].count += 1;
+  }
+  const performanceByAttack = Object.entries(attackMap)
+    .map(([attack, s]) => ({
+      attack,
+      averageScore: Math.round(s.totalScore / s.count),
+      count: s.count
+    }))
+    .sort((a, b) => b.averageScore - a.averageScore);
+
+  // Performance par altération d'état
+  const alterationMap = {};
+  for (const score of scoresWithRotations) {
+    const key = score.rotation_alteration || 'Aucune';
+    if (!alterationMap[key]) alterationMap[key] = { totalScore: 0, count: 0 };
+    alterationMap[key].totalScore += score.score || 0;
+    alterationMap[key].count += 1;
+  }
+  const performanceByAlteration = Object.entries(alterationMap)
+    .map(([alteration, s]) => ({
+      alteration,
+      averageScore: Math.round(s.totalScore / s.count),
+      count: s.count
+    }))
+    .sort((a, b) => b.averageScore - a.averageScore);
+
   return {
     user: userSummary,
     stats: {
@@ -393,7 +492,15 @@ export const getUserStats = async (db, user_id, { cycle_id } = {}) => {
       missRate,
       missCount,
       recentTrend,
-      rivals
+      rivals,
+      medianScore,
+      stdDeviation,
+      consistencyScore,
+      cyclesWithFullParticipation,
+      guildContribution,
+      performanceByQuartile,
+      performanceByAttack,
+      performanceByAlteration
     },
     filters: { cycle_id: cycle_id || null }
   };
