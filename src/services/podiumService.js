@@ -437,6 +437,7 @@ export const getPodiumWeekly = async (db, { cycle_name, week_number, guild_name,
         }
       }
     },
+    { $addFields: { user_id: "$_id" } },
     ...lookupUserByUserId(),
     {
       $project: {
@@ -560,6 +561,7 @@ export const getPodiumMisses = async (db, { cycle_name, guild_name, page = 1, li
         }
       }
     },
+    { $addFields: { user_id: "$_id" } },
     ...lookupUserByUserId(),
     {
       $project: {
