@@ -863,6 +863,18 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
           submittedBy = submitter?.bbs_name ||submitter?.global_name || submitter?.username || 'Inconnu';
         }
 
+        const targetRotationId = rotation_id || existingScore.rotation_id;
+        const targetCycleId = cycle_id || existingScore.cycle_id;
+
+        const rotation = await req.db.collection('rotations').findOne(
+          { _id: new ObjectId(targetRotationId) },
+          { projection: { position: 1, attack: 1, killer: 1, alteration: 1 } }
+        );
+        const cycleDoc = await req.db.collection('cycles').findOne(
+          { _id: new ObjectId(targetCycleId) },
+          { projection: { name: 1 } }
+        );
+
         notifyDiscord('score_edit', {
           submitted_by: submittedBy,
           guild_name: guildName,
@@ -871,7 +883,11 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
           new_score: updateData.score,
           raw_score: updateData.raw_score,
           is_differential: updateData.is_differential,
-          recalculated_count: recalculatedCount
+          recalculated_count: recalculatedCount,
+          cycle_name: cycleDoc?.name || '',
+          rotation_position: rotation?.position ?? null,
+          rotation_attack: rotation?.attack || '',
+          rotation_killer: rotation?.killer || ''
         }, guildChannelId);
       } catch (notifErr) {
         console.error('[scores/edit] Erreur notification Discord (non bloquant):', notifErr.message);
