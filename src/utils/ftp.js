@@ -24,6 +24,19 @@ export class FTPUploader {
   }
 
   /**
+   * Liste les sous-dossiers d'un répertoire FTP
+   * @param {string} remotePath - Chemin du dossier à lister
+   * @returns {string[]} Noms des sous-dossiers triés
+   */
+  async listSubdirectories(remotePath) {
+    const list = await this.client.list(remotePath);
+    return list
+      .filter((item) => item.type === 2) // type 2 = directory
+      .map((item) => item.name)
+      .sort();
+  }
+
+  /**
    * Vérifie si un fichier existe sur le FTP
    * @param {string} remotePath - Chemin complet sur le FTP
    * @returns {boolean}

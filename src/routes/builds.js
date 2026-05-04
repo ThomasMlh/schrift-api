@@ -146,7 +146,7 @@ const enrichTeamWithCharacters = async (team, db) => {
         try {
           const accessoryDoc = await db.collection('accessories').findOne(
             { _id: new ObjectId(accessory.id_accessory) },
-            { projection: { name: 1 } }
+            { projection: { name: 1, code: 1 } }
           );
 
           let subeffectDoc = null;
