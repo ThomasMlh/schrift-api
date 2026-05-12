@@ -2,7 +2,7 @@
  * Utilitaire pour envoyer des notifications au bot Discord via son serveur HTTP.
  *
  * Variables d'environnement :
- *   BOT_WEBHOOK_URL  — URL du webhook du bot (ex: http://localhost:8080/webhook)
+ *   BOT_WEBHOOK_URL  — URL de base du bot (ex: http://localhost:8080)
  *   DISCORD_CHANNEL_DEFAULT — Channel par défaut si aucun channelId fourni
  */
 
@@ -13,7 +13,7 @@
  * @param {string} [channelId] — ID du channel Discord (sinon fallback sur DISCORD_CHANNEL_DEFAULT)
  */
 export const notifyDiscord = async (type, data, channelId) => {
-  const botUrl = process.env.BOT_WEBHOOK_URL || 'http://localhost:8080/webhook';
+  const botUrl = `${process.env.BOT_WEBHOOK_URL || 'http://localhost:8080'}/webhook`;
   const channel = channelId || process.env.DISCORD_CHANNEL_DEFAULT || '';
   if (!channel) {
     console.warn(`[notifyDiscord] Pas de channel configuré, notification ignorée.`);

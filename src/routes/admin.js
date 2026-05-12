@@ -1,7 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { requireDb } from '../middleware/auth.js';
+import { requireDb, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -79,6 +79,29 @@ router.post('/setup', async (req, res) => {
     res.json({ success: true, message: 'Mot de passe admin configuré avec succès' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Erreur serveur', error: err.message });
+  }
+});
+
+// Vérification de la santé du bot Discord
+router.get('/bot-health', requireAdmin, async (req, res) => {
+  try {
+    const healthUrl = `${process.env.BOT_WEBHOOK_URL || 'http://localhost:8080'}/health`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const botRes = await fetch(healthUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+      const data = await botRes.json().catch(() => ({}));
+      return res.json({ success: true, online: botRes.ok, status: botRes.status, data });
+    } catch (fetchErr) {
+      clearTimeout(timeout);
+      const timedOut = fetchErr.name === 'AbortError';
+      return res.json({ success: true, online: false, error: timedOut ? 'timeout' : fetchErr.message });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
