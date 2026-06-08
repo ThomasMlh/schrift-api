@@ -366,7 +366,7 @@ router.post('/submit-batch', async (req, res) => {
       const sortedForNotif = [...insertedScores].sort((a, b) => b.score - a.score);
       const scoresForNotif = sortedForNotif.map((s, i) => {
         const user = userMap.get(s.user_id);
-        const pseudo = user?.global_name || user?.bbs_name || user?.username || s.user_id;
+        const pseudo = user?.bbs_name || user?.global_name || user?.username || s.user_id;
         return { rank: i + 1, pseudo, score: s.score, raw_score: s.raw_score };
       });
 
@@ -374,9 +374,9 @@ router.post('/submit-batch', async (req, res) => {
       if (req.user?._id) {
         const submitter = await req.db.collection('users').findOne(
           { _id: new ObjectId(req.user._id) },
-          { projection: { global_name: 1, username: 1 } }
+          { projection: { bbs_name: 1, global_name: 1, username: 1 } }
         );
-        submittedBy = submitter?.global_name || submitter?.username || 'Inconnu';
+        submittedBy = submitter?.bbs_name || submitter?.global_name || submitter?.username || 'Inconnu';
       }
 
       notifyDiscord('scores', {
