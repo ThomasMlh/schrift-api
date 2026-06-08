@@ -1,28 +1,13 @@
 import express from 'express';
-import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
-import { requireDb, requireAdmin } from '../middleware/auth.js';
+import { requireDb, requireAdmin, optionalAuth, validateObjectIdParam } from '../middleware/auth.js';
+import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
+import { USER_BUILD } from '../utils/projections.js';
 
 const router = express.Router();
 
 // Middleware pour toutes les routes builds
 router.use(requireDb);
-
-// Middleware pour extraire l'utilisateur du token (optionnel)
-const extractUser = async (req, res, next) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-
-    if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = decoded;
-    }
-  } catch (error) {
-    // Si le token est invalide, on continue sans utilisateur
-    req.user = null;
-  }
-  next();
-};
 
 // Helper function pour enrichir avec les données utilisateur
 const enrichWithUser = async (build, db) => {
@@ -35,7 +20,7 @@ const enrichWithUser = async (build, db) => {
     if (ObjectId.isValid(build.user_id)) {
       user = await db.collection('users').findOne(
         { _id: new ObjectId(build.user_id) },
-        { projection: { discord_id: 1, username: 1, global_name: 1, bbs_name: 1, avatar: 1, is_admin: 1 } }
+        { projection: USER_BUILD }
       );
     }
     
@@ -43,7 +28,7 @@ const enrichWithUser = async (build, db) => {
     if (!user) {
       user = await db.collection('users').findOne(
         { discord_id: build.user_id },
-        { projection: { discord_id: 1, username: 1, global_name: 1, bbs_name: 1, avatar: 1, is_admin: 1 } }
+        { projection: USER_BUILD }
       );
     }
 
@@ -181,7 +166,7 @@ const enrichTeamWithCharacters = async (team, db) => {
 };
 
 // POST /builds - Créer une nouvelle team
-router.post('/', extractUser, async (req, res) => {
+router.post('/', optionalAuth, async (req, res) => {
   try {
     const { rotation_id, description, team } = req.body;
 
@@ -443,17 +428,8 @@ router.post('/', extractUser, async (req, res) => {
 // GET /builds - Récupérer tous les builds avec filtres et pagination
 router.get('/', async (req, res) => {
   try {
-    const {
-      rotation_id,
-      isValid,
-      page = 1,
-      limit = 20
-    } = req.query;
-
-    // Paramètres de pagination
-    const pageNumber = Math.max(1, parseInt(page, 10) || 1);
-    const limitNumber = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-    const skip = (pageNumber - 1) * limitNumber;
+    const { rotation_id, isValid } = req.query;
+    const { page, limit, skip } = parsePaginationParams(req.query, 20, 100);
 
     // Construction du filtre
     const filter = {};
@@ -466,41 +442,51 @@ router.get('/', async (req, res) => {
       filter.isValid = isValid === 'true' || isValid === true;
     }
 
-    // Récupérer les builds
     const builds = await req.db.collection('builds')
       .find(filter)
       .sort({ created_at: -1 })
       .skip(skip)
-      .limit(limitNumber)
+      .limit(limit)
       .toArray();
 
-    // Enrichir chaque build avec les données des personnages et utilisateur
+    // Batch-load users et rotations pour éviter N requêtes par item
+    const userIds = [...new Set(builds.map(b => b.user_id).filter(id => id && ObjectId.isValid(id)))];
+    const userMap = new Map();
+    if (userIds.length > 0) {
+      const users = await req.db.collection('users').find(
+        { _id: { $in: userIds.map(id => new ObjectId(id)) } },
+        { projection: USER_BUILD }
+      ).toArray();
+      users.forEach(u => userMap.set(u._id.toString(), u));
+    }
+
+    const rotationIds = [...new Set(builds.map(b => b.rotation_id).filter(id => id && ObjectId.isValid(id)))];
+    const rotationMap = new Map();
+    if (rotationIds.length > 0) {
+      const rotations = await req.db.collection('rotations').find(
+        { _id: { $in: rotationIds.map(id => new ObjectId(id)) } },
+        { projection: { killer: 1, attack: 1, alteration: 1, start_date: 1, end_date: 1, cycle_id: 1 } }
+      ).toArray();
+      rotations.forEach(r => rotationMap.set(r._id.toString(), r));
+    }
+
     const enrichedBuilds = [];
     for (const build of builds) {
       const enrichedTeam = await enrichTeamWithCharacters(build.team, req.db);
-      const enrichedBuild = await enrichWithUser(build, req.db);
-      const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
       enrichedBuilds.push({
-        ...enrichedWithRotation,
-        team: enrichedTeam
+        ...build,
+        team: enrichedTeam,
+        user: userMap.get(build.user_id) || null,
+        rotation: rotationMap.get(build.rotation_id) || null
       });
     }
 
     const totalCount = await req.db.collection('builds').countDocuments(filter);
-    const totalPages = Math.ceil(totalCount / limitNumber);
 
     res.json({
       success: true,
       data: enrichedBuilds,
-      pagination: {
-        currentPage: pageNumber,
-        totalPages,
-        totalCount,
-        hasNextPage: pageNumber < totalPages,
-        hasPrevPage: pageNumber > 1,
-        itemsPerPage: limitNumber,
-        itemsOnPage: enrichedBuilds.length
-      },
+      pagination: buildPaginationMeta(page, limit, totalCount, enrichedBuilds.length),
       filters: {
         rotation_id: rotation_id || null,
         isValid: isValid || null
@@ -516,17 +502,9 @@ router.get('/', async (req, res) => {
 });
 
 // GET /builds/:id - Récupérer un build spécifique
-router.get('/:id', async (req, res) => {
+router.get('/:id', validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
-
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format d\'ID invalide'
-      });
-    }
-
     const build = await req.db.collection('builds').findOne({
       _id: new ObjectId(id)
     });
@@ -560,17 +538,10 @@ router.get('/:id', async (req, res) => {
 });
 
 // PATCH /builds/:id - Mettre à jour un build
-router.patch('/:id', extractUser, async (req, res) => {
+router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format d\'ID invalide'
-      });
-    }
 
     // Vérifier que le build existe
     const existingBuild = await req.db.collection('builds').findOne({
@@ -844,17 +815,10 @@ router.patch('/:id', extractUser, async (req, res) => {
 });
 
 // PATCH /builds/:id/validate - Valider un build (admin seulement)
-router.patch('/:id/validate', requireAdmin, async (req, res) => {
+router.patch('/:id/validate', requireAdmin, validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
     const { isValid } = req.body;
-
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format d\'ID invalide'
-      });
-    }
 
     if (typeof isValid !== 'boolean') {
       return res.status(400).json({
@@ -909,17 +873,9 @@ router.patch('/:id/validate', requireAdmin, async (req, res) => {
 });
 
 // DELETE /builds/:id - Supprimer un build
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
-
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format d\'ID invalide'
-      });
-    }
-
     const result = await req.db.collection('builds').deleteOne({
       _id: new ObjectId(id)
     });

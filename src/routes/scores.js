@@ -6,6 +6,7 @@ import { compareEntities } from "../services/scoreComparison.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../services/scoreDifferential.js";
 import { getUserDisplayName } from "../utils/nameMatching.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
+import { USER_DISPLAY, USER_DISPLAY_WITH_ID, USER_SCORES_LOOKUP } from "../utils/projections.js";
 
 const router = express.Router();
 
@@ -47,19 +48,7 @@ router.get("/", async (req, res) => {
             let: { userId: { $toObjectId: "$user_id" } },
             pipeline: [
               { $match: { $expr: { $eq: ["$_id", "$$userId"] } } },
-              {
-                $project: {
-                  _id: 1,
-                  discord_id: 1,
-                  avatar: 1,
-                  bbs_id: 1,
-                  bbs_name: 1,
-                  global_name: 1,
-                  guilde_id: 1,
-                  role: 1,
-                  username: 1
-                }
-              }
+              { $project: USER_SCORES_LOOKUP }
             ],
             as: "user"
           }
@@ -496,7 +485,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
       const submitter = req.user?._id
         ? await req.db.collection("users").findOne(
             { _id: new ObjectId(req.user._id) },
-            { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+            { projection: USER_DISPLAY }
           )
         : null;
       const submittedBy = getUserDisplayName(submitter);
@@ -758,7 +747,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       const userIds = [...new Set(finalScores.map(s => s.user_id))];
       const users = await req.db.collection("users").find({
         _id: { $in: userIds.map(id => new ObjectId(id)) }
-      }, { projection: { _id: 1, global_name: 1, username: 1, bbs_name: 1 } }).toArray();
+      }, { projection: USER_DISPLAY_WITH_ID }).toArray();
       const userMap = new Map(users.map(u => [u._id.toString(), u]));
 
       // Résoudre la guilde (nom + channel Discord)
@@ -790,7 +779,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       if (req.user?._id) {
         const submitter = await req.db.collection("users").findOne(
           { _id: new ObjectId(req.user._id) },
-          { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+          { projection: USER_DISPLAY }
         );
         submittedBy = getUserDisplayName(submitter);
       }
@@ -1072,7 +1061,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
 
         const editedUser = await req.db.collection('users').findOne(
           { _id: new ObjectId(targetUserId) },
-          { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+          { projection: USER_DISPLAY }
         );
         const pseudo = getUserDisplayName(editedUser, targetUserId);
 
@@ -1084,7 +1073,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         if (req.user?._id) {
           const submitter = await req.db.collection('users').findOne(
             { _id: new ObjectId(req.user._id) },
-            { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+            { projection: USER_DISPLAY }
           );
           submittedBy = getUserDisplayName(submitter);
         }

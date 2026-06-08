@@ -1,10 +1,11 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireDb, requireAdmin } from '../middleware/auth.js';
+import { requireDb, requireAdmin, validateObjectIdParam } from '../middleware/auth.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { getUserStats } from '../services/userStats.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
+import { USER_FULL, USER_DISPLAY } from '../utils/projections.js';
 
 const router = express.Router();
 
@@ -52,26 +53,7 @@ router.get('/', async (req, res) => {
     }
 
     const users = await req.db.collection('users')
-      .find(query, {
-        projection: {
-          _id: 1,
-          discord_id: 1,
-          username: 1,
-          avatar: 1,
-          banner: 1,
-          guilde_id: 1,
-          role: 1,
-          is_admin: 1,
-          last_login: 1,
-          global_name: 1,
-          bbs_id: 1,
-          bbs_name: 1,
-          is_authorized: 1,
-          is_banned: 1,
-          ban_reason: 1,
-          banned_at: 1
-        }
-      })
+      .find(query, { projection: USER_FULL })
       .sort({ last_login: -1 })
       .skip(skip)
       .limit(limit)
@@ -134,25 +116,7 @@ router.get('/without-guild', async (req, res) => {
     }
 
     const users = await req.db.collection('users')
-      .find(query, {
-        projection: {
-          _id: 1,
-          discord_id: 1,
-          username: 1,
-          avatar: 1,
-          banner: 1,
-          is_admin: 1,
-          last_login: 1,
-          global_name: 1,
-          guilde_id: 1,
-          role: 1,
-          bbs_name: 1,
-          bbs_id: 1,
-          is_banned: 1,
-          ban_reason: 1,
-          banned_at: 1
-        }
-      })
+      .find(query, { projection: USER_FULL })
       .sort({ bbs_name: 1 })
       .skip(skip)
       .limit(limit)
@@ -175,40 +139,12 @@ router.get('/without-guild', async (req, res) => {
 });
 
 // Route pour récupérer un utilisateur spécifique
-router.get('/:userId', async (req, res) => {
+router.get('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
-
-    // Vérifier si l'userId est un ObjectId valide
-    if (!ObjectId.isValid(userId)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Format d\'ID utilisateur invalide' 
-      });
-    }
-
     const user = await req.db.collection('users').findOne(
       { _id: new ObjectId(userId) },
-      {
-        projection: {
-          _id: 1,
-          discord_id: 1,
-          username: 1,
-          avatar: 1,
-          banner: 1,
-          guilde_id: 1,
-          role: 1,
-          is_admin: 1,
-          last_login: 1,
-          global_name: 1,
-          bbs_id: 1,
-          bbs_name: 1,
-          is_authorized: 1,
-          is_banned: 1,
-          ban_reason: 1,
-          banned_at: 1
-        }
-      }
+      { projection: USER_FULL }
     );
 
     if (!user) {
@@ -222,18 +158,10 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
-router.patch('/:userId', async (req, res) => {
+router.patch('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
     const updates = req.body;
-
-    // Vérifier si l'userId est un ObjectId valide
-    if (!ObjectId.isValid(userId)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Format d\'ID utilisateur invalide' 
-      });
-    }
 
     const result = await req.db.collection('users').updateOne(
       { _id: new ObjectId(userId) },
@@ -329,18 +257,10 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
 });
 
 // Route pour changer la guilde d'un utilisateur (admin seulement)
-router.put('/:userId/guild', requireAdmin, async (req, res) => {
+router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
     const { guildeId, role } = req.body;
-
-    // Vérifier si l'userId est un ObjectId valide
-    if (!ObjectId.isValid(userId)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Format d\'ID utilisateur invalide' 
-      });
-    }
 
     if (!guildeId) {
       return res.status(400).json({ success: false, message: 'L\'ID de la guilde est requis' });
@@ -411,18 +331,10 @@ router.get('/:user_id/stats', async (req, res) => {
 });
 
 // Route pour bannir un utilisateur (admin seulement)
-router.post('/:userId/ban', requireAdmin, async (req, res) => {
+router.post('/:userId/ban', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
     const { reason } = req.body;
-
-    if (!ObjectId.isValid(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format d\'ID utilisateur invalide'
-      });
-    }
-
     const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
 
     if (!user) {
@@ -453,7 +365,7 @@ router.post('/:userId/ban', requireAdmin, async (req, res) => {
     try {
       const banner = await req.db.collection('users').findOne(
         { _id: new ObjectId(req.user._id) },
-        { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+        { projection: USER_DISPLAY }
       );
       const bannerName = getUserDisplayName(banner);
       const bannedName = getUserDisplayName(user);
@@ -479,17 +391,9 @@ router.post('/:userId/ban', requireAdmin, async (req, res) => {
 });
 
 // Route pour débannir un utilisateur (admin seulement)
-router.post('/:userId/unban', requireAdmin, async (req, res) => {
+router.post('/:userId/unban', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
-
-    if (!ObjectId.isValid(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Format d\'ID utilisateur invalide'
-      });
-    }
-
     const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
 
     if (!user) {
@@ -516,7 +420,7 @@ router.post('/:userId/unban', requireAdmin, async (req, res) => {
     try {
       const unbanner = await req.db.collection('users').findOne(
         { _id: new ObjectId(req.user._id) },
-        { projection: { global_name: 1, username: 1, bbs_name: 1 } }
+        { projection: USER_DISPLAY }
       );
       const unbannerName = getUserDisplayName(unbanner);
       const unbannedName = getUserDisplayName(user);

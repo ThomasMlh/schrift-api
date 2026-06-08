@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { ObjectId } from 'mongodb';
 
 // Middleware pour vérifier le JWT
 export const requireAdmin = (req, res, next) => {
@@ -68,6 +69,25 @@ export const requireScoresAccess = (req, res, next) => {
     return res.status(403).json({ success: false, message: 'Token invalide ou expiré' });
   }
 }
+
+// Auth optionnel — peuple req.user si le token est présent, continue sans erreur sinon
+export const optionalAuth = (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (token) req.user = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    req.user = null;
+  }
+  next();
+};
+
+// Middleware factory : valide qu'un param de route est un ObjectId MongoDB valide
+export const validateObjectIdParam = (paramName, message) => (req, res, next) => {
+  if (!ObjectId.isValid(req.params[paramName])) {
+    return res.status(400).json({ success: false, message: message || 'Format d\'ID invalide' });
+  }
+  next();
+};
 
 // Middleware simple pour éviter d'appeler la DB avant qu'elle soit prête
 export const requireDb = (req, res, next) => {

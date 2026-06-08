@@ -2,6 +2,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireScoresAccess } from '../middleware/auth.js';
 import { processBatchScreenshots, SCREENSHOTTER_CONFIGS } from '../utils/ocrProcessor.js';
+import { computeDifferential } from '../services/scoreDifferential.js';
 import { findBestMatch, getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import sharp from 'sharp';
@@ -254,27 +255,21 @@ router.post('/submit-batch', async (req, res) => {
         }
         
         const rawScoreInt = parseInt(raw_score);
-        let finalScore = rawScoreInt;
-        let isDifferential = false;
-        
-        // Calcul différentiel pour rotations impaires (index 1, 3, 5...)
+        let previousRawScore;
+
         if (rotationIndex > 0 && rotationIndex % 2 === 1) {
-          isDifferential = true;
           const previousRotationId = cycle.rotations[rotationIndex - 1].rotation_id;
-          
-          // Chercher le score précédent en base
           const previousScore = await req.db.collection('scores').findOne({
-            user_id: user_id,
-            cycle_id: cycle_id,
+            user_id,
+            cycle_id,
             rotation_id: previousRotationId
           });
-          
-          if (previousScore && previousScore.raw_score !== undefined) {
-            finalScore = Math.max(0, rawScoreInt - previousScore.raw_score);
-          } else {
-            finalScore = rawScoreInt;
+          if (previousScore?.raw_score !== undefined) {
+            previousRawScore = previousScore.raw_score;
           }
         }
+
+        const { score: finalScore, isDifferential } = computeDifferential(rawScoreInt, rotationIndex, previousRawScore);
         
         // Créer le document score
         const scoreDocument = {

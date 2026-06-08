@@ -2,6 +2,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb } from '../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
+import { USER_SCORES_LOOKUP } from '../utils/projections.js';
 
 const router = express.Router();
 
@@ -293,19 +294,7 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
                 }
               }
             },
-            {
-              $project: {
-                _id: 1,
-                avatar: 1,
-                bbs_id: 1,
-                bbs_name: 1,
-                discord_id: 1,
-                global_name: 1,
-                guilde_id: 1,
-                role: 1,
-                username: 1
-              }
-            }
+            { $project: USER_SCORES_LOOKUP }
           ],
           as: 'user'
         }
@@ -336,19 +325,7 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
                 }
               }
             },
-            {
-              $project: {
-                _id: 1,
-                avatar: 1,
-                bbs_id: 1,
-                bbs_name: 1,
-                discord_id: 1,
-                global_name: 1,
-                guilde_id: 1,
-                role: 1,
-                username: 1
-              }
-            }
+            { $project: USER_SCORES_LOOKUP }
           ],
           as: 'user'
         }
