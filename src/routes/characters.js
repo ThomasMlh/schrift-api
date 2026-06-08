@@ -4,6 +4,7 @@ import { cleanObject } from "../utils/cleaners.js";
 import { requireAdmin, requireDb } from "../middleware/auth.js";
 import { syncCharactersFromSFTP, uploadImagesBatch } from "../services/characterSync.js";
 import { convertDateToFormat, reorderCharactersByReleaseDate } from "../utils/characterHelpers.js";
+import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 
 const router = express.Router();
 
@@ -194,14 +195,7 @@ router.post("/", requireAdmin, async (req, res) => {
 
 router.get("/", async (req, res) => {
   try {
-    // Paramètres de pagination avec valeurs par défaut
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // 50 par page par défaut
-    const skip = (page - 1) * limit;
-
-    // Limiter le nombre max par page pour éviter les abus
-    const maxLimit = 200;
-    const actualLimit = Math.min(limit, maxLimit);
+    const { page, limit, skip } = parsePaginationParams(req.query);
 
     // Paramètres de filtrage
     const { affinity, category, killer, search, attack_type } = req.query;
@@ -263,27 +257,16 @@ router.get("/", async (req, res) => {
       .find(query)
       .sort({ sort_order: 1, release_date: -1 })
       .skip(skip)
-      .limit(actualLimit)
+      .limit(limit)
       .toArray();
 
     const totalCount = await req.db
       .collection("characters")
       .countDocuments(query);
 
-    const totalPages = Math.ceil(totalCount / actualLimit);
-
     res.json({
       data: characters,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: characters.length
-      },
-      // Retourner les filtres actifs pour le frontend
+      pagination: buildPaginationMeta(page, limit, totalCount, characters.length),
       activeFilters: {
         affinity: affinity || null,
         category: category || null,
@@ -344,19 +327,18 @@ router.get("/:id", async (req, res) => {
 
 router.get("/search", async (req, res) => {
   try {
-    const { q, page = 1, limit = 20 } = req.query;
+    const { q } = req.query;
     if (!q || !q.trim()) {
       return res
         .status(400)
         .json({ success: false, message: "Paramètre de recherche requis" });
     }
 
+    const { page, limit, skip } = parsePaginationParams(req.query, 20, 100);
     const searchTerm = q
       .toLowerCase()
       .replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, "")
       .trim();
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const actualLimit = Math.min(parseInt(limit), 100); // Max 100 pour la recherche
 
     // Chercher les bannières correspondantes pour inclure leurs personnages
     const matchingBanners = await req.db
@@ -386,25 +368,16 @@ router.get("/search", async (req, res) => {
       .find(searchQuery)
       .sort({ sort_order: 1, release_date: -1 })
       .skip(skip)
-      .limit(actualLimit)
+      .limit(limit)
       .toArray();
 
     const totalCount = await req.db
       .collection("characters")
       .countDocuments(searchQuery);
 
-    const totalPages = Math.ceil(totalCount / actualLimit);
-
     res.json({
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalCount,
-        hasNextPage: parseInt(page) < totalPages,
-        hasPrevPage: parseInt(page) > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: characters.length
-      },
+      data: characters,
+      pagination: buildPaginationMeta(page, limit, totalCount, characters.length),
       searchTerm: q
     });
   } catch (error) {

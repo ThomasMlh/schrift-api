@@ -3,6 +3,8 @@ import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { getUserStats } from '../services/userStats.js';
+import { getUserDisplayName } from '../utils/nameMatching.js';
+import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 
 const router = express.Router();
 
@@ -12,14 +14,7 @@ router.use(requireDb);
 // Route pour récupérer tous les utilisateurs avec pagination (accessible à tous)
 router.get('/', async (req, res) => {
   try {
-    // Paramètres de pagination avec valeurs par défaut
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec les autres routes
-    const skip = (page - 1) * limit;
-
-    // Limiter le nombre max par page pour éviter les abus
-    const maxLimit = 200;
-    const actualLimit = Math.min(limit, maxLimit);
+    const { page, limit, skip } = parsePaginationParams(req.query);
 
     // Paramètres de filtrage optionnels
     const { guilde_id, role, search, is_banned } = req.query;
@@ -79,25 +74,15 @@ router.get('/', async (req, res) => {
       })
       .sort({ last_login: -1 })
       .skip(skip)
-      .limit(actualLimit)
+      .limit(limit)
       .toArray();
 
     const totalCount = await req.db.collection('users').countDocuments(query);
-    const totalPages = Math.ceil(totalCount / actualLimit);
 
     res.json({
       success: true,
       users,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: users.length
-      },
-      // Retourner les filtres actifs pour le frontend
+      pagination: buildPaginationMeta(page, limit, totalCount, users.length),
       activeFilters: {
         guilde_id: guilde_id || null,
         role: role || null,
@@ -113,14 +98,7 @@ router.get('/', async (req, res) => {
 // Route pour récupérer les utilisateurs sans guilde avec pagination
 router.get('/without-guild', async (req, res) => {
   try {
-    // Paramètres de pagination avec valeurs par défaut
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const skip = (page - 1) * limit;
-
-    // Limiter le nombre max par page pour éviter les abus
-    const maxLimit = 200;
-    const actualLimit = Math.min(limit, maxLimit);
+    const { page, limit, skip } = parsePaginationParams(req.query);
 
     // Paramètre de recherche optionnel
     const { search } = req.query;
@@ -177,25 +155,15 @@ router.get('/without-guild', async (req, res) => {
       })
       .sort({ bbs_name: 1 })
       .skip(skip)
-      .limit(actualLimit)
+      .limit(limit)
       .toArray();
 
     const totalCount = await req.db.collection('users').countDocuments(query);
-    const totalPages = Math.ceil(totalCount / actualLimit);
 
     res.json({
       success: true,
       users,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: users.length
-      },
-      // Retourner les filtres actifs pour le frontend
+      pagination: buildPaginationMeta(page, limit, totalCount, users.length),
       activeFilters: {
         search: search || null
       }
@@ -278,7 +246,7 @@ router.patch('/:userId', async (req, res) => {
 
     const updatedUser = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
 
-    res.json({ success: true, message: `${updatedUser.global_name} mis à jour avec succès` });
+    res.json({ success: true, message: `${getUserDisplayName(updatedUser)} mis à jour avec succès` });
   } catch (error) {
     console.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
@@ -421,7 +389,7 @@ router.put('/:userId/guild', requireAdmin, async (req, res) => {
 
     const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
 
-    res.json({ success: true, message: `${user.global_name || 'Utilisateur'} déplacé vers la nouvelle guilde` });
+    res.json({ success: true, message: `${getUserDisplayName(user, 'Utilisateur')} déplacé vers la nouvelle guilde` });
   } catch (error) {
     console.error('Erreur lors du changement de guilde:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
@@ -487,8 +455,8 @@ router.post('/:userId/ban', requireAdmin, async (req, res) => {
         { _id: new ObjectId(req.user._id) },
         { projection: { global_name: 1, username: 1, bbs_name: 1 } }
       );
-      const bannerName = banner?.bbs_name || banner?.global_name || banner?.username || 'Inconnu';
-      const bannedName = user.bbs_name || user.global_name || user.username || 'Inconnu';
+      const bannerName = getUserDisplayName(banner);
+      const bannedName = getUserDisplayName(user);
       notifyDiscord('ban', {
         action: 'ban',
         banned_by: bannerName,
@@ -502,7 +470,7 @@ router.post('/:userId/ban', requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      message: `${user.global_name || user.username} a été banni avec succès`
+      message: `${getUserDisplayName(user)} a été banni avec succès`
     });
   } catch (error) {
     console.error('Erreur lors du bannissement:', error);
@@ -550,8 +518,8 @@ router.post('/:userId/unban', requireAdmin, async (req, res) => {
         { _id: new ObjectId(req.user._id) },
         { projection: { global_name: 1, username: 1, bbs_name: 1 } }
       );
-      const unbannerName = unbanner?.bbs_name || unbanner?.global_name || unbanner?.username || 'Inconnu';
-      const unbannedName = user.bbs_name || user.global_name || user.username || 'Inconnu';
+      const unbannerName = getUserDisplayName(unbanner);
+      const unbannedName = getUserDisplayName(user);
       notifyDiscord('ban', {
         action: 'unban',
         banned_by: unbannerName,
@@ -564,7 +532,7 @@ router.post('/:userId/unban', requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      message: `${user.global_name || user.username} a été débanni avec succès`
+      message: `${getUserDisplayName(user)} a été débanni avec succès`
     });
   } catch (error) {
     console.error('Erreur lors du débannissement:', error);

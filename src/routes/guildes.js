@@ -1,6 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
+import { getUserDisplayName } from '../utils/nameMatching.js';
 
 const router = express.Router();
 
@@ -534,7 +535,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
       const user = users.find(u => u._id.toString() === move.userId);
       results.push({
         userId: move.userId,
-        username: user?.global_name || user?.username || 'Inconnu',
+        username: getUserDisplayName(user),
         toGuildId: move.toGuildId || null,
         toGuildName: move.toGuildId
           ? (guilds.find(g => g._id.toString() === move.toGuildId)?.name || 'Inconnue')

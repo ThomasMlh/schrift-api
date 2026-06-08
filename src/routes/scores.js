@@ -4,6 +4,8 @@ import { requireDb, requireScoresAccess } from "../middleware/auth.js";
 import { notifyDiscord } from "../utils/notifyDiscord.js";
 import { compareEntities } from "../services/scoreComparison.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../services/scoreDifferential.js";
+import { getUserDisplayName } from "../utils/nameMatching.js";
+import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 
 const router = express.Router();
 
@@ -13,13 +15,7 @@ router.use(requireDb);
 // GET tous les scores avec filtres et pagination
 router.get("/", async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec characters
-    const skip = (page - 1) * limit;
-
-    // Limiter le nombre max par page pour éviter les abus
-    const maxLimit = 200;
-    const actualLimit = Math.min(limit, maxLimit);
+    const { page, limit, skip } = parsePaginationParams(req.query);
 
     // Construction des filtres
     const filters = {};
@@ -82,7 +78,7 @@ router.get("/", async (req, res) => {
         },
         { $sort: { _id: -1 } },
         { $skip: skip },
-        { $limit: actualLimit }
+        { $limit: limit }
       ];
     } else {
       // Requête simple sans recherche - mais on peut quand même joindre les données utilisateur
@@ -113,7 +109,7 @@ router.get("/", async (req, res) => {
         },
         { $sort: { _id: -1 } },
         { $skip: skip },
-        { $limit: actualLimit }
+        { $limit: limit }
       ];
     }
 
@@ -188,21 +184,10 @@ router.get("/", async (req, res) => {
     } else {
       totalCount = await req.db.collection("scores").countDocuments(filters);
     }
-    const totalPages = Math.ceil(totalCount / actualLimit);
-
     res.json({
       success: true,
       data: scores,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: scores.length
-      },
-      // Retourner les filtres actifs pour le frontend
+      pagination: buildPaginationMeta(page, limit, totalCount, scores.length),
       activeFilters: {
         cycle_id: req.query.cycle_id || null,
         rotation_id: req.query.rotation_id || null,
@@ -514,7 +499,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
             { projection: { global_name: 1, username: 1, bbs_name: 1 } }
           )
         : null;
-      const submittedBy = submitter?.bbs_name || submitter?.global_name || submitter?.username || "Inconnu";
+      const submittedBy = getUserDisplayName(submitter);
 
       const sourceRotation = cycle.rotations.find(r => r.rotation_id === source_rotation_id);
       const targetRotation = cycle.rotations.find(r => r.rotation_id === target_rotation_id);
@@ -782,7 +767,6 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       let guildChannelId = "";
       if (firstGuildId) {
         const guild = await req.db.collection("guildes").findOne({ _id: new ObjectId(firstGuildId) });
-        console.log("[scores/bulk] guild_id:", firstGuildId, "→ guild:", JSON.stringify(guild));
         guildName = guild?.name || "";
         guildChannelId = guild?.discord_channel_id || "";
       }
@@ -797,7 +781,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       const sortedForNotif = [...finalScores].sort((a, b) => b.score - a.score);
       const scoresForNotif = sortedForNotif.map((s, i) => {
         const user = userMap.get(s.user_id);
-        const pseudo = user?.bbs_name || user?.global_name || user?.username || s.user_id;
+        const pseudo = getUserDisplayName(user, s.user_id);
         return { rank: i + 1, pseudo, score: s.score, raw_score: s.raw_score };
       });
 
@@ -808,7 +792,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
           { _id: new ObjectId(req.user._id) },
           { projection: { global_name: 1, username: 1, bbs_name: 1 } }
         );
-        submittedBy = submitter?.bbs_name || submitter?.global_name || submitter?.username || "Inconnu";
+        submittedBy = getUserDisplayName(submitter);
       }
 
       notifyDiscord("scores", {
@@ -1090,7 +1074,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
           { _id: new ObjectId(targetUserId) },
           { projection: { global_name: 1, username: 1, bbs_name: 1 } }
         );
-        const pseudo = editedUser?.bbs_name || editedUser?.global_name || editedUser?.username || targetUserId;
+        const pseudo = getUserDisplayName(editedUser, targetUserId);
 
         const guild = await req.db.collection('guildes').findOne({ _id: new ObjectId(targetGuildId) });
         const guildName = guild?.name || '';
@@ -1102,7 +1086,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
             { _id: new ObjectId(req.user._id) },
             { projection: { global_name: 1, username: 1, bbs_name: 1 } }
           );
-          submittedBy = submitter?.bbs_name ||submitter?.global_name || submitter?.username || 'Inconnu';
+          submittedBy = getUserDisplayName(submitter);
         }
 
         const targetRotationId = rotation_id || existingScore.rotation_id;
@@ -1178,40 +1162,24 @@ router.delete("/:id", async (req, res) => {
 // GET scores par utilisateur
 router.get("/user/:userId", async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec characters
-    const skip = (page - 1) * limit;
-
-    // Limiter le nombre max par page pour éviter les abus
-    const maxLimit = 200;
-    const actualLimit = Math.min(limit, maxLimit);
+    const { page, limit, skip } = parsePaginationParams(req.query);
 
     const scores = await req.db
       .collection("scores")
       .find({ user_id: req.params.userId })
       .sort({ _id: -1 })
       .skip(skip)
-      .limit(actualLimit)
+      .limit(limit)
       .toArray();
 
     const totalCount = await req.db.collection("scores").countDocuments({
       user_id: req.params.userId
     });
 
-    const totalPages = Math.ceil(totalCount / actualLimit);
-
     res.json({
       success: true,
-      scores, // Changé de 'data' vers 'scores' pour cohérence
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: scores.length
-      }
+      scores,
+      pagination: buildPaginationMeta(page, limit, totalCount, scores.length)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1221,40 +1189,24 @@ router.get("/user/:userId", async (req, res) => {
 // GET scores par cycle
 router.get("/cycle/:cycleId", async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec characters
-    const skip = (page - 1) * limit;
-
-    // Limiter le nombre max par page pour éviter les abus
-    const maxLimit = 200;
-    const actualLimit = Math.min(limit, maxLimit);
+    const { page, limit, skip } = parsePaginationParams(req.query);
 
     const scores = await req.db
       .collection("scores")
       .find({ cycle_id: req.params.cycleId })
       .sort({ _id: -1 })
       .skip(skip)
-      .limit(actualLimit)
+      .limit(limit)
       .toArray();
 
     const totalCount = await req.db.collection("scores").countDocuments({
       cycle_id: req.params.cycleId
     });
 
-    const totalPages = Math.ceil(totalCount / actualLimit);
-
     res.json({
       success: true,
-      scores, // Changé de 'data' vers 'scores' pour cohérence
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: scores.length
-      }
+      scores,
+      pagination: buildPaginationMeta(page, limit, totalCount, scores.length)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -1,5 +1,8 @@
 import { distance } from 'fastest-levenshtein';
 
+export const getUserDisplayName = (user, fallback = 'Inconnu') =>
+  user?.bbs_name || user?.global_name || user?.username || fallback;
+
 /**
  * Normalise un nom pour la comparaison
  * Enlève les caractères spéciaux, accents, espaces

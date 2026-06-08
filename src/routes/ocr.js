@@ -2,7 +2,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireScoresAccess } from '../middleware/auth.js';
 import { processBatchScreenshots, SCREENSHOTTER_CONFIGS } from '../utils/ocrProcessor.js';
-import { findBestMatch } from '../utils/nameMatching.js';
+import { findBestMatch, getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import sharp from 'sharp';
 
@@ -61,13 +61,6 @@ router.post('/batch-guild-ranking', async (req, res) => {
       });
     }
     
-    console.log(`\n🚀 Début traitement OCR batch`);
-    console.log(`   Guilde: ${guild_id}`);
-    console.log(`   Cycle: ${cycle_id}`);
-    console.log(`   Rotation: ${rotation_id}`);
-    console.log(`   Screenshotter: ${screenshotter_id}`);
-    console.log(`   Screenshots: ${screenshots.length}`);
-    
     // Vérifier que la guilde existe
     const guild = await req.db.collection('guildes').findOne({ 
       _id: new ObjectId(guild_id) 
@@ -84,8 +77,6 @@ router.post('/batch-guild-ranking', async (req, res) => {
     const guildMembers = await req.db.collection('users').find({
       guilde_id: guild_id
     }).toArray();
-    
-    console.log(`   Membres de la guilde: ${guildMembers.length}`);
     
     if (guildMembers.length === 0) {
       return res.status(400).json({
@@ -166,12 +157,6 @@ router.post('/batch-guild-ranking', async (req, res) => {
       0
     );
     
-    console.log(`\n✅ Traitement OCR terminé`);
-    console.log(`   Screenshots traités: ${successfulScreenshots}/${totalScreenshots}`);
-    console.log(`   Joueurs détectés: ${totalPlayersDetected}`);
-    console.log(`   Auto-matchés: ${autoMatched}`);
-    console.log(`   À réviser: ${needsReview}`);
-    
     res.json({
       success: true,
       data: {
@@ -230,8 +215,6 @@ router.post('/submit-batch', async (req, res) => {
       });
     }
     
-    console.log(`\n💾 Soumission OCR batch de ${scores.length} scores pour rotation ${rotation_id}`);
-    
     // Récupérer le cycle pour avoir l'ordre des rotations
     const cycle = await req.db.collection('cycles').findOne({
       _id: new ObjectId(cycle_id)
@@ -253,8 +236,6 @@ router.post('/submit-batch', async (req, res) => {
         message: 'Rotation non trouvée dans ce cycle'
       });
     }
-    
-    console.log(`📍 Rotation index: ${rotationIndex} (différentiel: ${rotationIndex % 2 === 1})`);
     
     const insertedScores = [];
     const errors = [];
@@ -290,9 +271,7 @@ router.post('/submit-batch', async (req, res) => {
           
           if (previousScore && previousScore.raw_score !== undefined) {
             finalScore = Math.max(0, rawScoreInt - previousScore.raw_score);
-            console.log(`  🔢 Différentiel pour ${user_id}: ${rawScoreInt} - ${previousScore.raw_score} = ${finalScore}`);
           } else {
-            console.log(`  ⚠️  Pas de score précédent trouvé pour ${user_id}, utilisation du raw_score`);
             finalScore = rawScoreInt;
           }
         }
@@ -342,11 +321,6 @@ router.post('/submit-batch', async (req, res) => {
       }
     }
     
-    console.log(`✅ ${insertedScores.length}/${scores.length} scores traités`);
-    if (errors.length > 0) {
-      console.log(`⚠️  ${errors.length} erreurs`);
-    }
-
     // --- Notification Discord (non bloquante) ---
     try {
       const userIds = [...new Set(insertedScores.map(s => s.user_id))];
@@ -366,7 +340,7 @@ router.post('/submit-batch', async (req, res) => {
       const sortedForNotif = [...insertedScores].sort((a, b) => b.score - a.score);
       const scoresForNotif = sortedForNotif.map((s, i) => {
         const user = userMap.get(s.user_id);
-        const pseudo = user?.bbs_name || user?.global_name || user?.username || s.user_id;
+        const pseudo = getUserDisplayName(user, s.user_id);
         return { rank: i + 1, pseudo, score: s.score, raw_score: s.raw_score };
       });
 
@@ -376,7 +350,7 @@ router.post('/submit-batch', async (req, res) => {
           { _id: new ObjectId(req.user._id) },
           { projection: { bbs_name: 1, global_name: 1, username: 1 } }
         );
-        submittedBy = submitter?.bbs_name || submitter?.global_name || submitter?.username || 'Inconnu';
+        submittedBy = getUserDisplayName(submitter);
       }
 
       notifyDiscord('scores', {

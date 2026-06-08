@@ -1,6 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb } from '../middleware/auth.js';
+import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 
 const router = express.Router();
 
@@ -10,13 +11,7 @@ router.use(requireDb);
 // GET tous les cycles avec pagination
 router.get('/', async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec characters
-    const skip = (page - 1) * limit;
-
-    // Limiter le nombre max par page pour éviter les abus
-    const maxLimit = 200;
-    const actualLimit = Math.min(limit, maxLimit);
+    const { page, limit, skip } = parsePaginationParams(req.query);
 
     const cycles = await req.db.collection('cycles')
       .find()
@@ -39,26 +34,13 @@ router.get('/', async (req, res) => {
       return dateB.getTime() - dateA.getTime();
     });
 
-    // Appliquer la pagination après le tri
-    const startIndex = skip;
-    const endIndex = skip + actualLimit;
-    const paginatedCycles = cycles.slice(startIndex, endIndex);
-
+    const paginatedCycles = cycles.slice(skip, skip + limit);
     const totalCount = cycles.length;
-    const totalPages = Math.ceil(totalCount / actualLimit);
 
     res.json({
       success: true,
       data: paginatedCycles,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: paginatedCycles.length
-      }
+      pagination: buildPaginationMeta(page, limit, totalCount, paginatedCycles.length)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -239,14 +221,7 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Position de rotation invalide. Doit être entre 1 et 20.' });
     }
 
-    // Paramètres de pagination avec valeurs par défaut
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // Harmonisé avec les autres routes
-    const skip = (page - 1) * limit;
-
-    // Limiter le nombre max par page pour éviter les abus
-    const maxLimit = 200;
-    const actualLimit = Math.min(limit, maxLimit);
+    const { page, limit, skip } = parsePaginationParams(req.query);
 
     const cycle = await req.db.collection('cycles').findOne({ 
       _id: new ObjectId(cycleId) 
@@ -416,29 +391,17 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
 
     // Appliquer la pagination sur les résultats avec rank
     const totalCount = scoresWithRank.length;
-    const startIndex = skip;
-    const endIndex = skip + actualLimit;
-    const scores = scoresWithRank.slice(startIndex, endIndex);
+    const scores = scoresWithRank.slice(skip, skip + limit);
 
-    const totalPages = Math.ceil(totalCount / actualLimit);
-
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       data: scores,
       cycle: cycle,
       rotation: currentRotation,
       filters: {
         guild: guildName || null
       },
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalCount,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        itemsPerPage: actualLimit,
-        itemsOnPage: scores.length
-      }
+      pagination: buildPaginationMeta(page, limit, totalCount, scores.length)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
