@@ -2,6 +2,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
+import { notifyDiscord } from '../utils/notifyDiscord.js';
 
 const router = express.Router();
 
@@ -548,6 +549,62 @@ router.post('/draft', requireAdmin, async (req, res) => {
       message: `${moves.length} joueur(s) déplacé(s) avec succès`,
       results
     });
+
+    // Notifications Discord par guilde concernée (non bloquant)
+    try {
+      const userMap = {};
+      users.forEach(u => { userMap[u._id.toString()] = u; });
+
+      // Récupérer les guildes sources (pas forcément dans `guilds` qui ne contient que les cibles)
+      const sourceGuildeIds = [...new Set(users.map(u => u.guilde_id).filter(Boolean))];
+      const missingIds = sourceGuildeIds.filter(id => !guilds.find(g => g._id.toString() === id));
+      const allGuildes = [...guilds];
+      if (missingIds.length > 0) {
+        const sourceGuildes = await req.db.collection('guildes').find({
+          _id: { $in: missingIds.map(id => new ObjectId(id)) }
+        }).toArray();
+        allGuildes.push(...sourceGuildes);
+      }
+
+      const guildeMap = {};
+      for (const g of allGuildes) {
+        guildeMap[g._id.toString()] = { name: g.name, discord_channel_id: g.discord_channel_id, moves: [] };
+      }
+
+      for (const result of results) {
+        const user = userMap[result.userId];
+        const fromGuildeId = user?.guilde_id || null;
+        const toGuildeId = result.toGuildId;
+
+        const fromGuildName = fromGuildeId ? (guildeMap[fromGuildeId]?.name || 'Guilde inconnue') : 'Aucune guilde';
+        const toGuildName = toGuildeId ? (guildeMap[toGuildeId]?.name || 'Guilde inconnue') : 'Aucune guilde';
+
+        if (fromGuildeId && guildeMap[fromGuildeId]) {
+          guildeMap[fromGuildeId].moves.push({
+            username: result.username,
+            fromGuildName,
+            toGuildName,
+            direction: 'départ',
+          });
+        }
+        if (toGuildeId && guildeMap[toGuildeId]) {
+          guildeMap[toGuildeId].moves.push({
+            username: result.username,
+            fromGuildName,
+            toGuildName,
+            direction: 'arrivée',
+          });
+        }
+      }
+
+      await Promise.allSettled(
+        Object.values(guildeMap)
+          .filter(g => g.moves.length > 0)
+          .map(g => notifyDiscord('draft', { guild_name: g.name, moves: g.moves }, g.discord_channel_id || undefined))
+      );
+    } catch (notifErr) {
+      console.error('[draft] Erreur lors des notifications Discord:', notifErr.message);
+    }
   } catch (err) {
     console.error('Erreur lors de l\'exécution du draft:', err);
     res.status(500).json({ success: false, message: 'Erreur serveur lors du draft' });

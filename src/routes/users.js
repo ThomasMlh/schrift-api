@@ -9,6 +9,37 @@ import { USER_FULL, USER_DISPLAY } from '../utils/projections.js';
 
 const router = express.Router();
 
+async function notifyGuildChange(db, userBefore, newGuildeId) {
+  const username = getUserDisplayName(userBefore);
+  const oldGuildeId = userBefore.guilde_id || null;
+
+  const [oldGuilde, newGuilde] = await Promise.all([
+    oldGuildeId ? db.collection('guildes').findOne({ _id: new ObjectId(oldGuildeId) }) : null,
+    newGuildeId ? db.collection('guildes').findOne({ _id: new ObjectId(newGuildeId) }) : null,
+  ]);
+
+  const oldGuildName = oldGuilde?.name || 'Aucune guilde';
+  const newGuildName = newGuilde?.name || 'Aucune guilde';
+
+  const promises = [];
+
+  if (oldGuilde) {
+    promises.push(notifyDiscord('draft', {
+      guild_name: oldGuildName,
+      moves: [{ username, fromGuildName: oldGuildName, toGuildName: newGuildName, direction: 'départ' }],
+    }, oldGuilde.discord_channel_id || undefined));
+  }
+
+  if (newGuilde) {
+    promises.push(notifyDiscord('draft', {
+      guild_name: newGuildName,
+      moves: [{ username, fromGuildName: oldGuildName, toGuildName: newGuildName, direction: 'arrivée' }],
+    }, newGuilde.discord_channel_id || undefined));
+  }
+
+  await Promise.allSettled(promises);
+}
+
 // Middleware pour toutes les routes users
 router.use(requireDb);
 
@@ -163,6 +194,11 @@ router.patch('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateu
     const { userId } = req.params;
     const updates = req.body;
 
+    const userBefore = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!userBefore) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
     const result = await req.db.collection('users').updateOne(
       { _id: new ObjectId(userId) },
       { $set: updates }
@@ -175,6 +211,13 @@ router.patch('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateu
     const updatedUser = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
 
     res.json({ success: true, message: `${getUserDisplayName(updatedUser)} mis à jour avec succès` });
+
+    // Notification Discord si la guilde a changé (non bloquant)
+    if ('guilde_id' in updates && updates.guilde_id !== userBefore.guilde_id) {
+      notifyGuildChange(req.db, userBefore, updates.guilde_id || null).catch(e =>
+        console.error('[users/patch] Erreur notification Discord:', e.message)
+      );
+    }
   } catch (error) {
     console.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
@@ -297,19 +340,23 @@ router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Form
       }
     }
 
+    const userBefore = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!userBefore) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
     // Mettre à jour la guilde et le rôle
-    const result = await req.db.collection('users').updateOne(
+    await req.db.collection('users').updateOne(
       { _id: new ObjectId(userId) },
       { $set: { guilde_id: guildeId, role: newRole } }
     );
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
-    }
+    res.json({ success: true, message: `${getUserDisplayName(userBefore, 'Utilisateur')} déplacé vers la nouvelle guilde` });
 
-    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
-
-    res.json({ success: true, message: `${getUserDisplayName(user, 'Utilisateur')} déplacé vers la nouvelle guilde` });
+    // Notification Discord (non bloquant)
+    notifyGuildChange(req.db, userBefore, guildeId).catch(e =>
+      console.error('[users/guild] Erreur notification Discord:', e.message)
+    );
   } catch (error) {
     console.error('Erreur lors du changement de guilde:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
