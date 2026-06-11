@@ -90,7 +90,8 @@ router.get('/:id/stats', async (req, res) => {
           averageScore: 0,
           totalScores: 0,
           bestScore: 0,
-          totalPoints: 0
+          totalPoints: 0,
+          clearRate: 0
         }
       });
     }
@@ -114,13 +115,16 @@ router.get('/:id/stats', async (req, res) => {
     const totalPoints = scores.reduce((sum, score) => sum + (score.score || 0), 0);
     const averageScore = totalScores > 0 ? Math.round(totalPoints / totalScores) : 0;
     const bestScore = totalScores > 0 ? Math.max(...scores.map(s => s.score || 0)) : 0;
+    const clearCount = scores.filter(s => (s.score || 0) >= 600_000_000).length;
+    const clearRate = totalScores > 0 ? Math.round((clearCount / totalScores) * 100 * 100) / 100 : 0;
 
     const stats = {
       totalMembers: membres.length,
       averageScore,
       totalScores,
       bestScore,
-      totalPoints
+      totalPoints,
+      clearRate
     };
 
     res.json({ success: true, data: stats });
