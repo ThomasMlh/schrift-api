@@ -17,6 +17,7 @@ import podiumRouter from './podium.js';
 import bannersRouter from './banners.js';
 import ocrRouter from './ocr.js';
 import ocrDebugRouter from './ocr-debug.js';
+import statsRouter from './stats.js';
 
 const router = express.Router();
 
@@ -38,5 +39,6 @@ router.use('/podium', podiumRouter);
 router.use('/banners', bannersRouter);
 router.use('/ocr', ocrRouter);
 router.use('/ocr/debug', ocrDebugRouter);
+router.use('/stats', statsRouter);
 
 export default router;

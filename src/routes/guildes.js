@@ -22,6 +22,63 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Classement de toutes les guildes pour un cycle
+router.get('/rankings', async (req, res) => {
+  try {
+    const cycleId = req.query.cycle_id;
+
+    const guildes = await req.db.collection('guildes').find({ disabled: { $ne: true } }).toArray();
+    if (guildes.length === 0) return res.json({ success: true, data: [] });
+
+    const guildIds = guildes.map(g => g._id.toString());
+    const allMembres = await req.db.collection('users').find(
+      { guilde_id: { $in: guildIds } },
+      { projection: { _id: 1, guilde_id: 1 } }
+    ).toArray();
+
+    const membersByGuild = {};
+    for (const m of allMembres) {
+      if (!membersByGuild[m.guilde_id]) membersByGuild[m.guilde_id] = [];
+      membersByGuild[m.guilde_id].push(m._id.toString());
+    }
+
+    const allMemberIds = allMembres.map(m => m._id.toString());
+    const scoresQuery = { user_id: { $in: allMemberIds } };
+    if (cycleId) scoresQuery.cycle_id = cycleId;
+
+    const allScores = await req.db.collection('scores').find(scoresQuery, { projection: { user_id: 1, score: 1 } }).toArray();
+
+    const scoresByMember = {};
+    for (const s of allScores) {
+      if (!scoresByMember[s.user_id]) scoresByMember[s.user_id] = [];
+      scoresByMember[s.user_id].push(s.score || 0);
+    }
+
+    const results = guildes.map(guild => {
+      const guildId = guild._id.toString();
+      const guildMemberIds = membersByGuild[guildId] || [];
+      const guildScores = guildMemberIds.flatMap(mid => scoresByMember[mid] || []);
+
+      const totalScores = guildScores.length;
+      const totalPoints = guildScores.reduce((s, v) => s + v, 0);
+      const averageScore = totalScores > 0 ? Math.round(totalPoints / totalScores) : 0;
+      const bestScore = totalScores > 0 ? Math.max(...guildScores) : 0;
+      const clearCount = guildScores.filter(v => v >= 600_000_000).length;
+      const clearRate = totalScores > 0 ? Math.round((clearCount / totalScores) * 10000) / 100 : 0;
+
+      return { _id: guildId, name: guild.name, totalMembers: guildMemberIds.length, averageScore, bestScore, totalScores, totalPoints, clearRate };
+    });
+
+    results.sort((a, b) => b.averageScore - a.averageScore);
+    results.forEach((g, i) => { g.rank = i + 1; });
+
+    res.json({ success: true, data: results });
+  } catch (err) {
+    console.error('Error fetching guild rankings:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Récupérer une guilde par ID
 router.get('/:id', async (req, res) => {
   try {
@@ -130,6 +187,136 @@ router.get('/:id/stats', async (req, res) => {
     res.json({ success: true, data: stats });
   } catch (err) {
     console.error('Error fetching guild stats:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Top membres d'une guilde pour un cycle
+router.get('/:id/top-members', async (req, res) => {
+  try {
+    const cycleId = req.query.cycle_id;
+    const limit = Math.min(parseInt(req.query.limit) || 3, 10);
+    const guildeId = req.params.id;
+
+    const membres = await req.db.collection('users').find(
+      { guilde_id: guildeId },
+      { projection: { _id: 1, discord_id: 1, global_name: 1, username: 1, avatar: 1 } }
+    ).toArray();
+
+    if (membres.length === 0) return res.json({ success: true, data: [] });
+
+    const memberIds = membres.map(m => m._id.toString());
+    const memberMap = Object.fromEntries(membres.map(m => [m._id.toString(), m]));
+
+    const scoresQuery = { user_id: { $in: memberIds } };
+    if (cycleId) scoresQuery.cycle_id = cycleId;
+
+    const scores = await req.db.collection('scores').find(scoresQuery, { projection: { user_id: 1, score: 1 } }).toArray();
+
+    const byMember = {};
+    for (const s of scores) {
+      if (!byMember[s.user_id]) byMember[s.user_id] = [];
+      byMember[s.user_id].push(s.score || 0);
+    }
+
+    const topMembers = Object.entries(byMember).map(([userId, memberScores]) => {
+      const user = memberMap[userId];
+      const bestScore = Math.max(...memberScores);
+      const avgScore = Math.round(memberScores.reduce((a, b) => a + b, 0) / memberScores.length);
+      return { userId, username: user?.global_name || user?.username || 'Inconnu', avatar: user?.avatar, discord_id: user?.discord_id, bestScore, avgScore, totalScores: memberScores.length };
+    });
+
+    topMembers.sort((a, b) => b.bestScore - a.bestScore);
+    res.json({ success: true, data: topMembers.slice(0, limit) });
+  } catch (err) {
+    console.error('Error fetching guild top members:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Distribution des scores d'une guilde pour un cycle
+router.get('/:id/score-distribution', async (req, res) => {
+  try {
+    const cycleId = req.query.cycle_id;
+    const guildeId = req.params.id;
+
+    const membres = await req.db.collection('users').find({ guilde_id: guildeId }, { projection: { _id: 1 } }).toArray();
+    const memberIds = membres.map(m => m._id.toString());
+
+    const scoresQuery = { user_id: { $in: memberIds } };
+    if (cycleId) scoresQuery.cycle_id = cycleId;
+
+    const scores = await req.db.collection('scores').find(scoresQuery, { projection: { score: 1 } }).toArray();
+
+    const buckets = [
+      { label: '< 300M', min: 0, max: 300_000_000, count: 0 },
+      { label: '300M–500M', min: 300_000_000, max: 500_000_000, count: 0 },
+      { label: '500M–600M', min: 500_000_000, max: 600_000_000, count: 0 },
+      { label: '600M–800M', min: 600_000_000, max: 800_000_000, count: 0 },
+      { label: '800M–1B', min: 800_000_000, max: 1_000_000_000, count: 0 },
+      { label: '≥ 1B', min: 1_000_000_000, max: Infinity, count: 0 },
+    ];
+
+    for (const s of scores) {
+      const val = s.score || 0;
+      const bucket = buckets.find(b => val >= b.min && val < b.max);
+      if (bucket) bucket.count++;
+    }
+
+    res.json({ success: true, data: buckets.map(b => ({ label: b.label, count: b.count })) });
+  } catch (err) {
+    console.error('Error fetching guild score distribution:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Évolution d'une guilde sur les derniers cycles
+router.get('/:id/evolution', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 6, 12);
+    const guildeId = req.params.id;
+
+    const membres = await req.db.collection('users').find({ guilde_id: guildeId }, { projection: { _id: 1 } }).toArray();
+    const memberIds = membres.map(m => m._id.toString());
+
+    const allCycles = await req.db.collection('cycles').find({}).toArray();
+
+    const parseDate = (s) => {
+      if (!s) return 0;
+      const parts = s.split('/');
+      if (parts.length !== 3) return 0;
+      return new Date(parts[2], parts[1] - 1, parts[0]).getTime();
+    };
+
+    allCycles.sort((a, b) => parseDate(b.rotations?.[0]?.start_date) - parseDate(a.rotations?.[0]?.start_date));
+    const recentCycles = allCycles.slice(0, limit).reverse();
+
+    const cycleIds = recentCycles.map(c => c._id.toString());
+    const allScores = await req.db.collection('scores').find(
+      { user_id: { $in: memberIds }, cycle_id: { $in: cycleIds } },
+      { projection: { user_id: 1, cycle_id: 1, score: 1 } }
+    ).toArray();
+
+    const scoresByCycle = {};
+    for (const s of allScores) {
+      if (!scoresByCycle[s.cycle_id]) scoresByCycle[s.cycle_id] = [];
+      scoresByCycle[s.cycle_id].push(s.score || 0);
+    }
+
+    const results = recentCycles.map(cycle => {
+      const cycleId = cycle._id.toString();
+      const cycleScores = scoresByCycle[cycleId] || [];
+      const totalScores = cycleScores.length;
+      const totalPoints = cycleScores.reduce((s, v) => s + v, 0);
+      const averageScore = totalScores > 0 ? Math.round(totalPoints / totalScores) : 0;
+      const clearCount = cycleScores.filter(v => v >= 600_000_000).length;
+      const clearRate = totalScores > 0 ? Math.round((clearCount / totalScores) * 10000) / 100 : 0;
+      return { cycleId, cycleName: cycle.name, cycleYear: cycle.year, averageScore, totalScores, clearRate };
+    });
+
+    res.json({ success: true, data: results });
+  } catch (err) {
+    console.error('Error fetching guild evolution:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
