@@ -249,18 +249,21 @@ router.get('/:id/score-distribution', async (req, res) => {
     const scores = await req.db.collection('scores').find(scoresQuery, { projection: { score: 1 } }).toArray();
 
     const buckets = [
-      { label: '< 300M', min: 0, max: 300_000_000, count: 0 },
-      { label: '300M–500M', min: 300_000_000, max: 500_000_000, count: 0 },
-      { label: '500M–600M', min: 500_000_000, max: 600_000_000, count: 0 },
-      { label: '600M–800M', min: 600_000_000, max: 800_000_000, count: 0 },
-      { label: '800M–1B', min: 800_000_000, max: 1_000_000_000, count: 0 },
-      { label: '≥ 1B', min: 1_000_000_000, max: Infinity, count: 0 },
+      { label: 'Miss', min: 0, max: 0, count: 0 },
+      { label: '< 200M', min: 1, max: 200_000_000, count: 0 },
+      { label: '200M–400M', min: 200_000_000, max: 400_000_000, count: 0 },
+      { label: '400M–600M', min: 400_000_000, max: 600_000_000, count: 0 },
+      { label: '≥ 600M', min: 600_000_000, max: Infinity, count: 0 },
     ];
 
     for (const s of scores) {
       const val = s.score || 0;
-      const bucket = buckets.find(b => val >= b.min && val < b.max);
-      if (bucket) bucket.count++;
+      if (val === 0) {
+        buckets[0].count++;
+      } else {
+        const bucket = buckets.slice(1).find(b => val >= b.min && val < b.max);
+        if (bucket) bucket.count++;
+      }
     }
 
     res.json({ success: true, data: buckets.map(b => ({ label: b.label, count: b.count })) });
