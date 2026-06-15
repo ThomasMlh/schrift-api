@@ -9,7 +9,9 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "vercel-build": "echo 'Building for Vercel'",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/",
     "setup-admin": "node setup-admin.js"
   },
   "keywords": [],
@@ -29,9 +31,20 @@
     "ssh2-sftp-client": "^12.0.1",
     "tesseract.js": "^7.0.0"
   },
+  "jest": {
+    "testMatch": ["**/tests/**/*.test.js"],
+    "transform": {
+      "^.+\\.js$": "babel-jest"
+    },
+    "testEnvironment": "node"
+  },
   "devDependencies": {
     "@babel/cli": "^7.28.3",
     "@babel/core": "^7.28.4",
-    "@babel/preset-env": "^7.28.3"
+    "@babel/preset-env": "^7.28.3",
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "jest": "^30.4.2",
+    "supertest": "^7.2.2"
   }
 }
