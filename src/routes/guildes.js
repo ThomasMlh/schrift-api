@@ -200,7 +200,7 @@ router.get('/:id/top-members', async (req, res) => {
 
     const membres = await req.db.collection('users').find(
       { guilde_id: guildeId },
-      { projection: { _id: 1, discord_id: 1, global_name: 1, username: 1, avatar: 1 } }
+      { projection: { _id: 1, discord_id: 1, global_name: 1, username: 1, avatar: 1, bbs_name: 1 } }
     ).toArray();
 
     if (membres.length === 0) return res.json({ success: true, data: [] });
@@ -223,7 +223,7 @@ router.get('/:id/top-members', async (req, res) => {
       const user = memberMap[userId];
       const bestScore = Math.max(...memberScores);
       const avgScore = Math.round(memberScores.reduce((a, b) => a + b, 0) / memberScores.length);
-      return { userId, username: user?.global_name || user?.username || 'Inconnu', avatar: user?.avatar, discord_id: user?.discord_id, bestScore, avgScore, totalScores: memberScores.length };
+      return { userId, username: user?.global_name || user?.username || 'Inconnu', bbs_name: user?.bbs_name, avatar: user?.avatar, discord_id: user?.discord_id, bestScore, avgScore, totalScores: memberScores.length };
     });
 
     topMembers.sort((a, b) => b.bestScore - a.bestScore);
