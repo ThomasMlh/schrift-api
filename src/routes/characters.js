@@ -479,7 +479,7 @@ router.post("/update/images", requireAdmin, async (req, res) => {
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error("❌ Erreur upload images batch:", error);
-    res.status(status).json({ success: false, message: error.message || "Erreur serveur lors de l\'upload des images" });
+    res.status(status).json({ success: false, message: error.message || "Erreur serveur lors de l'upload des images" });
   }
 });
 

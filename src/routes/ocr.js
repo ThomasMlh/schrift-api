@@ -366,7 +366,7 @@ router.post('/submit-batch', async (req, res) => {
       success: true,
       data: {
         inserted: insertedScores.length,
-        errors: errors.length,
+        errorsCount: errors.length,
         insertedScores,
         errors,
         rotation_info: {

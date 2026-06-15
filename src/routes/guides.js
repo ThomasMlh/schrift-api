@@ -53,7 +53,7 @@ router.post('/orbes', async (req, res) => {
     const result = await req.db.collection('guide_orbe').insertOne(newEntry);
     
     res.status(201).json({ 
-      message: `Ajout de \'${newEntry.title}\' réussi`,
+      message: `Ajout de '${newEntry.title}' réussi`,
       insertedId: result.insertedId
     });
   } catch (error) {
@@ -75,7 +75,7 @@ router.delete('/orbes/:id', async (req, res) => {
       return res.status(404).json({ error: 'Entry not found' });
     }
     
-    res.json({ message: `Suppression de l'entrée avec l'ID \'${id}\' réussie` });
+    res.json({ message: `Suppression de l'entrée avec l'ID '${id}' réussie` });
   } catch (error) {
     console.error('Error deleting orbes guide entry:', error);
     res.status(500).json({ error: 'Failed to delete entry' });
@@ -98,7 +98,7 @@ router.patch('/orbes/:id', async (req, res) => {
     }
     
     res.json({ 
-      message: `Mise à jour de \'${updates.title || id}\' réussie`,
+      message: `Mise à jour de '${updates.title || id}' réussie`,
       modifiedCount: result.modifiedCount
     });
   } catch (error) {

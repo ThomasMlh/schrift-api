@@ -344,7 +344,7 @@ const extractPlayerName = (text) => {
     .trim();
 
   // Diviser en tokens (support unicode complet : latin, japonais, etc.)
-  const tokens = cleaned.match(/[\p{L}\p{N}_'†\-]+/gu) || [];
+  const tokens = cleaned.match(/[\p{L}\p{N}_'†-]+/gu) || [];
 
   if (tokens.length === 0) return null;
 
@@ -370,7 +370,9 @@ const extractPlayerName = (text) => {
     const aMixed = /[a-z]/.test(a) && /[A-Z]/.test(a) ? 2 : 0;
     const bMixed = /[a-z]/.test(b) && /[A-Z]/.test(b) ? 2 : 0;
 
+    // eslint-disable-next-line no-control-regex
     const aNonAscii = /[^\x00-\x7F]/.test(a) ? 1 : 0;
+    // eslint-disable-next-line no-control-regex
     const bNonAscii = /[^\x00-\x7F]/.test(b) ? 1 : 0;
 
     const aScore = aMixed + aNonAscii + a.length * 0.1;

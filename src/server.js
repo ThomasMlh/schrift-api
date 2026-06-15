@@ -25,7 +25,9 @@ app.use(cors({
   credentials: true
 }));
 
+// eslint-disable-next-line no-undef
 if (typeof (PhusionPassenger) !== 'undefined') {
+  // eslint-disable-next-line no-undef
   PhusionPassenger.configure({ autoInstall: false });
 }
 

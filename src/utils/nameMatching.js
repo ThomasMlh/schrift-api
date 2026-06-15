@@ -12,7 +12,7 @@ export const normalizeName = (name) => {
   
   return name
     .toLowerCase()
-    .replace(/[†|_\s\-]/g, '') // Enlever †, |, _, espaces, tirets
+    .replace(/[†|_\s-]/g, '') // Enlever †, |, _, espaces, tirets
     .replace(/[ôöò]/g, 'o')
     .replace(/[éèê]/g, 'e')
     .replace(/[àâä]/g, 'a')
