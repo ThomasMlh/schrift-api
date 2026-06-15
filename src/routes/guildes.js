@@ -79,6 +79,25 @@ router.get('/rankings', async (req, res) => {
   }
 });
 
+// Nombre de membres par guilde (une seule requête via aggregation)
+router.get('/members-summary', async (req, res) => {
+  try {
+    const guildIds = (await req.db.collection('guildes')
+      .find({ disabled: { $ne: true } }, { projection: { _id: 1 } })
+      .toArray()).map(g => g._id.toString());
+
+    const rows = await req.db.collection('users').aggregate([
+      { $match: { guilde_id: { $in: guildIds } } },
+      { $group: { _id: '$guilde_id', count: { $sum: 1 } } },
+    ]).toArray();
+
+    const data = Object.fromEntries(rows.map(r => [r._id, r.count]));
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Récupérer une guilde par ID
 router.get('/:id', async (req, res) => {
   try {
