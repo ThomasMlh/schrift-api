@@ -31,33 +31,30 @@ router.get('/rankings', async (req, res) => {
     if (guildes.length === 0) return res.json({ success: true, data: [] });
 
     const guildIds = guildes.map(g => g._id.toString());
+    const scoresQuery = { guild_id: { $in: guildIds } };
+    if (cycleId) scoresQuery.cycle_id = cycleId;
+
+    const allScores = await req.db.collection('scores').find(scoresQuery, { projection: { guild_id: 1, score: 1 } }).toArray();
+
+    const scoresByGuild = {};
+    for (const s of allScores) {
+      if (!scoresByGuild[s.guild_id]) scoresByGuild[s.guild_id] = [];
+      scoresByGuild[s.guild_id].push(s.score || 0);
+    }
+
+    // Nombre de membres actuels par guilde (pour l'affichage)
     const allMembres = await req.db.collection('users').find(
       { guilde_id: { $in: guildIds } },
       { projection: { _id: 1, guilde_id: 1 } }
     ).toArray();
-
-    const membersByGuild = {};
+    const memberCountByGuild = {};
     for (const m of allMembres) {
-      if (!membersByGuild[m.guilde_id]) membersByGuild[m.guilde_id] = [];
-      membersByGuild[m.guilde_id].push(m._id.toString());
-    }
-
-    const allMemberIds = allMembres.map(m => m._id.toString());
-    const scoresQuery = { user_id: { $in: allMemberIds } };
-    if (cycleId) scoresQuery.cycle_id = cycleId;
-
-    const allScores = await req.db.collection('scores').find(scoresQuery, { projection: { user_id: 1, score: 1 } }).toArray();
-
-    const scoresByMember = {};
-    for (const s of allScores) {
-      if (!scoresByMember[s.user_id]) scoresByMember[s.user_id] = [];
-      scoresByMember[s.user_id].push(s.score || 0);
+      memberCountByGuild[m.guilde_id] = (memberCountByGuild[m.guilde_id] || 0) + 1;
     }
 
     const results = guildes.map(guild => {
       const guildId = guild._id.toString();
-      const guildMemberIds = membersByGuild[guildId] || [];
-      const guildScores = guildMemberIds.flatMap(mid => scoresByMember[mid] || []);
+      const guildScores = scoresByGuild[guildId] || [];
 
       const totalScores = guildScores.length;
       const totalPoints = guildScores.reduce((s, v) => s + v, 0);
@@ -66,7 +63,7 @@ router.get('/rankings', async (req, res) => {
       const clearCount = guildScores.filter(v => v >= 600_000_000).length;
       const clearRate = totalScores > 0 ? Math.round((clearCount / totalScores) * 10000) / 100 : 0;
 
-      return { _id: guildId, name: guild.name, totalMembers: guildMemberIds.length, averageScore, bestScore, totalScores, totalPoints, clearRate };
+      return { _id: guildId, name: guild.name, totalMembers: memberCountByGuild[guildId] || 0, averageScore, bestScore, totalScores, totalPoints, clearRate };
     });
 
     results.sort((a, b) => b.averageScore - a.averageScore);
@@ -153,38 +150,19 @@ router.get('/:id/stats', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Guilde non trouvée' });
     }
 
-    // Récupérer tous les membres de la guilde
-    const membres = await req.db.collection('users')
-      .find({ guilde_id: guildeId })
-      .toArray();
-
-    if (membres.length === 0) {
-      return res.json({
-        success: true,
-        data: {
-          totalMembers: 0,
-          averageScore: 0,
-          totalScores: 0,
-          bestScore: 0,
-          totalPoints: 0,
-          clearRate: 0
-        }
-      });
-    }
-
-    // Créer un tableau des IDs des membres
-    const membersIds = membres.map(m => m._id.toString());
-
-    // Construire la requête pour les scores
-    const scoresQuery = { user_id: { $in: membersIds } };
+    // Construire la requête pour les scores (basée sur guild_id dans le score)
+    const scoresQuery = { guild_id: guildeId };
     if (cycleId) {
       scoresQuery.cycle_id = cycleId;
     }
 
-    // Récupérer tous les scores des membres
+    // Récupérer tous les scores de la guilde
     const scores = await req.db.collection('scores')
       .find(scoresQuery)
       .toArray();
+
+    // Nombre de membres actuels (pour l'affichage)
+    const totalMembers = await req.db.collection('users').countDocuments({ guilde_id: guildeId });
 
     // Calculer les statistiques
     const totalScores = scores.length;
@@ -195,7 +173,7 @@ router.get('/:id/stats', async (req, res) => {
     const clearRate = totalScores > 0 ? Math.round((clearCount / totalScores) * 100 * 100) / 100 : 0;
 
     const stats = {
-      totalMembers: membres.length,
+      totalMembers,
       averageScore,
       totalScores,
       bestScore,
@@ -217,26 +195,25 @@ router.get('/:id/top-members', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 3, 10);
     const guildeId = req.params.id;
 
-    const membres = await req.db.collection('users').find(
-      { guilde_id: guildeId },
-      { projection: { _id: 1, discord_id: 1, global_name: 1, username: 1, avatar: 1, bbs_name: 1 } }
-    ).toArray();
-
-    if (membres.length === 0) return res.json({ success: true, data: [] });
-
-    const memberIds = membres.map(m => m._id.toString());
-    const memberMap = Object.fromEntries(membres.map(m => [m._id.toString(), m]));
-
-    const scoresQuery = { user_id: { $in: memberIds } };
+    const scoresQuery = { guild_id: guildeId };
     if (cycleId) scoresQuery.cycle_id = cycleId;
 
     const scores = await req.db.collection('scores').find(scoresQuery, { projection: { user_id: 1, score: 1 } }).toArray();
+    if (scores.length === 0) return res.json({ success: true, data: [] });
 
     const byMember = {};
     for (const s of scores) {
       if (!byMember[s.user_id]) byMember[s.user_id] = [];
       byMember[s.user_id].push(s.score || 0);
     }
+
+    // Récupérer les infos des joueurs concernés (actuels ou anciens)
+    const userIds = Object.keys(byMember);
+    const membres = await req.db.collection('users').find(
+      { _id: { $in: userIds.map(id => new ObjectId(id)) } },
+      { projection: { _id: 1, discord_id: 1, global_name: 1, username: 1, avatar: 1, bbs_name: 1 } }
+    ).toArray();
+    const memberMap = Object.fromEntries(membres.map(m => [m._id.toString(), m]));
 
     const topMembers = Object.entries(byMember).map(([userId, memberScores]) => {
       const user = memberMap[userId];
@@ -259,10 +236,7 @@ router.get('/:id/score-distribution', async (req, res) => {
     const cycleId = req.query.cycle_id;
     const guildeId = req.params.id;
 
-    const membres = await req.db.collection('users').find({ guilde_id: guildeId }, { projection: { _id: 1 } }).toArray();
-    const memberIds = membres.map(m => m._id.toString());
-
-    const scoresQuery = { user_id: { $in: memberIds } };
+    const scoresQuery = { guild_id: guildeId };
     if (cycleId) scoresQuery.cycle_id = cycleId;
 
     const scores = await req.db.collection('scores').find(scoresQuery, { projection: { score: 1 } }).toArray();
@@ -298,9 +272,6 @@ router.get('/:id/evolution', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 6, 12);
     const guildeId = req.params.id;
 
-    const membres = await req.db.collection('users').find({ guilde_id: guildeId }, { projection: { _id: 1 } }).toArray();
-    const memberIds = membres.map(m => m._id.toString());
-
     const allCycles = await req.db.collection('cycles').find({}).toArray();
 
     const parseDate = (s) => {
@@ -315,8 +286,8 @@ router.get('/:id/evolution', async (req, res) => {
 
     const cycleIds = recentCycles.map(c => c._id.toString());
     const allScores = await req.db.collection('scores').find(
-      { user_id: { $in: memberIds }, cycle_id: { $in: cycleIds } },
-      { projection: { user_id: 1, cycle_id: 1, score: 1 } }
+      { guild_id: guildeId, cycle_id: { $in: cycleIds } },
+      { projection: { cycle_id: 1, score: 1 } }
     ).toArray();
 
     const scoresByCycle = {};
