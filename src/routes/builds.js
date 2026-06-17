@@ -428,7 +428,7 @@ router.post('/', optionalAuth, async (req, res) => {
 // GET /builds - Récupérer tous les builds avec filtres et pagination
 router.get('/', async (req, res) => {
   try {
-    const { rotation_id, isValid } = req.query;
+    const { rotation_id, isValid, character_id } = req.query;
     const { page, limit, skip } = parsePaginationParams(req.query, 20, 100);
 
     // Construction du filtre
@@ -440,6 +440,10 @@ router.get('/', async (req, res) => {
 
     if (isValid !== undefined) {
       filter.isValid = isValid === 'true' || isValid === true;
+    }
+
+    if (character_id && ObjectId.isValid(character_id)) {
+      filter['team.id_character'] = character_id;
     }
 
     const builds = await req.db.collection('builds')
@@ -489,7 +493,8 @@ router.get('/', async (req, res) => {
       pagination: buildPaginationMeta(page, limit, totalCount, enrichedBuilds.length),
       filters: {
         rotation_id: rotation_id || null,
-        isValid: isValid || null
+        isValid: isValid || null,
+        character_id: character_id || null
       }
     });
   } catch (error) {
