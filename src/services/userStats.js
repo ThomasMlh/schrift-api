@@ -358,37 +358,63 @@ export const getUserStats = async (db, user_id, { cycle_id } = {}) => {
   const cyclesWithFullParticipation = Object.values(cycleStats).filter(c => c.count >= 20).length;
 
   // Contribution à la guilde (%) par cycle
+  // On utilise guild_id stocké sur chaque score pour savoir dans quelle guilde
+  // l'utilisateur était au moment du scoring (évite de comparer avec la guilde actuelle
+  // pour des cycles où l'utilisateur était dans une autre guilde).
   let guildContribution = null;
   if (user.guilde_id) {
     const userCycleIds = Object.keys(cycleStats);
+    const currentGuildId = user.guilde_id.toString();
     if (userCycleIds.length > 0) {
-      const guildMembers = await db.collection('users').find({ guilde_id: user.guilde_id }).toArray();
-      const guildMemberIds = guildMembers.map(m => m._id.toString());
-
-      const guildCycleTotals = await db.collection('scores')
+      // Déterminer la guilde de l'utilisateur pour chaque cycle via guild_id des scores
+      const userGuildByCycle = await db.collection('scores')
         .aggregate([
-          { $match: { user_id: { $in: guildMemberIds }, cycle_id: { $in: userCycleIds } } },
-          { $group: { _id: '$cycle_id', guildTotal: { $sum: '$score' } } }
+          {
+            $match: {
+              user_id: user._id.toString(),
+              cycle_id: { $in: userCycleIds },
+              guild_id: { $exists: true, $ne: null }
+            }
+          },
+          { $group: { _id: '$cycle_id', guild_id: { $first: '$guild_id' } } }
         ])
         .toArray();
 
-      const guildTotalMap = {};
-      guildCycleTotals.forEach(c => { guildTotalMap[c._id] = c.guildTotal; });
+      const cycleGuildMap = {};
+      userGuildByCycle.forEach(c => { cycleGuildMap[c._id] = c.guild_id; });
 
-      const contributionByCycle = userCycleIds
-        .map(cid => {
-          const userTotal = cycleStats[cid].totalScore;
-          const guildTotal = guildTotalMap[cid] || 0;
-          const pct = guildTotal > 0 ? Math.round((userTotal / guildTotal) * 10000) / 100 : 0;
-          return { cycle_id: cid, userTotal, guildTotal, contributionPct: pct };
-        })
-        .filter(c => c.guildTotal > 0);
+      // Garder uniquement les cycles où l'utilisateur était dans sa guilde actuelle
+      const relevantCycleIds = userCycleIds.filter(
+        cid => cycleGuildMap[cid] === currentGuildId
+      );
 
-      const avgContribution = contributionByCycle.length > 0
-        ? Math.round(contributionByCycle.reduce((sum, c) => sum + c.contributionPct, 0) / contributionByCycle.length * 100) / 100
-        : 0;
+      if (relevantCycleIds.length > 0) {
+        // Total de la guilde par cycle en s'appuyant sur guild_id des scores
+        const guildCycleTotals = await db.collection('scores')
+          .aggregate([
+            { $match: { guild_id: currentGuildId, cycle_id: { $in: relevantCycleIds } } },
+            { $group: { _id: '$cycle_id', guildTotal: { $sum: '$score' } } }
+          ])
+          .toArray();
 
-      guildContribution = { averagePct: avgContribution, byCycle: contributionByCycle };
+        const guildTotalMap = {};
+        guildCycleTotals.forEach(c => { guildTotalMap[c._id] = c.guildTotal; });
+
+        const contributionByCycle = relevantCycleIds
+          .map(cid => {
+            const userTotal = cycleStats[cid].totalScore;
+            const guildTotal = guildTotalMap[cid] || 0;
+            const pct = guildTotal > 0 ? Math.round((userTotal / guildTotal) * 10000) / 100 : 0;
+            return { cycle_id: cid, userTotal, guildTotal, contributionPct: pct };
+          })
+          .filter(c => c.guildTotal > 0);
+
+        const avgContribution = contributionByCycle.length > 0
+          ? Math.round(contributionByCycle.reduce((sum, c) => sum + c.contributionPct, 0) / contributionByCycle.length * 100) / 100
+          : 0;
+
+        guildContribution = { averagePct: avgContribution, byCycle: contributionByCycle };
+      }
     }
   }
 
