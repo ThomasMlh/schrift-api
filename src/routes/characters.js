@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { cleanObject } from "../utils/cleaners.js";
 import { requireAdmin, requireDb } from "../middleware/auth.js";
 import { syncCharactersFromSFTP, uploadImagesBatch } from "../services/characterSync.js";
+import { syncCharactersFromGameDB, uploadGameDbImagesBatch } from "../services/gameDbSync.js";
 import { convertDateToFormat, reorderCharactersByReleaseDate } from "../utils/characterHelpers.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 
@@ -198,7 +199,7 @@ router.get("/", async (req, res) => {
     const { page, limit, skip } = parsePaginationParams(req.query);
 
     // Paramètres de filtrage
-    const { affinity, category, killer, search, attack_type } = req.query;
+    const { affinity, category, killer, search, attack_type, soul_trait, ex_soul_trait } = req.query;
 
     // Construire la requête de filtrage
     const query = {};
@@ -221,6 +222,16 @@ router.get("/", async (req, res) => {
     // Filtre par type d'attaque (R pour Rouge, B pour Bleue)
     if (attack_type && attack_type.trim()) {
       query.attack_type = attack_type.trim().toUpperCase();
+    }
+
+    // Filtre par soul trait (recherche dans le tableau)
+    if (soul_trait && soul_trait.trim()) {
+      query.soul_traits = { $regex: new RegExp(soul_trait.trim(), "i") };
+    }
+
+    // Filtre par ex soul trait (recherche dans le tableau)
+    if (ex_soul_trait && ex_soul_trait.trim()) {
+      query.ex_soul_traits = { $regex: new RegExp(ex_soul_trait.trim(), "i") };
     }
 
     // Filtre par recherche textuelle
@@ -272,6 +283,8 @@ router.get("/", async (req, res) => {
         category: category || null,
         killer: killer || null,
         attack_type: attack_type || null,
+        soul_trait: soul_trait || null,
+        ex_soul_trait: ex_soul_trait || null,
         search: search || null
       }
     });
@@ -287,10 +300,12 @@ router.get("/", async (req, res) => {
 // GET valeurs distinctes pour killers, catégories, affinités
 router.get("/meta", async (req, res) => {
   try {
-    const [killers, categories, affinities] = await Promise.all([
+    const [killers, categories, affinities, soulTraits, exSoulTraits] = await Promise.all([
       req.db.collection('characters').distinct('killers', { killers: { $exists: true, $ne: '' } }),
       req.db.collection('characters').distinct('categories', { categories: { $exists: true, $ne: '' } }),
       req.db.collection('characters').distinct('affinity', { affinity: { $exists: true, $ne: '' } }),
+      req.db.collection('soul_traits').find().sort({ name: 1 }).toArray(),
+      req.db.collection('ex_soul_traits').find().sort({ name: 1 }).toArray(),
     ]);
 
     res.json({
@@ -298,6 +313,8 @@ router.get("/meta", async (req, res) => {
       killers: killers.filter(Boolean).sort(),
       categories: categories.filter(Boolean).sort(),
       affinities: affinities.filter(Boolean).sort(),
+      soul_traits: soulTraits.map((t) => t.name),
+      ex_soul_traits: exSoulTraits.map((t) => t.name),
     });
   } catch (error) {
     console.error('Erreur lors de la récupération des métadonnées:', error);
@@ -479,6 +496,30 @@ router.post("/update/images", requireAdmin, async (req, res) => {
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error("❌ Erreur upload images batch:", error);
+    res.status(status).json({ success: false, message: error.message || "Erreur serveur lors de l'upload des images" });
+  }
+});
+
+// Route pour synchroniser les personnages depuis la master DB décryptée du jeu (SFTP)
+router.post("/update/game-db", requireAdmin, async (req, res) => {
+  try {
+    const result = await syncCharactersFromGameDB(req.db);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    if (status === 500) console.error("❌ Erreur lors de la synchronisation depuis la DB du jeu:", error);
+    res.status(status).json({ success: false, message: error.message || "Erreur serveur lors de la synchronisation", ...(error.details && { details: error.details }) });
+  }
+});
+
+// Route pour uploader par batch les images issues de la DB du jeu (rmfs)
+router.post("/update/game-db/images", requireAdmin, async (req, res) => {
+  try {
+    const result = await uploadGameDbImagesBatch(req.db, req.body?.batchSize);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    if (status === 500) console.error("❌ Erreur upload images DB du jeu:", error);
     res.status(status).json({ success: false, message: error.message || "Erreur serveur lors de l'upload des images" });
   }
 });

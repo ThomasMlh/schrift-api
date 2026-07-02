@@ -53,6 +53,26 @@ export class FTPUploader {
   }
 
   /**
+   * Upload un buffer déjà en mémoire vers le FTP
+   * @param {Buffer} buffer - Contenu à uploader
+   * @param {string} remotePath - Chemin de destination sur le FTP
+   * @returns {boolean} true si l'upload a réussi
+   */
+  async uploadBuffer(buffer, remotePath) {
+    if (!buffer || !buffer.length) return false;
+
+    try {
+      const dir = remotePath.substring(0, remotePath.lastIndexOf("/"));
+      await this.client.ensureDir(dir);
+      await this.client.uploadFrom(Readable.from(buffer), remotePath);
+      return true;
+    } catch (err) {
+      console.error(`❌ Erreur upload FTP ${remotePath}:`, err.message);
+      return false;
+    }
+  }
+
+  /**
    * Télécharge une image depuis une URL et l'upload sur le FTP
    * @param {string} imageUrl - URL source de l'image
    * @param {string} remotePath - Chemin de destination sur le FTP
