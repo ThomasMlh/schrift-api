@@ -6,6 +6,7 @@ import { getUserStats } from '../services/userStats.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 import { USER_FULL, USER_DISPLAY } from '../utils/projections.js';
+import players from '../assets/joueurs.json' with { type: "json" };
 
 const router = express.Router();
 
@@ -42,6 +43,64 @@ async function notifyGuildChange(db, userBefore, newGuildeId) {
 
 // Middleware pour toutes les routes users
 router.use(requireDb);
+
+// Route pour créer un utilisateur "placeholder" (ex: arrivée sur le serveur Discord), appelée par le bot.
+// Idempotente : si le discord_id existe déjà, ne fait rien et renvoie l'utilisateur existant.
+router.post('/', requireAdmin, async (req, res) => {
+  try {
+    const { discord_id, username, global_name, avatar, banner, discriminator } = req.body;
+
+    if (!discord_id) {
+      return res.status(400).json({ success: false, message: 'discord_id requis' });
+    }
+
+    const discordId = String(discord_id);
+
+    const existingUser = await req.db.collection('users').findOne({ discord_id: discordId });
+    if (existingUser) {
+      return res.json({ success: true, created: false, message: 'Utilisateur déjà existant', user: existingUser });
+    }
+
+    // Tentative de rattachement à un joueur/guilde connus (même logique que le login Discord)
+    let playerInfo = null;
+    if (players.joueurs && Array.isArray(players.joueurs)) {
+      playerInfo = players.joueurs.find(p => p.id_discord === discordId);
+    }
+
+    let guildeInfo = null;
+    if (playerInfo && playerInfo.guilde) {
+      const extractGuildName = playerInfo.guilde.split(' ')[1];
+      guildeInfo = await req.db.collection('guildes').findOne({ name: extractGuildName });
+    }
+
+    const newUser = {
+      discord_id: discordId,
+      username: username || null,
+      global_name: global_name || null,
+      discriminator: discriminator || null,
+      avatar: avatar || null,
+      banner: banner || null,
+      bbs_id: playerInfo?.id_bbs || null,
+      bbs_name: playerInfo?.pseudo_bbs || null,
+      guilde_id: guildeInfo?._id?.toString() || null,
+      role: playerInfo?.statut ? playerInfo.statut.toLowerCase() : null,
+      is_admin: false,
+      is_authorized: false,
+      is_banned: false,
+      last_login: new Date(),
+      created_via: 'discord_member_join',
+      created_at: new Date(),
+    };
+
+    const insertResult = await req.db.collection('users').insertOne(newUser);
+    const savedUser = await req.db.collection('users').findOne({ _id: insertResult.insertedId });
+
+    res.status(201).json({ success: true, created: true, message: 'Utilisateur créé avec succès', user: savedUser });
+  } catch (error) {
+    console.error('Erreur lors de la création de l\'utilisateur:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
 
 // Route pour récupérer tous les utilisateurs avec pagination (accessible à tous)
 router.get('/', async (req, res) => {
