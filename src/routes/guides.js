@@ -1,7 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
-import { requireDb } from '../middleware/auth.js';
+import { requireDb, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
     ]).toArray();
     
     res.json({
-      availableGuides: ['orbes', 'stuff', 'xp'], // Types de guides disponibles
+      availableGuides: ['orbes', 'stuff', 'xp', 'ability-slots'], // Types de guides disponibles
       data: guideTypes
     });
   } catch (error) {
@@ -108,6 +108,142 @@ router.patch('/orbes/:id', async (req, res) => {
 });
 
 
+// Calcule l'ordre d'insertion pour une catégorie : à la suite de la dernière
+// ligne de cette catégorie si elle existe déjà, sinon à la toute fin du
+// tableau. La numérotation démarre à 1.
+async function computeAbilitySlotInsertOrder(db, category) {
+  const [lastInCategory] = await db.collection('guide_ability_slots')
+    .find({ category })
+    .sort({ order: -1 })
+    .limit(1)
+    .toArray();
+
+  if (lastInCategory) {
+    return lastInCategory.order + 1;
+  }
+
+  const [lastOverall] = await db.collection('guide_ability_slots')
+    .find()
+    .sort({ order: -1 })
+    .limit(1)
+    .toArray();
+
+  return (lastOverall?.order ?? 0) + 1;
+}
+
+// GET /guides/ability-slots - Tableau des emplacements de capacités
+router.get('/ability-slots', async (req, res) => {
+  try {
+    const abilitySlotsGuide = await req.db.collection('guide_ability_slots')
+      .find()
+      .sort({ order: 1 })
+      .toArray();
+
+    res.json({ data: abilitySlotsGuide });
+  } catch (error) {
+    console.error('Error fetching ability slots guide:', error);
+    res.status(500).json({ error: 'Failed to fetch ability slots guide' });
+  }
+});
+
+// POST /guides/ability-slots - Ajouter une ligne au tableau des emplacements de capacités
+// L'ordre est toujours calculé automatiquement (à la suite de la catégorie
+// concernée) pour éviter les doublons/collisions entre catégories.
+router.post('/ability-slots', requireAdmin, async (req, res) => {
+  try {
+    const { category, name, star1, star2, star3 } = req.body;
+
+    if (!name || !category) {
+      return res.status(400).json({ error: 'Les champs "category" et "name" sont requis' });
+    }
+
+    const collection = req.db.collection('guide_ability_slots');
+    const insertOrder = await computeAbilitySlotInsertOrder(req.db, category);
+
+    // Décale les lignes suivantes pour garder les catégories contiguës
+    await collection.updateMany({ order: { $gte: insertOrder } }, { $inc: { order: 1 } });
+
+    const result = await collection.insertOne({
+      category,
+      name,
+      star1: star1 || '',
+      star2: star2 || '',
+      star3: star3 || '',
+      order: insertOrder,
+    });
+
+    res.status(201).json({
+      message: `Ajout de '${name}' réussi`,
+      insertedId: result.insertedId
+    });
+  } catch (error) {
+    console.error('Error adding ability slots guide entry:', error);
+    res.status(500).json({ error: 'Failed to add entry' });
+  }
+});
+
+// DELETE /guides/ability-slots/:id - Supprimer une ligne du tableau des emplacements de capacités
+router.delete('/ability-slots/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await req.db.collection('guide_ability_slots').deleteOne({
+      _id: new ObjectId(id)
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    res.json({ message: `Suppression de l'entrée avec l'ID '${id}' réussie` });
+  } catch (error) {
+    console.error('Error deleting ability slots guide entry:', error);
+    res.status(500).json({ error: 'Failed to delete entry' });
+  }
+});
+
+// PATCH /guides/ability-slots/:id - Mettre à jour une ligne du tableau des emplacements de capacités
+// L'ordre n'est jamais accepté depuis le client : si la catégorie change, il
+// est recalculé automatiquement pour recoller la ligne à la suite de sa
+// nouvelle catégorie.
+router.patch('/ability-slots/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = { ...req.body };
+    delete updates.order;
+
+    const collection = req.db.collection('guide_ability_slots');
+    const current = await collection.findOne({ _id: new ObjectId(id) });
+
+    if (!current) {
+      return res.status(404).json({ error: `Entrée avec l'ID ${id} non trouvée` });
+    }
+
+    if (updates.category && updates.category !== current.category) {
+      const insertOrder = await computeAbilitySlotInsertOrder(req.db, updates.category);
+      await collection.updateMany(
+        { _id: { $ne: current._id }, order: { $gte: insertOrder } },
+        { $inc: { order: 1 } }
+      );
+      updates.order = insertOrder;
+    }
+
+    const result = await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updates }
+    );
+
+    res.json({
+      message: `Mise à jour de '${updates.name || current.name}' réussie`,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('Error updating ability slots guide entry:', error);
+    res.status(500).json({ error: 'Failed to update entry' });
+  }
+});
+
+
 // GET /guides/stuff - Guide pour le farm de stuff (à implémenter)
 router.get('/stuff', async (req, res) => {
   try {
@@ -137,9 +273,9 @@ router.get('/:type', async (req, res) => {
     const collections = await req.db.listCollections({ name: collectionName }).toArray();
     
     if (collections.length === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: 'Guide type not found',
-        availableTypes: ['orbes', 'stuff', 'xp']
+        availableTypes: ['orbes', 'stuff', 'xp', 'ability-slots']
       });
     }
     
