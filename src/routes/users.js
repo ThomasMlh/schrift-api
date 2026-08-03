@@ -6,6 +6,12 @@ import { getUserStats } from '../services/userStats.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 import { USER_FULL, USER_DISPLAY } from '../utils/projections.js';
+import { escapeRegex } from '../utils/regexUtils.js';
+import {
+  upsertPrimaryAccount, deriveMirrorFields, findAccount, assertRoleAvailable,
+  addAltAccount, updateAccount, removeAccount, setPrimaryAccount, getAccountsWithoutGuild,
+  getAllAccounts, renameAccountBbsId, assertBbsIdAvailable
+} from '../utils/bbsAccounts.js';
 import players from '../assets/joueurs.json' with { type: "json" };
 
 const router = express.Router();
@@ -73,6 +79,14 @@ router.post('/', requireAdmin, async (req, res) => {
       guildeInfo = await req.db.collection('guildes').findOne({ name: extractGuildName });
     }
 
+    const bbsAccounts = upsertPrimaryAccount([], {
+      bbsId: playerInfo?.id_bbs || null,
+      bbsName: playerInfo?.pseudo_bbs || null,
+      guildeId: guildeInfo?._id?.toString() || null,
+      role: playerInfo?.statut ? playerInfo.statut.toLowerCase() : null
+    });
+    const mirror = deriveMirrorFields(bbsAccounts);
+
     const newUser = {
       discord_id: discordId,
       username: username || null,
@@ -80,10 +94,11 @@ router.post('/', requireAdmin, async (req, res) => {
       discriminator: discriminator || null,
       avatar: avatar || null,
       banner: banner || null,
-      bbs_id: playerInfo?.id_bbs || null,
-      bbs_name: playerInfo?.pseudo_bbs || null,
-      guilde_id: guildeInfo?._id?.toString() || null,
-      role: playerInfo?.statut ? playerInfo.statut.toLowerCase() : null,
+      bbs_accounts: bbsAccounts,
+      bbs_id: mirror.bbs_id,
+      bbs_name: mirror.bbs_name,
+      guilde_id: mirror.guilde_id,
+      role: mirror.role,
       is_admin: false,
       is_authorized: false,
       is_banned: false,
@@ -130,15 +145,17 @@ router.get('/', async (req, res) => {
       query.role = role.trim();
     }
 
-    // Filtre par recherche textuelle (nom d'utilisateur ou nom global)
+    // Filtre par recherche textuelle (nom d'utilisateur, nom global, ou n'importe quel compte bbs — alt compris)
     if (search && search.trim()) {
-      const searchTerm = search.trim();
+      const searchTerm = escapeRegex(search.trim());
       query.$or = [
         { username: { $regex: searchTerm, $options: 'i' } },
         { global_name: { $regex: searchTerm, $options: 'i' } },
         { bbs_name: { $regex: searchTerm, $options: 'i' } },
         { discord_id: { $regex: searchTerm, $options: 'i' } },
-        { bbs_id: { $regex: searchTerm, $options: 'i' } }
+        { bbs_id: { $regex: searchTerm, $options: 'i' } },
+        { 'bbs_accounts.bbs_name': { $regex: searchTerm, $options: 'i' } },
+        { 'bbs_accounts.bbs_id': { $regex: searchTerm, $options: 'i' } }
       ];
     }
 
@@ -167,63 +184,57 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Route pour récupérer les utilisateurs sans guilde avec pagination
+// Route pour récupérer les comptes bbs sans guilde avec pagination (un élément par compte,
+// pas par user — un alt sans guilde apparaît même si le compte principal du même user en a une)
 router.get('/without-guild', async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
-
-    // Paramètre de recherche optionnel
     const { search } = req.query;
 
-    // Construire la requête de base (sans guilde)
-    const query = {
-      $or: [
-        { guilde_id: null },
-        { guilde_id: { $exists: false } }
-      ]
-    };
-
-    // Ajouter filtre de recherche si présent
-    if (search && search.trim()) {
-      const searchTerm = search.trim();
-      query.$and = [
-        query,
-        {
-          $or: [
-            { username: { $regex: searchTerm, $options: 'i' } },
-            { global_name: { $regex: searchTerm, $options: 'i' } }
-          ]
-        }
-      ];
-      // Restructurer la requête pour éviter les conflits
-      delete query.$or;
-      query.$and.unshift({
-        $or: [
-          { guilde_id: null },
-          { guilde_id: { $exists: false } }
-        ]
-      });
-    }
-
-    const users = await req.db.collection('users')
-      .find(query, { projection: USER_FULL })
-      .sort({ bbs_name: 1 })
-      .skip(skip)
-      .limit(limit)
-      .toArray();
-
-    const totalCount = await req.db.collection('users').countDocuments(query);
+    const { accounts, totalCount } = await getAccountsWithoutGuild(req.db, { search, skip, limit });
 
     res.json({
       success: true,
-      users,
-      pagination: buildPaginationMeta(page, limit, totalCount, users.length),
+      users: accounts,
+      pagination: buildPaginationMeta(page, limit, totalCount, accounts.length),
       activeFilters: {
         search: search || null
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des utilisateurs sans guilde:', error);
+    console.error('Erreur lors de la récupération des comptes sans guilde:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+// Route pour récupérer la liste des comptes bbs (tous users confondus, un élément par compte) —
+// utilisée par la liste publique des joueurs. Un même user peut apparaître plusieurs fois (une
+// ligne par compte), chacune avec sa propre guilde/rôle, cohérent avec le classement/rosters.
+router.get('/accounts', async (req, res) => {
+  try {
+    const { page, limit, skip } = parsePaginationParams(req.query);
+    const { guilde_id, role, search } = req.query;
+
+    const { accounts, totalCount } = await getAllAccounts(req.db, {
+      search,
+      guildeId: guilde_id && guilde_id.trim() ? guilde_id.trim() : undefined,
+      role: role && role.trim() ? role.trim() : undefined,
+      skip,
+      limit
+    });
+
+    res.json({
+      success: true,
+      users: accounts,
+      pagination: buildPaginationMeta(page, limit, totalCount, accounts.length),
+      activeFilters: {
+        guilde_id: guilde_id || null,
+        role: role || null,
+        search: search || null
+      }
+    });
+  } catch (error) {
+    console.error('Erreur lors de la récupération des comptes bbs:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
@@ -251,11 +262,35 @@ router.get('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateur 
 router.patch('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
-    const updates = req.body;
+    const updates = { ...req.body };
 
     const userBefore = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
     if (!userBefore) {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    // bbs_id/bbs_name/guilde_id/role ciblent ici le compte bbs PRINCIPAL (miroir racine) ;
+    // la gestion des comptes alt passe par les routes /:userId/accounts/*.
+    const touchesPrimaryAccount = ['bbs_id', 'bbs_name', 'guilde_id', 'role'].some(f => f in updates);
+    if (touchesPrimaryAccount) {
+      const primary = (userBefore.bbs_accounts || []).find(a => a.is_primary) || null;
+      const nextRole = 'role' in updates ? updates.role : (primary?.role ?? null);
+      const nextGuildeId = 'guilde_id' in updates ? updates.guilde_id : (primary?.guilde_id ?? null);
+
+      if ((nextRole === 'chef' || nextRole === 'sous-chef') &&
+          (nextRole !== primary?.role || nextGuildeId !== primary?.guilde_id)) {
+        await assertRoleAvailable(req.db, nextGuildeId, nextRole, primary?.bbs_id);
+      }
+
+      const bbsAccounts = upsertPrimaryAccount(userBefore.bbs_accounts, {
+        bbsId: 'bbs_id' in updates ? updates.bbs_id : primary?.bbs_id,
+        bbsName: 'bbs_name' in updates ? updates.bbs_name : primary?.bbs_name,
+        guildeId: nextGuildeId,
+        role: nextRole
+      });
+
+      updates.bbs_accounts = bbsAccounts;
+      Object.assign(updates, deriveMirrorFields(bbsAccounts));
     }
 
     const result = await req.db.collection('users').updateOne(
@@ -278,16 +313,18 @@ router.patch('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateu
       );
     }
   } catch (error) {
-    console.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
+    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
 
 // Route pour mettre à jour le rôle d'un utilisateur (admin seulement)
+// bbs_id optionnel : cible ce compte précis ; par défaut, le compte principal.
 router.put('/:userId/role', requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
-    const { role } = req.body;
+    const { role, bbs_id } = req.body;
 
     if (!role) {
       return res.status(400).json({ success: false, message: 'Le rôle est requis' });
@@ -307,44 +344,35 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
-    if (!user.guilde_id) {
+    const targetAccount = bbs_id
+      ? findAccount(user, bbs_id)
+      : (user.bbs_accounts || []).find(a => a.is_primary) || null;
+
+    if (bbs_id && !targetAccount) {
+      return res.status(404).json({ success: false, message: 'Compte bbs introuvable pour cet utilisateur' });
+    }
+
+    const guildeId = targetAccount?.guilde_id || null;
+
+    if (!guildeId) {
       return res.status(400).json({
         success: false,
-        message: 'L\'utilisateur doit être dans une guilde pour avoir un rôle'
+        message: 'Le compte doit être dans une guilde pour avoir un rôle'
       });
     }
 
-    // Vérifier les contraintes de rôle
-    if (role === 'chef') {
-      const existingChef = await req.db.collection('users').findOne({
-        guilde_id: user.guilde_id,
-        role: 'chef',
-      });
-      if (existingChef) {
-        return res.status(400).json({
-          success: false,
-          message: 'Il ne peut y avoir qu\'un seul chef dans une guilde'
+    // Vérifier les contraintes de rôle (au niveau des comptes, pas des users)
+    await assertRoleAvailable(req.db, guildeId, role, targetAccount?.bbs_id);
+
+    const bbsAccounts = bbs_id
+      ? updateAccount(user.bbs_accounts, bbs_id, { role })
+      : upsertPrimaryAccount(user.bbs_accounts, {
+          bbsId: targetAccount?.bbs_id, bbsName: targetAccount?.bbs_name, guildeId, role
         });
-      }
-    }
 
-    if (role === 'sous-chef') {
-      const sousChefCount = await req.db.collection('users').countDocuments({
-        guilde_id: user.guilde_id,
-        role: 'sous-chef',
-      });
-      if (sousChefCount >= 2) {
-        return res.status(400).json({
-          success: false,
-          message: 'Il ne peut y avoir que deux sous-chefs dans une guilde'
-        });
-      }
-    }
-
-    // Mettre à jour le rôle
     const result = await req.db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      { $set: { role: role } }
+      { _id: user._id },
+      { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
     if (result.matchedCount === 0) {
@@ -353,16 +381,18 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
 
     res.json({ success: true, message: `Rôle mis à jour vers ${role}` });
   } catch (error) {
-    console.error('Erreur lors de la mise à jour du rôle:', error);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors de la mise à jour du rôle:', error);
+    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
 
 // Route pour changer la guilde d'un utilisateur (admin seulement)
+// bbs_id optionnel : cible ce compte précis ; par défaut, le compte principal.
 router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
-    const { guildeId, role } = req.body;
+    const { guildeId, role, bbs_id } = req.body;
 
     if (!guildeId) {
       return res.status(400).json({ success: false, message: 'L\'ID de la guilde est requis' });
@@ -370,55 +400,259 @@ router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Form
 
     const newRole = role || 'membre';
 
-    // Vérifier les contraintes si un rôle spécifique est demandé
-    if (newRole === 'chef') {
-      const existingChef = await req.db.collection('users').findOne({
-        guilde_id: guildeId,
-        role: 'chef',
-        _id: { $ne: new ObjectId(userId) }
-      });
-      if (existingChef) {
-        return res.status(400).json({
-          success: false,
-          message: 'Il ne peut y avoir qu\'un seul chef dans une guilde'
-        });
-      }
-    }
-
-    if (newRole === 'sous-chef') {
-      const sousChefCount = await req.db.collection('users').countDocuments({
-        guilde_id: guildeId,
-        role: 'sous-chef',
-        _id: { $ne: new ObjectId(userId) }
-      });
-      if (sousChefCount >= 2) {
-        return res.status(400).json({
-          success: false,
-          message: 'Il ne peut y avoir que deux sous-chefs dans une guilde'
-        });
-      }
-    }
-
-    const userBefore = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
-    if (!userBefore) {
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!user) {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
-    // Mettre à jour la guilde et le rôle
+    const targetAccount = bbs_id ? findAccount(user, bbs_id) : (user.bbs_accounts || []).find(a => a.is_primary) || null;
+    if (bbs_id && !targetAccount) {
+      return res.status(404).json({ success: false, message: 'Compte bbs introuvable pour cet utilisateur' });
+    }
+
+    // Vérifier les contraintes si un rôle spécifique est demandé (au niveau des comptes, pas des users)
+    if (newRole === 'chef' || newRole === 'sous-chef') {
+      await assertRoleAvailable(req.db, guildeId, newRole, targetAccount?.bbs_id);
+    }
+
+    // Mettre à jour la guilde et le rôle du compte ciblé
+    const bbsAccounts = bbs_id
+      ? updateAccount(user.bbs_accounts, bbs_id, { guildeId, role: newRole })
+      : upsertPrimaryAccount(user.bbs_accounts, {
+          bbsId: targetAccount?.bbs_id, bbsName: targetAccount?.bbs_name, guildeId, role: newRole
+        });
+
     await req.db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      { $set: { guilde_id: guildeId, role: newRole } }
+      { _id: user._id },
+      { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    res.json({ success: true, message: `${getUserDisplayName(userBefore, 'Utilisateur')} déplacé vers la nouvelle guilde` });
+    res.json({ success: true, message: `${getUserDisplayName(user, 'Utilisateur')} déplacé vers la nouvelle guilde` });
 
-    // Notification Discord (non bloquant)
-    notifyGuildChange(req.db, userBefore, guildeId).catch(e =>
-      console.error('[users/guild] Erreur notification Discord:', e.message)
-    );
+    // Notification Discord (non bloquant) — uniquement pertinente pour le compte principal
+    // (c'est ce que reflètent les champs racine guilde_id/role affichés ailleurs).
+    if (!bbs_id || targetAccount?.is_primary) {
+      notifyGuildChange(req.db, user, guildeId).catch(e =>
+        console.error('[users/guild] Erreur notification Discord:', e.message)
+      );
+    }
   } catch (error) {
-    console.error('Erreur lors du changement de guilde:', error);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors du changement de guilde:', error);
+    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+  }
+});
+
+// --- Gestion des comptes bbs (principal + alts) d'un user ---
+
+// POST ajouter un compte alt à un user (admin seulement)
+router.post('/:userId/accounts', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { bbs_id, bbs_name, guilde_id, role } = req.body;
+
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    if (bbs_id) {
+      await assertBbsIdAvailable(req.db, bbs_id, userId);
+    }
+
+    if ((role === 'chef' || role === 'sous-chef') && guilde_id) {
+      await assertRoleAvailable(req.db, guilde_id, role, bbs_id);
+    }
+
+    const bbsAccounts = addAltAccount(user.bbs_accounts, { bbsId: bbs_id, bbsName: bbs_name, guildeId: guilde_id, role });
+
+    await req.db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+    );
+
+    res.status(201).json({ success: true, message: 'Compte bbs ajouté avec succès', bbs_accounts: bbsAccounts });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors de l\'ajout du compte bbs:', error);
+    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+  }
+});
+
+// PUT modifier un compte bbs existant d'un user (admin seulement)
+// bbs_id dans le body est optionnel : s'il est fourni et différent du :bbsId de l'URL, le compte
+// est renommé (ex: faute de frappe à la création) et l'historique des scores de ce compte migre
+// avec lui, pour que le classement/l'historique du joueur restent cohérents après correction.
+router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
+  try {
+    const { userId, bbsId } = req.params;
+    const { bbs_id: newBbsId, bbs_name, guilde_id, role } = req.body;
+
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    if (role === 'chef' || role === 'sous-chef') {
+      const account = findAccount(user, bbsId);
+      const targetGuildeId = guilde_id !== undefined ? guilde_id : account?.guilde_id;
+      await assertRoleAvailable(req.db, targetGuildeId, role, bbsId);
+    }
+
+    const isRenaming = !!newBbsId && newBbsId !== bbsId;
+    let bbsAccounts = user.bbs_accounts;
+
+    if (isRenaming) {
+      await assertBbsIdAvailable(req.db, newBbsId, userId);
+      bbsAccounts = renameAccountBbsId(bbsAccounts, bbsId, newBbsId);
+    }
+
+    bbsAccounts = updateAccount(bbsAccounts, isRenaming ? newBbsId : bbsId, { bbsName: bbs_name, guildeId: guilde_id, role });
+
+    await req.db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+    );
+
+    // Migrer l'historique des scores de ce compte vers le nouvel identifiant/pseudo
+    if (isRenaming || bbs_name !== undefined) {
+      const scoreUpdate = {};
+      if (isRenaming) scoreUpdate.bbs_id = newBbsId;
+      if (bbs_name !== undefined) scoreUpdate.bbs_name = bbs_name;
+      await req.db.collection('scores').updateMany(
+        { user_id: userId, bbs_id: bbsId },
+        { $set: scoreUpdate }
+      );
+    }
+
+    res.json({ success: true, message: 'Compte bbs mis à jour avec succès', bbs_accounts: bbsAccounts });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors de la mise à jour du compte bbs:', error);
+    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+  }
+});
+
+// DELETE retirer un compte bbs d'un user (admin seulement)
+router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
+  try {
+    const { userId, bbsId } = req.params;
+
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    const bbsAccounts = removeAccount(user.bbs_accounts, bbsId);
+
+    await req.db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+    );
+
+    res.json({ success: true, message: 'Compte bbs retiré avec succès', bbs_accounts: bbsAccounts });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors du retrait du compte bbs:', error);
+    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+  }
+});
+
+// PUT définir un compte bbs comme principal (admin seulement)
+router.put('/:userId/accounts/:bbsId/primary', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
+  try {
+    const { userId, bbsId } = req.params;
+
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    const bbsAccounts = setPrimaryAccount(user.bbs_accounts, bbsId);
+
+    await req.db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+    );
+
+    res.json({ success: true, message: 'Compte principal mis à jour avec succès', bbs_accounts: bbsAccounts });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors du changement de compte principal:', error);
+    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+  }
+});
+
+// POST transférer un compte bbs d'un user vers un autre, en tant qu'alt (jamais principal chez la cible).
+// N'affecte volontairement pas les scores existants : ils restent liés au bbs_id (déjà dénormalisé
+// sur chaque score) et à l'ancien user_id — l'historique "suit" le compte via bbs_id, pas besoin de
+// réécrire scores.user_id (cf. décision produit : peu importe quel user_id porte le score historique).
+router.post('/:userId/accounts/:bbsId/transfer', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
+  try {
+    const { userId, bbsId } = req.params;
+    const { target_user_id } = req.body;
+
+    if (!target_user_id || !ObjectId.isValid(target_user_id)) {
+      return res.status(400).json({ success: false, message: 'target_user_id valide requis' });
+    }
+    if (target_user_id === userId) {
+      return res.status(400).json({ success: false, message: "L'utilisateur cible doit être différent de l'utilisateur source" });
+    }
+
+    const sourceUser = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!sourceUser) {
+      return res.status(404).json({ success: false, message: 'Utilisateur source non trouvé' });
+    }
+
+    const account = findAccount(sourceUser, bbsId);
+    if (!account) {
+      return res.status(404).json({ success: false, message: 'Compte bbs introuvable pour cet utilisateur' });
+    }
+
+    const targetUser = await req.db.collection('users').findOne({ _id: new ObjectId(target_user_id) });
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'Utilisateur cible non trouvé' });
+    }
+
+    // Retirer le compte du user source. S'il était principal et qu'il reste d'autres comptes,
+    // en promouvoir un automatiquement pour ne pas laisser le user source sans compte principal.
+    let sourceAccounts = sourceUser.bbs_accounts || [];
+    if (account.is_primary) {
+      const nextPrimary = sourceAccounts.find(a => a.bbs_id !== bbsId);
+      if (nextPrimary) {
+        sourceAccounts = setPrimaryAccount(sourceAccounts, nextPrimary.bbs_id);
+      }
+    }
+    sourceAccounts = sourceAccounts.filter(a => a.bbs_id !== bbsId);
+
+    // L'ajouter comme alt chez la cible (jamais principal), en conservant bbs_name/guilde/rôle du compte.
+    // addAltAccount lève une erreur si ce bbs_id existe déjà chez la cible (ne devrait pas arriver).
+    const targetAccounts = addAltAccount(targetUser.bbs_accounts, {
+      bbsId: account.bbs_id,
+      bbsName: account.bbs_name,
+      guildeId: account.guilde_id,
+      role: account.role
+    });
+
+    await req.db.collection('users').updateOne(
+      { _id: sourceUser._id },
+      { $set: { bbs_accounts: sourceAccounts, ...deriveMirrorFields(sourceAccounts) } }
+    );
+    await req.db.collection('users').updateOne(
+      { _id: targetUser._id },
+      { $set: { bbs_accounts: targetAccounts, ...deriveMirrorFields(targetAccounts) } }
+    );
+
+    res.json({
+      success: true,
+      message: `Compte ${account.bbs_name || bbsId} transféré avec succès`,
+      source: { bbs_accounts: sourceAccounts },
+      target: { bbs_accounts: targetAccounts }
+    });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors du transfert de compte:', error);
+    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
 
