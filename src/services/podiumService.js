@@ -1,36 +1,10 @@
 import { ObjectId } from 'mongodb';
 
-// Pipeline commun pour joindre users + guildes sur un champ user_id
+// Pipeline commun pour joindre users (identité Discord uniquement : avatar/global_name) à partir
+// d'un champ user_id présent sur le document, et guildes à partir d'un champ guild_id présent sur
+// le document lui-même (le guild_id/bbs_name du SCORE, jamais la guilde/le pseudo actuels du user
+// — un même user peut avoir plusieurs comptes bbs classés séparément dans des guildes différentes).
 const lookupUserAndGuild = () => {
-  return [
-    {
-      $lookup: {
-        from: 'users',
-        let: { userId: "$_id" },
-        pipeline: [
-          { $match: { $expr: { $or: [{ $eq: [{ $toString: "$_id" }, "$$userId"] }] } } },
-          { $project: { _id: 1, discord_id: 1, avatar: 1, bbs_id: 1, bbs_name: 1, global_name: 1, guilde_id: 1, role: 1, username: 1 } }
-        ],
-        as: 'user'
-      }
-    },
-    {
-      $lookup: {
-        from: 'guildes',
-        let: { guildeId: { $arrayElemAt: ["$user.guilde_id", 0] } },
-        pipeline: [
-          { $match: { $expr: { $eq: [{ $toString: "$_id" }, "$$guildeId"] } } },
-          { $project: { name: 1 } }
-        ],
-        as: 'guild'
-      }
-    },
-    { $addFields: { hasUser: { $gt: [{ $size: "$user" }, 0] } } }
-  ];
-}
-
-// Pipeline pour joindre users à partir d'un champ user_id (string) dans le document
-const lookupUserByUserId = () => {
   return [
     {
       $lookup: {
@@ -47,7 +21,7 @@ const lookupUserByUserId = () => {
               }
             }
           },
-          { $project: { discord_id: 1, global_name: 1, bbs_name: 1, avatar: 1, username: 1, guilde_id: 1 } }
+          { $project: { _id: 1, discord_id: 1, avatar: 1, global_name: 1, username: 1 } }
         ],
         as: 'user'
       }
@@ -55,9 +29,9 @@ const lookupUserByUserId = () => {
     {
       $lookup: {
         from: 'guildes',
-        let: { guildeId: { $arrayElemAt: ["$user.guilde_id", 0] } },
+        let: { guildId: "$guild_id" },
         pipeline: [
-          { $match: { $expr: { $eq: [{ $toString: "$_id" }, "$$guildeId"] } } },
+          { $match: { $expr: { $eq: [{ $toString: "$_id" }, "$$guildId"] } } },
           { $project: { name: 1 } }
         ],
         as: 'guild'
@@ -66,6 +40,9 @@ const lookupUserByUserId = () => {
     { $addFields: { hasUser: { $gt: [{ $size: "$user" }, 0] } } }
   ];
 }
+
+// Alias conservé pour lisibilité aux call sites existants (même pipeline).
+const lookupUserByUserId = lookupUserAndGuild;
 
 // Calcule les ranks en tenant compte des ex-aequo
 const applyRanks = (results, scoreKey) => {
@@ -112,13 +89,23 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
 
   const pipeline = [
     { $match: matchStage },
-    { $group: { _id: "$user_id", averageScore: { $avg: "$score" }, totalScores: { $sum: 1 } } },
+    {
+      $group: {
+        _id: "$bbs_id",
+        user_id: { $first: "$user_id" },
+        bbs_name: { $first: "$bbs_name" },
+        guild_id: { $first: "$guild_id" },
+        averageScore: { $avg: "$score" },
+        totalScores: { $sum: 1 }
+      }
+    },
     ...lookupUserAndGuild(),
     {
       $project: {
         _id: 0,
-        user_id: "$_id",
-        bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
+        bbs_id: "$_id",
+        user_id: 1,
+        bbs_name: 1,
         discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
         global_name: { $arrayElemAt: ["$user.global_name", 0] },
         averageScore: { $round: ["$averageScore", 0] },
@@ -198,51 +185,19 @@ export const getPodiumFull = async (db, { cycle_name, rotation_id, guild_name, r
   if (rotation_id) matchStage.rotation_id = rotation_id;
   if (guildId) matchStage.guild_id = guildId;
 
-  const userGuildLookup = [
-    {
-      $lookup: {
-        from: 'users',
-        let: { userId: "$user_id" },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $or: [
-                  { $eq: [{ $toString: "$_id" }, "$$userId"] },
-                  { $eq: ["$discord_id", "$$userId"] }
-                ]
-              }
-            }
-          },
-          { $project: { discord_id: 1, global_name: 1, bbs_name: 1, avatar: 1, guilde_id: 1 } }
-        ],
-        as: 'user'
-      }
-    },
-    {
-      $lookup: {
-        from: 'guildes',
-        let: { guildeId: { $arrayElemAt: ["$user.guilde_id", 0] } },
-        pipeline: [
-          { $match: { $expr: { $eq: [{ $toString: "$_id" }, "$$guildeId"] } } },
-          { $project: { name: 1 } }
-        ],
-        as: 'guild'
-      }
-    },
-    { $addFields: { hasUser: { $gt: [{ $size: "$user" }, 0] } } }
-  ];
-
   let pipeline;
   if (rotation_id) {
+    // Un score par bbs_id sur une rotation donnée : pas de $group nécessaire, mais bbs_name/
+    // bbs_id doivent venir du score lui-même (le compte qui a joué), pas du user courant.
     pipeline = [
       { $match: matchStage },
-      ...userGuildLookup,
+      ...lookupUserAndGuild(),
       {
         $project: {
           _id: 0,
           user_id: "$user_id",
-          bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
+          bbs_id: "$bbs_id",
+          bbs_name: "$bbs_name",
           discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
           global_name: { $arrayElemAt: ["$user.global_name", 0] },
           score: 1,
@@ -260,22 +215,23 @@ export const getPodiumFull = async (db, { cycle_name, rotation_id, guild_name, r
       { $match: matchStage },
       {
         $group: {
-          _id: "$user_id",
+          _id: "$bbs_id",
+          user_id: { $first: "$user_id" },
+          bbs_name: { $first: "$bbs_name" },
+          guild_id: { $first: "$guild_id" },
           averageScore: { $avg: "$score" },
           totalScore: { $sum: "$score" },
           totalScores: { $sum: 1 },
           totalRawScore: { $sum: "$raw_score" }
         }
       },
-      ...lookupUserAndGuild().map(stage => {
-        // Remap lookups to use "_id" as user_id field
-        return stage;
-      }),
+      ...lookupUserAndGuild(),
       {
         $project: {
           _id: 0,
-          user_id: "$_id",
-          bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
+          bbs_id: "$_id",
+          user_id: 1,
+          bbs_name: 1,
           discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
           global_name: { $arrayElemAt: ["$user.global_name", 0] },
           averageScore: { $round: ["$averageScore", 0] },
@@ -418,8 +374,24 @@ export const getPodiumWeekly = async (db, { cycle_name, week_number, guild_name,
 
   const pipeline = [
     { $match: matchStage },
-    { $group: { _id: { user_id: "$user_id", rotation_id: "$rotation_id" }, score: { $first: "$score" } } },
-    { $group: { _id: "$_id.user_id", rotation_scores: { $push: { rotation_id: "$_id.rotation_id", score: "$score" } } } },
+    {
+      $group: {
+        _id: { bbs_id: "$bbs_id", rotation_id: "$rotation_id" },
+        score: { $first: "$score" },
+        user_id: { $first: "$user_id" },
+        bbs_name: { $first: "$bbs_name" },
+        guild_id: { $first: "$guild_id" }
+      }
+    },
+    {
+      $group: {
+        _id: "$_id.bbs_id",
+        user_id: { $first: "$user_id" },
+        bbs_name: { $first: "$bbs_name" },
+        guild_id: { $first: "$guild_id" },
+        rotation_scores: { $push: { rotation_id: "$_id.rotation_id", score: "$score" } }
+      }
+    },
     {
       $addFields: {
         week_total_score: { $sum: "$rotation_scores.score" },
@@ -437,13 +409,13 @@ export const getPodiumWeekly = async (db, { cycle_name, week_number, guild_name,
         }
       }
     },
-    { $addFields: { user_id: "$_id" } },
     ...lookupUserByUserId(),
     {
       $project: {
         _id: 0,
-        user_id: "$_id",
-        bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
+        bbs_id: "$_id",
+        user_id: 1,
+        bbs_name: 1,
         discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
         global_name: { $arrayElemAt: ["$user.global_name", 0] },
         username: { $arrayElemAt: ["$user.username", 0] },
@@ -534,7 +506,10 @@ export const getPodiumMisses = async (db, { cycle_name, guild_name, page = 1, li
     { $match: matchStage },
     {
       $group: {
-        _id: "$user_id",
+        _id: "$bbs_id",
+        user_id: { $first: "$user_id" },
+        bbs_name: { $first: "$bbs_name" },
+        guild_id: { $first: "$guild_id" },
         total_misses: { $sum: 1 },
         total_negative_score: { $sum: "$score" },
         missed_rotations: {
@@ -561,13 +536,13 @@ export const getPodiumMisses = async (db, { cycle_name, guild_name, page = 1, li
         }
       }
     },
-    { $addFields: { user_id: "$_id" } },
     ...lookupUserByUserId(),
     {
       $project: {
         _id: 0,
-        user_id: "$_id",
-        bbs_name: { $arrayElemAt: ["$user.bbs_name", 0] },
+        bbs_id: "$_id",
+        user_id: 1,
+        bbs_name: 1,
         discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
         global_name: { $arrayElemAt: ["$user.global_name", 0] },
         username: { $arrayElemAt: ["$user.username", 0] },

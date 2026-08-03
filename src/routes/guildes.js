@@ -3,6 +3,10 @@ import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
+import {
+  getGuildAccountRoster, findAccount, assertRoleAvailable,
+  upsertPrimaryAccount, updateAccount, deriveMirrorFields
+} from '../utils/bbsAccounts.js';
 
 const router = express.Router();
 
@@ -42,15 +46,15 @@ router.get('/rankings', async (req, res) => {
       scoresByGuild[s.guild_id].push(s.score || 0);
     }
 
-    // Nombre de membres actuels par guilde (pour l'affichage)
-    const allMembres = await req.db.collection('users').find(
-      { guilde_id: { $in: guildIds } },
-      { projection: { _id: 1, guilde_id: 1 } }
-    ).toArray();
-    const memberCountByGuild = {};
-    for (const m of allMembres) {
-      memberCountByGuild[m.guilde_id] = (memberCountByGuild[m.guilde_id] || 0) + 1;
-    }
+    // Nombre de comptes actuels par guilde (pour l'affichage) — un compte bbs = un membre du roster,
+    // un même user peut donc compter pour plusieurs guildes s'il y a un compte dans chacune.
+    const memberCountRows = await req.db.collection('users').aggregate([
+      { $match: { "bbs_accounts.guilde_id": { $in: guildIds } } },
+      { $unwind: "$bbs_accounts" },
+      { $match: { "bbs_accounts.guilde_id": { $in: guildIds } } },
+      { $group: { _id: "$bbs_accounts.guilde_id", count: { $sum: 1 } } }
+    ]).toArray();
+    const memberCountByGuild = Object.fromEntries(memberCountRows.map(r => [r._id, r.count]));
 
     const results = guildes.map(guild => {
       const guildId = guild._id.toString();
@@ -84,8 +88,10 @@ router.get('/members-summary', async (req, res) => {
       .toArray()).map(g => g._id.toString());
 
     const rows = await req.db.collection('users').aggregate([
-      { $match: { guilde_id: { $in: guildIds } } },
-      { $group: { _id: '$guilde_id', count: { $sum: 1 } } },
+      { $match: { "bbs_accounts.guilde_id": { $in: guildIds } } },
+      { $unwind: '$bbs_accounts' },
+      { $match: { "bbs_accounts.guilde_id": { $in: guildIds } } },
+      { $group: { _id: '$bbs_accounts.guilde_id', count: { $sum: 1 } } },
     ]).toArray();
 
     const data = Object.fromEntries(rows.map(r => [r._id, r.count]));
@@ -108,31 +114,14 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Récupérer les membres d'une guilde
+// Récupérer les membres (comptes bbs) d'une guilde — un même user peut apparaître plusieurs fois
+// s'il a plusieurs comptes rattachés à cette guilde (ce qui ne devrait pas arriver en pratique,
+// une guilde n'ayant qu'un roster de jeu, mais reste possible si plusieurs alts y sont rattachés).
 router.get('/:id/membres', async (req, res) => {
   try {
     const guildeId = req.params.id;
-        
-    // Récupérer les membres depuis la collection users
-    const membres = await req.db.collection('users').find(
-      { guilde_id: guildeId },
-      {
-        projection: {
-          _id: 1,
-          discord_id: 1,
-          username: 1,
-          avatar: 1,
-          role: 1,
-          is_admin: 1,
-          last_login: 1,
-          global_name: 1,
-          bbs_id: 1,
-          bbs_name: 1
-        }
-      }
-    ).toArray();
-
-    res.json({ success: true, data: membres, count: membres.length });
+    const roster = await getGuildAccountRoster(req.db, guildeId);
+    res.json({ success: true, data: roster, count: roster.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -161,8 +150,8 @@ router.get('/:id/stats', async (req, res) => {
       .find(scoresQuery)
       .toArray();
 
-    // Nombre de membres actuels (pour l'affichage)
-    const totalMembers = await req.db.collection('users').countDocuments({ guilde_id: guildeId });
+    // Nombre de comptes actuels (pour l'affichage)
+    const totalMembers = await req.db.collection('users').countDocuments({ "bbs_accounts.guilde_id": guildeId });
 
     // Calculer les statistiques
     const totalScores = scores.length;
@@ -198,28 +187,35 @@ router.get('/:id/top-members', async (req, res) => {
     const scoresQuery = { guild_id: guildeId };
     if (cycleId) scoresQuery.cycle_id = cycleId;
 
-    const scores = await req.db.collection('scores').find(scoresQuery, { projection: { user_id: 1, score: 1 } }).toArray();
+    const scores = await req.db.collection('scores').find(scoresQuery, { projection: { user_id: 1, bbs_id: 1, bbs_name: 1, score: 1 } }).toArray();
     if (scores.length === 0) return res.json({ success: true, data: [] });
 
-    const byMember = {};
+    // Groupé par compte bbs (pas par user) : deux comptes du même user comptent séparément.
+    const byAccount = {};
     for (const s of scores) {
-      if (!byMember[s.user_id]) byMember[s.user_id] = [];
-      byMember[s.user_id].push(s.score || 0);
+      const key = s.bbs_id || s.user_id;
+      if (!byAccount[key]) byAccount[key] = { userId: s.user_id, bbsId: s.bbs_id, bbsName: s.bbs_name, scores: [] };
+      byAccount[key].scores.push(s.score || 0);
     }
 
-    // Récupérer les infos des joueurs concernés (actuels ou anciens)
-    const userIds = Object.keys(byMember);
+    // Récupérer les infos Discord des users concernés (actuels ou anciens), pour avatar/discord_id.
+    const userIds = [...new Set(Object.values(byAccount).map(a => a.userId))];
     const membres = await req.db.collection('users').find(
       { _id: { $in: userIds.map(id => new ObjectId(id)) } },
-      { projection: { _id: 1, discord_id: 1, global_name: 1, username: 1, avatar: 1, bbs_name: 1 } }
+      { projection: { _id: 1, discord_id: 1, global_name: 1, username: 1, avatar: 1 } }
     ).toArray();
     const memberMap = Object.fromEntries(membres.map(m => [m._id.toString(), m]));
 
-    const topMembers = Object.entries(byMember).map(([userId, memberScores]) => {
+    const topMembers = Object.values(byAccount).map(({ userId, bbsId, bbsName, scores: memberScores }) => {
       const user = memberMap[userId];
       const bestScore = Math.max(...memberScores);
       const avgScore = Math.round(memberScores.reduce((a, b) => a + b, 0) / memberScores.length);
-      return { userId, username: user?.global_name || user?.username || 'Inconnu', bbs_name: user?.bbs_name, avatar: user?.avatar, discord_id: user?.discord_id, bestScore, avgScore, totalScores: memberScores.length };
+      return {
+        userId, bbsId,
+        username: bbsName || user?.global_name || user?.username || 'Inconnu',
+        bbs_name: bbsName, avatar: user?.avatar, discord_id: user?.discord_id,
+        bestScore, avgScore, totalScores: memberScores.length
+      };
     });
 
     topMembers.sort((a, b) => b.bestScore - a.bestScore);
@@ -401,12 +397,18 @@ router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
 
     const newDisabledState = !guilde.disabled;
 
-    // Si on désactive la guilde, retirer tous les membres
+    // Si on désactive la guilde, retirer tous les membres (comptes bbs rattachés à cette guilde)
     if (newDisabledState) {
-      await req.db.collection('users').updateMany(
-        { guilde_id: guildeId },
-        { $set: { guilde_id: null, role: null } }
-      );
+      const affectedUsers = await req.db.collection('users').find({ "bbs_accounts.guilde_id": guildeId }).toArray();
+      for (const u of affectedUsers) {
+        const clearedAccounts = (u.bbs_accounts || []).map(a =>
+          a.guilde_id === guildeId ? { ...a, guilde_id: null, role: null } : a
+        );
+        await req.db.collection('users').updateOne(
+          { _id: u._id },
+          { $set: { bbs_accounts: clearedAccounts, ...deriveMirrorFields(clearedAccounts) } }
+        );
+      }
     }
 
     await req.db.collection('guildes').updateOne(
@@ -441,162 +443,159 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Assigner un utilisateur à une guilde avec un rôle
+// bbs_id optionnel : cible ce compte précis ; par défaut, le compte principal du user.
 router.post('/:id/assign-member', async (req, res) => {
   try {
     const guildeId = req.params.id;
-    const { userId, role } = req.body;
+    const { userId, role, bbs_id } = req.body;
 
     if (!userId || !role) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'userId et role sont requis' 
+      return res.status(400).json({
+        success: false,
+        message: 'userId et role sont requis'
       });
     }
 
-    // Vérifier les contraintes de rôle
-    if (role === 'chef') {
-      const existingChef = await req.db.collection('users').findOne({ 
-        guilde_id: guildeId, 
-        role: 'chef',
-      });
-      if (existingChef) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Il ne peut y avoir qu\'un seul chef dans une guilde' 
-        });
-      }
-    }
-
-    if (role === 'sous-chef') {
-      const sousChefCount = await req.db.collection('users').countDocuments({ 
-        guilde_id: guildeId, 
-        role: 'sous-chef',
-      });
-      if (sousChefCount >= 2) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' 
-        });
-      }
-    }
-
-    // Mettre à jour l'utilisateur
-    const result = await req.db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      { $set: { guilde_id: guildeId, role: role } }
-    );
-
-    const user = await req.db.collection('users').findOne(
-      { _id: new ObjectId(userId) }
-    );
-
-    if (result.matchedCount === 0) {
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!user) {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
+
+    const targetAccount = bbs_id ? findAccount(user, bbs_id) : (user.bbs_accounts || []).find(a => a.is_primary) || null;
+    if (bbs_id && !targetAccount) {
+      return res.status(404).json({ success: false, message: 'Compte bbs introuvable pour cet utilisateur' });
+    }
+
+    // Vérifier les contraintes de rôle (au niveau des comptes, pas des users)
+    await assertRoleAvailable(req.db, guildeId, role, targetAccount?.bbs_id);
+
+    const bbsAccounts = bbs_id
+      ? updateAccount(user.bbs_accounts, bbs_id, { guildeId, role })
+      : upsertPrimaryAccount(user.bbs_accounts, {
+          bbsId: targetAccount?.bbs_id, bbsName: targetAccount?.bbs_name, guildeId, role
+        });
+
+    await req.db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+    );
 
     res.json({ success: true, message: `${user.global_name || 'Utilisateur'} assigné à la guilde avec succès` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.statusCode || 500;
+    if (status === 500) console.error('Erreur lors de l\'assignation du membre:', err);
+    res.status(status).json({ success: false, error: err.message, message: err.message });
   }
 });
 
-// Retirer un membre d'une guilde
+// Retirer un membre d'une guilde. bbs_id optionnel (query) : cible ce compte précis ;
+// par défaut, le compte rattaché à cette guilde (ou le principal en dernier recours).
 router.delete('/:id/members/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
+    const guildeId = req.params.id;
+    const bbsId = req.query.bbs_id;
 
-    const result = await req.db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      { $set: { guilde_id: null, role: null } }
-    );
-
-    if (result.matchedCount === 0) {
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
+    if (!user) {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
+    const targetAccount = bbsId
+      ? findAccount(user, bbsId)
+      : (user.bbs_accounts || []).find(a => a.guilde_id === guildeId) || (user.bbs_accounts || []).find(a => a.is_primary);
+
+    if (!targetAccount) {
+      return res.status(404).json({ success: false, message: 'Compte bbs introuvable pour cet utilisateur' });
+    }
+
+    const bbsAccounts = updateAccount(user.bbs_accounts, targetAccount.bbs_id, { guildeId: null, role: null });
+
+    await req.db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+    );
+
     res.json({ success: true, message: 'Utilisateur retiré de la guilde' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.statusCode || 500;
+    if (status === 500) console.error(err);
+    res.status(status).json({ success: false, error: err.message });
   }
 });
 
-// Retirer un membre d'une guilde
+// Retirer un membre d'une guilde (variante FR). bbs_id optionnel (body) : cible ce compte précis.
 router.delete('/:guildeId/membres/:userId', async (req, res) => {
   try {
     const guildeId = req.params.guildeId;
     const userId = req.params.userId;
+    const bbsId = req.body?.bbs_id || req.query.bbs_id;
 
-    // Vérifier que l'utilisateur existe et est dans cette guilde
-    const user = await req.db.collection('users').findOne({ 
-      _id: new ObjectId(userId),
-      guilde_id: guildeId 
-    });
-    
+    const user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
     if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Utilisateur non trouvé dans cette guilde' 
+      return res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé dans cette guilde'
       });
     }
 
-    // Retirer l'utilisateur de la guilde
-    const result = await req.db.collection('users').updateOne(
-      { _id: new ObjectId(userId) },
-      { 
-        $set: { 
-          guilde_id: null, 
-          role: null 
-        } 
-      }
-    );
+    const targetAccount = bbsId
+      ? findAccount(user, bbsId)
+      : (user.bbs_accounts || []).find(a => a.guilde_id === guildeId);
 
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    if (!targetAccount) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé dans cette guilde'
+      });
     }
 
-    res.json({ 
-      success: true, 
-      message: `${user.global_name || 'Utilisateur'} retiré de la guilde avec succès` 
+    const bbsAccounts = updateAccount(user.bbs_accounts, targetAccount.bbs_id, { guildeId: null, role: null });
+
+    await req.db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+    );
+
+    res.json({
+      success: true,
+      message: `${user.global_name || 'Utilisateur'} retiré de la guilde avec succès`
     });
   } catch (err) {
     console.error('Erreur lors de la suppression du membre:', err);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
+    res.status(err.statusCode || 500).json({ success: false, message: err.message || 'Erreur serveur' });
   }
 });
 
-// Ajouter un membre à une guilde
+// Ajouter un membre à une guilde (création d'un user complet — legacy/admin, cas rare)
 router.post('/:id/membres', async (req, res) => {
   try {
     const guildeId = req.params.id;
     const role = req.body.role || 'membre';
+    const { discord_id, bbs_id, bbs_name } = req.body;
 
-    // Vérifications si le membre existe
-    const user = await req.db.collection('users').findOne({ guilde_id: guildeId, discord_id: req.body.discord_id });
-    if (user) {
+    // Vérifications si le membre existe déjà dans cette guilde via un compte bbs
+    const existing = await req.db.collection('users').findOne({
+      discord_id,
+      "bbs_accounts.guilde_id": guildeId
+    });
+    if (existing) {
       return res.status(400).json({ success: false, message: 'Le membre existe déjà dans cette guilde' });
     }
 
-    // Vérifications des contraintes de rôle
-    if (role === 'chef') {
-      const chefCount = await req.db.collection('users').countDocuments({ guilde_id: guildeId, role: 'chef' });
-      if (chefCount >= 1) {
-        return res.status(400).json({ success: false, message: 'Il ne peut y avoir qu\'un seul chef dans une guilde' });
-      }
-    }
+    // Vérification des contraintes de rôle (au niveau des comptes, pas des users)
+    await assertRoleAvailable(req.db, guildeId, role, bbs_id);
 
-    if (role === 'sous-chef') {
-      const sousChefCount = await req.db.collection('users').countDocuments({ guilde_id: guildeId, role: 'sous-chef' });
-      if (sousChefCount >= 2) {
-        return res.status(400).json({ success: false, message: 'Il ne peut y avoir que deux sous-chefs dans une guilde' });
-      }
-    }
+    const bbsAccounts = upsertPrimaryAccount([], { bbsId: bbs_id, bbsName: bbs_name, guildeId, role });
+    const mirror = deriveMirrorFields(bbsAccounts);
 
-    const membre = { ...req.body, guilde_id: guildeId };
-    const result = await req.db.collection('users').insertOne(membre);
-    res.status(201).json({ success: true, message: `${user.global_name || 'Membre'} ajouté avec succès` });
+    const membre = { ...req.body, bbs_accounts: bbsAccounts, ...mirror };
+    await req.db.collection('users').insertOne(membre);
+    res.status(201).json({ success: true, message: `${mirror.bbs_name || 'Membre'} ajouté avec succès` });
   } catch (err) {
-    console.error('Erreur lors de l\'ajout du membre:', err);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
+    const status = err.statusCode || 500;
+    if (status === 500) console.error('Erreur lors de l\'ajout du membre:', err);
+    res.status(status).json({ success: false, message: err.message || 'Erreur serveur' });
   }
 });
 
@@ -662,41 +661,70 @@ router.post('/draft', requireAdmin, async (req, res) => {
         message: 'Un ou plusieurs utilisateurs n\'existent pas'
       });
     }
+    const userMap = new Map(users.map(u => [u._id.toString(), u]));
 
-    // Étape 1 : Retirer tous les joueurs concernés de leur guilde
-    const userObjectIds = userIds.map(id => new ObjectId(id));
-    await req.db.collection('users').updateMany(
-      { _id: { $in: userObjectIds } },
-      { $set: { guilde_id: null, role: null } }
-    );
+    // Résoudre, pour chaque mouvement, le compte bbs concerné (bbsId fourni, sinon le compte
+    // principal) et mémoriser son état d'origine (guilde/rôle) pour le rollback et les notifs.
+    const resolvedMoves = [];
+    for (const move of moves) {
+      const user = userMap.get(move.userId);
+      const account = move.bbsId
+        ? findAccount(user, move.bbsId)
+        : (user.bbs_accounts || []).find(a => a.is_primary) || null;
 
-    // Étape 2 : Calculer les effectifs finaux par guilde pour vérifier la limite de 20
-    // Compter les membres actuels (hors ceux du draft)
+      if (move.bbsId && !account) {
+        return res.status(400).json({ success: false, message: `Compte bbs ${move.bbsId} introuvable pour ${move.userId}` });
+      }
+
+      resolvedMoves.push({
+        ...move,
+        bbsId: account?.bbs_id || null,
+        originalGuildeId: account?.guilde_id || null,
+        originalRole: account?.role || null,
+        bbsName: account?.bbs_name || null
+      });
+    }
+
+    // Étape 1 : Retirer chaque compte concerné de sa guilde
+    for (const move of resolvedMoves) {
+      const user = userMap.get(move.userId);
+      const bbsAccounts = move.bbsId
+        ? updateAccount(user.bbs_accounts, move.bbsId, { guildeId: null, role: null })
+        : upsertPrimaryAccount(user.bbs_accounts, { guildeId: null, role: null });
+      user.bbs_accounts = bbsAccounts;
+      await req.db.collection('users').updateOne(
+        { _id: user._id },
+        { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+      );
+    }
+
+    // Étape 2 : Calculer les effectifs finaux par guilde (comptes, pas users) pour vérifier la limite de 20
     const guildCounts = {};
     for (const guildId of targetGuildIds) {
-      const count = await req.db.collection('users').countDocuments({
-        guilde_id: guildId,
-        _id: { $nin: userObjectIds }
-      });
-      guildCounts[guildId] = count;
+      const rows = await req.db.collection('users').aggregate([
+        { $match: { "bbs_accounts.guilde_id": guildId } },
+        { $unwind: "$bbs_accounts" },
+        { $match: { "bbs_accounts.guilde_id": guildId } },
+        { $count: "count" }
+      ]).toArray();
+      guildCounts[guildId] = rows[0]?.count || 0;
     }
 
     // Vérifier que chaque guilde ne dépassera pas 20 membres (ignorer les retraits)
-    for (const move of moves) {
+    for (const move of resolvedMoves) {
       if (!move.toGuildId) continue;
       guildCounts[move.toGuildId] = (guildCounts[move.toGuildId] || 0) + 1;
       if (guildCounts[move.toGuildId] > 20) {
-        // Rollback : remettre les users dans leur guilde d'origine
-        const userMap = {};
-        users.forEach(u => { userMap[u._id.toString()] = u; });
-        for (const m of moves) {
-          const originalUser = userMap[m.userId];
-          if (originalUser && originalUser.guilde_id) {
-            await req.db.collection('users').updateOne(
-              { _id: new ObjectId(m.userId) },
-              { $set: { guilde_id: originalUser.guilde_id, role: originalUser.role } }
-            );
-          }
+        // Rollback : remettre chaque compte dans sa guilde/rôle d'origine
+        for (const m of resolvedMoves) {
+          if (!m.bbsId || !m.originalGuildeId) continue;
+          const user = userMap.get(m.userId);
+          const bbsAccounts = updateAccount(user.bbs_accounts, m.bbsId, { guildeId: m.originalGuildeId, role: m.originalRole });
+          user.bbs_accounts = bbsAccounts;
+          await req.db.collection('users').updateOne(
+            { _id: user._id },
+            { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+          );
         }
         const guildName = guilds.find(g => g._id.toString() === move.toGuildId)?.name || move.toGuildId;
         return res.status(400).json({
@@ -706,21 +734,25 @@ router.post('/draft', requireAdmin, async (req, res) => {
       }
     }
 
-    // Étape 3 : Réassigner chaque joueur dans sa nouvelle guilde (ou laisser sans guilde)
+    // Étape 3 : Réassigner chaque compte dans sa nouvelle guilde (ou laisser sans guilde)
     const results = [];
-    for (const move of moves) {
+    for (const move of resolvedMoves) {
+      const user = userMap.get(move.userId);
       if (move.toGuildId) {
         const role = move.role || 'membre';
+        const bbsAccounts = move.bbsId
+          ? updateAccount(user.bbs_accounts, move.bbsId, { guildeId: move.toGuildId, role })
+          : upsertPrimaryAccount(user.bbs_accounts, { guildeId: move.toGuildId, role });
+        user.bbs_accounts = bbsAccounts;
         await req.db.collection('users').updateOne(
-          { _id: new ObjectId(move.userId) },
-          { $set: { guilde_id: move.toGuildId, role } }
+          { _id: user._id },
+          { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
         );
       }
-      // Si toGuildId est null, le joueur reste sans guilde (déjà retiré à l'étape 1)
-      const user = users.find(u => u._id.toString() === move.userId);
+      // Si toGuildId est null, le compte reste sans guilde (déjà retiré à l'étape 1)
       results.push({
         userId: move.userId,
-        username: getUserDisplayName(user),
+        username: move.bbsName || getUserDisplayName(user),
         toGuildId: move.toGuildId || null,
         toGuildName: move.toGuildId
           ? (guilds.find(g => g._id.toString() === move.toGuildId)?.name || 'Inconnue')
@@ -736,11 +768,8 @@ router.post('/draft', requireAdmin, async (req, res) => {
 
     // Notifications Discord par guilde concernée (non bloquant)
     try {
-      const userMap = {};
-      users.forEach(u => { userMap[u._id.toString()] = u; });
-
       // Récupérer les guildes sources (pas forcément dans `guilds` qui ne contient que les cibles)
-      const sourceGuildeIds = [...new Set(users.map(u => u.guilde_id).filter(Boolean))];
+      const sourceGuildeIds = [...new Set(resolvedMoves.map(m => m.originalGuildeId).filter(Boolean))];
       const missingIds = sourceGuildeIds.filter(id => !guilds.find(g => g._id.toString() === id));
       const allGuildes = [...guilds];
       if (missingIds.length > 0) {
@@ -755,9 +784,10 @@ router.post('/draft', requireAdmin, async (req, res) => {
         guildeMap[g._id.toString()] = { name: g.name, discord_channel_id: g.discord_channel_id, moves: [] };
       }
 
-      for (const result of results) {
-        const user = userMap[result.userId];
-        const fromGuildeId = user?.guilde_id || null;
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        const move = resolvedMoves[i];
+        const fromGuildeId = move.originalGuildeId;
         const toGuildeId = result.toGuildId;
 
         const fromGuildName = fromGuildeId ? (guildeMap[fromGuildeId]?.name || 'Guilde inconnue') : 'Aucune guilde';
@@ -790,8 +820,9 @@ router.post('/draft', requireAdmin, async (req, res) => {
       console.error('[draft] Erreur lors des notifications Discord:', notifErr.message);
     }
   } catch (err) {
-    console.error('Erreur lors de l\'exécution du draft:', err);
-    res.status(500).json({ success: false, message: 'Erreur serveur lors du draft' });
+    const status = err.statusCode || 500;
+    if (status === 500) console.error('Erreur lors de l\'exécution du draft:', err);
+    res.status(status).json({ success: false, message: err.message || 'Erreur serveur lors du draft' });
   }
 });
 

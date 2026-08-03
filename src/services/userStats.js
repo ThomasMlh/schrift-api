@@ -1,4 +1,5 @@
 import { ObjectId } from 'mongodb';
+import { findAccount, getGuildAccountRoster } from '../utils/bbsAccounts.js';
 
 // Helper pour parser la date DD/MM/YYYY
 const parseDate = (dateStr) => {
@@ -7,13 +8,16 @@ const parseDate = (dateStr) => {
   return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
 }
 
-export const getUserStats = async (db, user_id, { cycle_id } = {}) => {
-  // Vérifier que l'utilisateur existe
+// Stats scopées à UN compte bbs (principal par défaut) : chaque compte d'un user a son propre
+// classement/historique indépendant, ils ne sont jamais fusionnés.
+export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
+  // Vérifier que l'utilisateur existe (bbs_id peut être celui d'un alt)
   const user = await db.collection('users').findOne({
     $or: [
       ...(ObjectId.isValid(user_id) ? [{ _id: new ObjectId(user_id) }] : []),
       { discord_id: user_id },
-      { bbs_id: user_id }
+      { bbs_id: user_id },
+      { "bbs_accounts.bbs_id": user_id }
     ]
   });
 
@@ -23,8 +27,22 @@ export const getUserStats = async (db, user_id, { cycle_id } = {}) => {
     throw err;
   }
 
-  // Construire le filtre pour les scores
+  // Résoudre le compte ciblé (bbs_id fourni, sinon le compte principal)
+  const account = bbs_id
+    ? findAccount(user, bbs_id)
+    : (user.bbs_accounts || []).find(a => a.is_primary) || null;
+
+  if (bbs_id && !account) {
+    const err = new Error('Compte bbs introuvable pour cet utilisateur');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const resolvedBbsId = account?.bbs_id || null;
+
+  // Construire le filtre pour les scores (scopé au compte s'il est connu)
   const scoreFilter = { user_id: user._id.toString() };
+  if (resolvedBbsId) scoreFilter.bbs_id = resolvedBbsId;
   if (cycle_id) scoreFilter.cycle_id = cycle_id;
 
   // Récupérer tous les scores de l'utilisateur avec les détails des rotations
@@ -77,11 +95,12 @@ export const getUserStats = async (db, user_id, { cycle_id } = {}) => {
     discord_id: user.discord_id,
     username: user.username,
     global_name: user.global_name,
-    bbs_id: user.bbs_id,
-    bbs_name: user.bbs_name,
+    bbs_id: account?.bbs_id || user.bbs_id,
+    bbs_name: account?.bbs_name || user.bbs_name,
     avatar: user.avatar,
-    guilde_id: user.guilde_id,
-    role: user.role
+    guilde_id: account?.guilde_id || user.guilde_id,
+    role: account?.role || user.role,
+    bbs_accounts: user.bbs_accounts || []
   };
 
   if (scoresWithRotations.length === 0) {
@@ -151,36 +170,46 @@ export const getUserStats = async (db, user_id, { cycle_id } = {}) => {
   const worstScore = Math.min(...scoresWithRotations.map(s => s.score || 0));
   const worstScoreDetails = scoresWithRotations.find(s => s.score === worstScore);
 
-  // Classement global
+  // Classement global — groupé par compte bbs (pas par user) : chaque compte est classé séparément.
   const allUserStats = await db.collection('scores')
     .aggregate([
       ...(cycle_id ? [{ $match: { cycle_id } }] : []),
-      { $group: { _id: "$user_id", averageScore: { $avg: "$score" }, totalScore: { $sum: "$score" }, count: { $sum: 1 } } },
+      {
+        $group: {
+          _id: "$bbs_id",
+          user_id: { $first: "$user_id" },
+          bbs_name: { $first: "$bbs_name" },
+          guild_id: { $first: "$guild_id" },
+          averageScore: { $avg: "$score" },
+          totalScore: { $sum: "$score" },
+          count: { $sum: 1 }
+        }
+      },
       { $sort: { averageScore: -1 } }
     ])
     .toArray();
 
   const totalPlayers = allUserStats.length;
-  const userRankIndex = allUserStats.findIndex(u => u._id === user._id.toString());
+  const userRankIndex = allUserStats.findIndex(u => u._id === resolvedBbsId);
   const globalRank = userRankIndex !== -1 ? userRankIndex + 1 : null;
 
-  // Classement dans la guilde
+  // Classement dans la guilde du compte consulté (comptes bbs de cette guilde, pas les users)
   let guildRank = null;
   let totalGuildPlayers = null;
-  if (user.guilde_id) {
-    const guildMembers = await db.collection('users').find({ guilde_id: user.guilde_id }).toArray();
-    const guildMemberIds = guildMembers.map(m => m._id.toString());
+  if (account?.guilde_id) {
+    const guildAccounts = await getGuildAccountRoster(db, account.guilde_id);
+    const guildBbsIds = guildAccounts.map(a => a.bbs_id).filter(Boolean);
 
     const guildUserStats = await db.collection('scores')
       .aggregate([
-        { $match: { user_id: { $in: guildMemberIds }, ...(cycle_id ? { cycle_id } : {}) } },
-        { $group: { _id: "$user_id", averageScore: { $avg: "$score" }, totalScore: { $sum: "$score" }, count: { $sum: 1 } } },
+        { $match: { bbs_id: { $in: guildBbsIds }, ...(cycle_id ? { cycle_id } : {}) } },
+        { $group: { _id: "$bbs_id", averageScore: { $avg: "$score" }, totalScore: { $sum: "$score" }, count: { $sum: 1 } } },
         { $sort: { averageScore: -1 } }
       ])
       .toArray();
 
     totalGuildPlayers = guildUserStats.length;
-    const guildRankIndex = guildUserStats.findIndex(u => u._id === user._id.toString());
+    const guildRankIndex = guildUserStats.findIndex(u => u._id === resolvedBbsId);
     if (guildRankIndex !== -1) guildRank = guildRankIndex + 1;
   }
 
@@ -286,60 +315,59 @@ export const getUserStats = async (db, user_id, { cycle_id } = {}) => {
     };
   }
 
-  // Rivaux (joueurs proches dans le classement)
+  // Rivaux (comptes proches dans le classement) — bbs_name/guilde viennent du compte (rival._id
+  // via bbs_name/guild_id déjà accumulés dans allUserStats), pas du miroir racine du rival.
   let rivals = [];
   if (globalRank && allUserStats.length > 0) {
     const userIndex = globalRank - 1;
     const startIndex = Math.max(0, userIndex - 3);
     const rivalsCandidates = allUserStats.slice(startIndex, Math.min(allUserStats.length, userIndex + 4));
 
-    const rivalUserIds = rivalsCandidates
-      .map(r => r._id)
-      .filter(id => id !== user._id.toString());
+    const rivalUserIds = [...new Set(
+      rivalsCandidates.map(r => r.user_id).filter(id => id && id !== user._id.toString())
+    )];
 
+    let rivalUsersMap = {};
     if (rivalUserIds.length > 0) {
       const rivalUsers = await db.collection('users')
         .find({ _id: { $in: rivalUserIds.map(id => new ObjectId(id)) } })
         .toArray();
-
-      const guildIds = [...new Set(rivalUsers.map(u => u.guilde_id).filter(Boolean))];
-      let guilds = [];
-      if (guildIds.length > 0) {
-        try {
-          guilds = await db.collection('guildes')
-            .find({ _id: { $in: guildIds.map(id => new ObjectId(id)) } })
-            .toArray();
-        } catch (err) {
-          console.error('Error fetching guilds for rivals:', err.message);
-        }
-      }
-
-      const guildMap = {};
-      guilds.forEach(g => { guildMap[g._id.toString()] = g.name; });
-
-      const rivalUsersMap = {};
-      rivalUsers.forEach(u => { rivalUsersMap[u._id.toString()] = u; });
-
-      rivals = rivalsCandidates
-        .filter(r => r._id !== user._id.toString())
-        .map(rival => {
-          const rivalUser = rivalUsersMap[rival._id];
-          const rivalRank = startIndex + rivalsCandidates.findIndex(c => c._id === rival._id) + 1;
-          return {
-            rank: rivalRank,
-            user_id: rival._id,
-            discord_id: rivalUser?.discord_id,
-            global_name: rivalUser?.global_name,
-            bbs_name: rivalUser?.bbs_name,
-            avatar: rivalUser?.avatar,
-            guilde_id: rivalUser?.guilde_id,
-            guild_name: rivalUser?.guilde_id ? guildMap[rivalUser.guilde_id] ?? null : null,
-            averageScore: Math.round(rival.averageScore),
-            scoreDifference: Math.round(rival.averageScore - averageScore)
-          };
-        })
-        .slice(0, 6);
+      rivalUsersMap = Object.fromEntries(rivalUsers.map(u => [u._id.toString(), u]));
     }
+
+    const guildIds = [...new Set(rivalsCandidates.map(r => r.guild_id).filter(Boolean))];
+    let guilds = [];
+    if (guildIds.length > 0) {
+      try {
+        guilds = await db.collection('guildes')
+          .find({ _id: { $in: guildIds.map(id => new ObjectId(id)) } })
+          .toArray();
+      } catch (err) {
+        console.error('Error fetching guilds for rivals:', err.message);
+      }
+    }
+    const guildMap = Object.fromEntries(guilds.map(g => [g._id.toString(), g.name]));
+
+    rivals = rivalsCandidates
+      .filter(r => r._id !== resolvedBbsId)
+      .map(rival => {
+        const rivalUser = rivalUsersMap[rival.user_id];
+        const rivalRank = startIndex + rivalsCandidates.findIndex(c => c._id === rival._id) + 1;
+        return {
+          rank: rivalRank,
+          user_id: rival.user_id,
+          bbs_id: rival._id,
+          discord_id: rivalUser?.discord_id,
+          global_name: rivalUser?.global_name,
+          bbs_name: rival.bbs_name,
+          avatar: rivalUser?.avatar,
+          guilde_id: rival.guild_id,
+          guild_name: rival.guild_id ? guildMap[rival.guild_id] ?? null : null,
+          averageScore: Math.round(rival.averageScore),
+          scoreDifference: Math.round(rival.averageScore - averageScore)
+        };
+      })
+      .slice(0, 6);
   }
 
   // Score médian
@@ -362,16 +390,17 @@ export const getUserStats = async (db, user_id, { cycle_id } = {}) => {
   // l'utilisateur était au moment du scoring (évite de comparer avec la guilde actuelle
   // pour des cycles où l'utilisateur était dans une autre guilde).
   let guildContribution = null;
-  if (user.guilde_id) {
+  if (account?.guilde_id) {
     const userCycleIds = Object.keys(cycleStats);
-    const currentGuildId = user.guilde_id.toString();
+    const currentGuildId = account.guilde_id.toString();
     if (userCycleIds.length > 0) {
-      // Déterminer la guilde de l'utilisateur pour chaque cycle via guild_id des scores
+      // Déterminer la guilde du compte pour chaque cycle via guild_id des scores
       const userGuildByCycle = await db.collection('scores')
         .aggregate([
           {
             $match: {
               user_id: user._id.toString(),
+              bbs_id: resolvedBbsId,
               cycle_id: { $in: userCycleIds },
               guild_id: { $exists: true, $ne: null }
             }
