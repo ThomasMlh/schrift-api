@@ -275,8 +275,9 @@ router.post('/submit-batch', async (req, res) => {
 
         if (rotationIndex > 0 && rotationIndex % 2 === 1) {
           const previousRotationId = cycle.rotations[rotationIndex - 1].rotation_id;
+          // bbs_id seul (pas user_id) : un compte transféré garde ses anciens scores sous un
+          // autre user_id, filtrer aussi dessus manquerait le score de base pour le différentiel.
           const previousScore = await req.db.collection('scores').findOne({
-            user_id,
             bbs_id,
             cycle_id,
             rotation_id: previousRotationId
@@ -307,10 +308,10 @@ router.post('/submit-batch', async (req, res) => {
           screenshot_index
         };
 
-        // Upsert (insert ou update si existe déjà)
+        // Upsert (insert ou update si existe déjà). Filtre par bbs_id seul (identité du compte) :
+        // le $set remet user_id à jour vers le user actuel même si le doc existant portait l'ancien.
         const result = await req.db.collection('scores').updateOne(
           {
-            user_id,
             bbs_id,
             cycle_id,
             rotation_id

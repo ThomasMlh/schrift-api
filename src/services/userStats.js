@@ -40,9 +40,11 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
 
   const resolvedBbsId = account?.bbs_id || null;
 
-  // Construire le filtre pour les scores (scopé au compte s'il est connu)
-  const scoreFilter = { user_id: user._id.toString() };
-  if (resolvedBbsId) scoreFilter.bbs_id = resolvedBbsId;
+  // Construire le filtre pour les scores. Le bbs_id est la véritable identité du compte : un
+  // compte transféré à un autre user (cf. /accounts/:bbsId/transfer) garde ses anciens scores sous
+  // l'ancien user_id, donc filtrer sur user_id ET bbs_id exclurait à tort tout l'historique
+  // pré-transfert. Le user_id ne sert de repli que pour un compte sans bbs_id lié.
+  const scoreFilter = resolvedBbsId ? { bbs_id: resolvedBbsId } : { user_id: user._id.toString() };
   if (cycle_id) scoreFilter.cycle_id = cycle_id;
 
   // Récupérer tous les scores de l'utilisateur avec les détails des rotations
@@ -394,13 +396,14 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
     const userCycleIds = Object.keys(cycleStats);
     const currentGuildId = account.guilde_id.toString();
     if (userCycleIds.length > 0) {
-      // Déterminer la guilde du compte pour chaque cycle via guild_id des scores
+      // Déterminer la guilde du compte pour chaque cycle via guild_id des scores. On filtre par
+      // bbs_id seul (comme scoreFilter plus haut) : un compte transféré garde ses anciens scores
+      // sous un autre user_id, un AND sur les deux exclurait à tort cet historique.
       const userGuildByCycle = await db.collection('scores')
         .aggregate([
           {
             $match: {
-              user_id: user._id.toString(),
-              bbs_id: resolvedBbsId,
+              ...scoreFilter,
               cycle_id: { $in: userCycleIds },
               guild_id: { $exists: true, $ne: null }
             }

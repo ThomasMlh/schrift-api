@@ -23,9 +23,12 @@ export const computeDifferential = (rawScore, rotationIndex, previousRawScore) =
 
 /**
  * Recalcule les scores différentiels suivants quand un score de base est modifié.
+ * Recherche par {bbs_id, cycle_id, rotation_id} uniquement (pas user_id) : bbs_id identifie déjà
+ * le compte de façon unique, et un compte transféré à un autre user garde ses anciens scores sous
+ * l'ancien user_id — filtrer aussi sur user_id manquerait l'historique pré-transfert.
  * @returns {Promise<ObjectId[]>} IDs des scores recalculés
  */
-export const recalculateAffectedDifferentials = async (db, cycle, rotationIndex, userId, cycleId, bbsId) => {
+export const recalculateAffectedDifferentials = async (db, cycle, rotationIndex, cycleId, bbsId) => {
   const recalculatedIds = [];
 
   for (let i = rotationIndex + 1; i < cycle.rotations.length; i++) {
@@ -33,7 +36,6 @@ export const recalculateAffectedDifferentials = async (db, cycle, rotationIndex,
 
     const nextRotationId = cycle.rotations[i].rotation_id;
     const existing = await db.collection('scores').findOne({
-      user_id: userId,
       bbs_id: bbsId,
       cycle_id: cycleId,
       rotation_id: nextRotationId
@@ -43,7 +45,6 @@ export const recalculateAffectedDifferentials = async (db, cycle, rotationIndex,
 
     const previousRotationId = cycle.rotations[i - 1].rotation_id;
     const previousScore = await db.collection('scores').findOne({
-      user_id: userId,
       bbs_id: bbsId,
       cycle_id: cycleId,
       rotation_id: previousRotationId

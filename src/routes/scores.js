@@ -374,7 +374,6 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
     const conflicts = [];
     for (const score of sourceScores) {
       const existing = await req.db.collection("scores").findOne({
-        user_id: score.user_id,
         bbs_id: score.bbs_id,
         cycle_id,
         rotation_id: target_rotation_id
@@ -403,7 +402,6 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
         // (Sans ce check, on calculerait raw_score - raw_score = 0.)
         if (previousRotationId !== source_rotation_id) {
           const prevScore = await req.db.collection("scores").findOne({
-            user_id: score.user_id,
             bbs_id: score.bbs_id,
             cycle_id,
             rotation_id: previousRotationId
@@ -461,7 +459,6 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
 
       // S'il existe un score sur la cible pour ce joueur, le supprimer d'abord
       const existingTarget = await req.db.collection("scores").findOne({
-        user_id: score.user_id,
         bbs_id: score.bbs_id,
         cycle_id,
         rotation_id: target_rotation_id
@@ -488,11 +485,9 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
     // Si la rotation cible est une base (index pair), recalculer les différentiels suivants
     let recalculatedCount = 0;
     if (targetIndex % 2 === 0) {
-      const accountPairs = [...new Map(
-        sourceScores.map(s => [`${s.user_id}-${s.bbs_id}`, { userId: s.user_id, bbsId: s.bbs_id }])
-      ).values()];
-      for (const { userId, bbsId } of accountPairs) {
-        const ids = await recalculateAffectedDifferentials(req.db, cycle, targetIndex, userId, cycle_id, bbsId);
+      const bbsIds = [...new Set(sourceScores.map(s => s.bbs_id))];
+      for (const bbsId of bbsIds) {
+        const ids = await recalculateAffectedDifferentials(req.db, cycle, targetIndex, cycle_id, bbsId);
         recalculatedCount += ids.length;
       }
     }
@@ -621,7 +616,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     // Vérifier les doublons dans la requête
     const duplicateCheck = new Set();
     for (const score of scores) {
-      const key = `${score.user_id}-${score.bbs_id}-${score.cycle_id}-${score.rotation_id}`;
+      const key = `${score.bbs_id}-${score.cycle_id}-${score.rotation_id}`;
       if (duplicateCheck.has(key)) {
         return res.status(400).json({
           success: false,
@@ -631,11 +626,12 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       duplicateCheck.add(key);
     }
 
-    // Identifier les scores existants et nouveaux
+    // Identifier les scores existants et nouveaux. On cherche par {bbs_id, cycle_id, rotation_id}
+    // uniquement (pas user_id) : un compte transféré à un autre user garde ses anciens scores sous
+    // l'ancien user_id, filtrer aussi sur user_id manquerait le score existant et créerait un doublon.
     const existingScores = new Map();
     for (const score of scores) {
       const existingScore = await req.db.collection("scores").findOne({
-        user_id: score.user_id,
         bbs_id: score.bbs_id,
         cycle_id: score.cycle_id,
         rotation_id: score.rotation_id
@@ -643,7 +639,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
       if (existingScore) {
         existingScores.set(
-          `${score.user_id}-${score.bbs_id}-${score.cycle_id}-${score.rotation_id}`,
+          `${score.bbs_id}-${score.cycle_id}-${score.rotation_id}`,
           existingScore
         );
       }
@@ -685,11 +681,11 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         ? cycle.rotations[currentRotationIndex - 1].rotation_id
         : null;
       let previousRawScore = previousRotationId
-        ? currentBatchScores.get(`${score.user_id}-${score.bbs_id}-${previousRotationId}`)
+        ? currentBatchScores.get(`${score.bbs_id}-${previousRotationId}`)
         : undefined;
       if (previousRawScore === undefined && previousRotationId) {
         const prevScore = await req.db.collection("scores").findOne({
-          user_id: score.user_id, bbs_id: score.bbs_id, cycle_id: score.cycle_id, rotation_id: previousRotationId
+          bbs_id: score.bbs_id, cycle_id: score.cycle_id, rotation_id: previousRotationId
         });
         if (prevScore) previousRawScore = prevScore.raw_score;
       }
@@ -714,7 +710,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       finalScores.push(scoreData);
 
       // Stocker ce score dans le map du lot pour les calculs suivants
-      const currentKey = `${score.user_id}-${score.bbs_id}-${score.rotation_id}`;
+      const currentKey = `${score.bbs_id}-${score.rotation_id}`;
       currentBatchScores.set(currentKey, rawScore);
     }
 
@@ -726,14 +722,16 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     const recalculatedIds = [];
 
     for (const scoreData of finalScores) {
+      // bbs_id est la clé d'identité du score, pas user_id (cf. commentaire plus haut) : le filtre
+      // retrouve le doc même s'il porte encore l'ancien user_id d'avant un transfert de compte, et
+      // le $set ci-dessous le remet à jour vers le user_id actuel.
       const filter = {
-        user_id: scoreData.user_id,
         bbs_id: scoreData.bbs_id,
         cycle_id: scoreData.cycle_id,
         rotation_id: scoreData.rotation_id
       };
 
-      const existingKey = `${scoreData.user_id}-${scoreData.bbs_id}-${scoreData.cycle_id}-${scoreData.rotation_id}`;
+      const existingKey = `${scoreData.bbs_id}-${scoreData.cycle_id}-${scoreData.rotation_id}`;
       const isExisting = existingScores.has(existingKey);
       const currentRotationIndex = rotationIndexMap.get(scoreData.rotation_id);
 
@@ -761,7 +759,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
       // SOLUTION 2: Si c'est un score de base (index pair), recalculer les différentiels suivants
       if (currentRotationIndex % 2 === 0) {
-        const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, scoreData.user_id, scoreData.cycle_id, scoreData.bbs_id);
+        const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, scoreData.cycle_id, scoreData.bbs_id);
         recalculatedIds.push(...affectedIds);
         recalculatedCount += affectedIds.length;
       }
@@ -915,9 +913,9 @@ router.post("/", requireScoresAccess, async (req, res) => {
     // Créer un map des rotations avec leur index pour l'ordre
     const rotationIndexMap = buildRotationIndexMap(cycle);
 
-    // Vérifier l'existence d'un score pour ce compte/cycle/rotation
+    // Vérifier l'existence d'un score pour ce compte/cycle/rotation (par bbs_id : un compte
+    // transféré garde ses anciens scores sous un autre user_id, filtrer dessus aussi le manquerait)
     const existingScore = await req.db.collection("scores").findOne({
-      user_id: user_id,
       bbs_id: bbs_id,
       cycle_id: cycle_id,
       rotation_id: rotation_id
@@ -939,7 +937,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
     if (currentRotationIndex > 0) {
       const previousRotationId = cycle.rotations[currentRotationIndex - 1].rotation_id;
       const previousScore = await req.db.collection("scores").findOne({
-        user_id, bbs_id, cycle_id, rotation_id: previousRotationId
+        bbs_id, cycle_id, rotation_id: previousRotationId
       });
       if (previousScore) previousRawScore = previousScore.raw_score;
     }
@@ -965,7 +963,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
     // Recalculer les scores différentiels suivants si c'est un score de base
     let recalculatedCount = 0;
     if (currentRotationIndex % 2 === 0) {
-      const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, user_id, cycle_id, bbs_id);
+      const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, cycle_id, bbs_id);
       recalculatedCount = affectedIds.length;
     }
 
@@ -1048,7 +1046,6 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
 
       const targetCycleId = cycle_id || existingScore.cycle_id;
       const targetRotationId = rotation_id || existingScore.rotation_id;
-      const targetUserId = user_id || existingScore.user_id;
       const targetBbsId = bbs_id || existingScore.bbs_id;
 
       const cycle = await req.db.collection("cycles").findOne({
@@ -1074,7 +1071,6 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
           cycle.rotations[currentRotationIndex - 1].rotation_id;
 
         const previousScore = await req.db.collection("scores").findOne({
-          user_id: targetUserId,
           bbs_id: targetBbsId,
           cycle_id: targetCycleId,
           rotation_id: previousRotationId
@@ -1106,7 +1102,6 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
     let recalculatedCount = 0;
     if (score !== undefined) {
       const targetCycleId = cycle_id || existingScore.cycle_id;
-      const targetUserId = user_id || existingScore.user_id;
       const targetBbsId = bbs_id || existingScore.bbs_id;
       const targetRotationId = rotation_id || existingScore.rotation_id;
 
@@ -1119,7 +1114,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         const currentRotationIndex = rotationIndexMap.get(targetRotationId);
 
         if (currentRotationIndex % 2 === 0) { // Score de base modifié
-          const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, targetUserId, targetCycleId, targetBbsId);
+          const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, targetCycleId, targetBbsId);
           recalculatedCount = affectedIds.length;
         }
       }
