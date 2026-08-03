@@ -1,6 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { requireDb } from '../middleware/auth.js';
+import { upsertPrimaryAccount, deriveMirrorFields, buildGuildRoles } from '../utils/bbsAccounts.js';
 import players from '../assets/joueurs.json' with { type: "json" };
 
 const router = express.Router();
@@ -209,6 +210,16 @@ router.post('/discord/callback', async (req, res) => {
             roleInfo = playerInfo.statut.toLowerCase();
         }
 
+        // Le compte bbs "principal" garde la sémantique historique : une fois rattaché (manuellement
+        // ou via le roster externe), il n'est plus jamais écrasé par playerInfo aux logins suivants.
+        // Les comptes alt (bbs_accounts au-delà du principal) ne sont gérés que via l'admin (users.js).
+        const bbsId = existingUser?.bbs_id || playerInfo?.id_bbs || null;
+        const bbsName = existingUser?.bbs_name || playerInfo?.pseudo_bbs || null;
+        const guildeId = existingUser?.guilde_id || guildeInfo?._id?.toString() || null;
+        const role = existingUser?.role || roleInfo || null;
+        const bbsAccounts = upsertPrimaryAccount(existingUser?.bbs_accounts, { bbsId, bbsName, guildeId, role });
+        const mirror = deriveMirrorFields(bbsAccounts);
+
         // Créer ou mettre à jour l'utilisateur en base de données
         // Note: les tokens Discord ne sont PAS stockés en DB (sécurité)
         const user = {
@@ -226,10 +237,11 @@ router.post('/discord/callback', async (req, res) => {
             banner_color: userData.banner_color,
             accent_color: userData.accent_color,
             connections: connections,
-            bbs_id: existingUser?.bbs_id || playerInfo?.id_bbs || null,
-            bbs_name: existingUser?.bbs_name || playerInfo?.pseudo_bbs || null,
-            guilde_id: existingUser?.guilde_id || guildeInfo?._id?.toString() || null,
-            role: existingUser?.role || roleInfo || null,
+            bbs_accounts: bbsAccounts,
+            bbs_id: mirror.bbs_id,
+            bbs_name: mirror.bbs_name,
+            guilde_id: mirror.guilde_id,
+            role: mirror.role,
             is_admin: isAdmin,
             is_authorized: isAuthorized,
             last_login: new Date()
@@ -252,6 +264,7 @@ router.post('/discord/callback', async (req, res) => {
             is_admin: isAdmin,
             role: user.role,
             guilde_id: user.guilde_id,
+            guild_roles: buildGuildRoles(bbsAccounts),
         };
 
         const jwtToken = jwt.sign(jwtPayload, JWT_SECRET, { expiresIn: '24h' });
@@ -318,6 +331,7 @@ router.post('/refresh', async (req, res) => {
             is_admin: user.is_admin,
             role: user.role,
             guilde_id: user.guilde_id,
+            guild_roles: buildGuildRoles(user.bbs_accounts),
         }, JWT_SECRET, { expiresIn: '24h' });
 
         res.json({ success: true, token: newToken });
@@ -361,6 +375,8 @@ router.get('/me', async (req, res) => {
                 role: user.role,
                 bbs_id: user.bbs_id,
                 bbs_name: user.bbs_name,
+                bbs_accounts: user.bbs_accounts || [],
+                guild_roles: buildGuildRoles(user.bbs_accounts),
                 isAuthorized: user.is_authorized
             }
         });

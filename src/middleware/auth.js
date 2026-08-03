@@ -46,23 +46,26 @@ export const requireScoresAccess = (req, res, next) => {
       return next();
     }
 
-    // Sinon, vérifier si c'est chef ou sous-chef
-    if (decoded.role === 'chef' || decoded.role === 'sous-chef') {
-      if (!decoded.guilde_id) {
-        return res.status(403).json({ 
-          success: false, 
-          message: 'Chef/Sous-chef doit être assigné à une guilde' 
+    // Sinon, vérifier si un des comptes bbs du user est chef ou sous-chef d'une guilde.
+    // guild_roles est un tableau (un grant par compte chef/sous-chef) : un chef sur un alt
+    // n'obtient un accès que sur la/les guilde(s) de CE compte, jamais sur toutes les guildes.
+    const guildRoles = Array.isArray(decoded.guild_roles) ? decoded.guild_roles : [];
+    if (guildRoles.length > 0) {
+      req.user.hasFullAccess = false;
+      req.user.allowedGuildIds = [...new Set(guildRoles.map(g => g.guilde_id).filter(Boolean))];
+      if (req.user.allowedGuildIds.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Chef/Sous-chef doit être assigné à une guilde'
         });
       }
-      req.user.hasFullAccess = false;
-      req.user.allowedGuildId = decoded.guilde_id;
       return next();
     }
 
     // Ni admin, ni chef, ni sous-chef
-    return res.status(403).json({ 
-      success: false, 
-      message: 'Droits insuffisants. Seuls les admins, chefs et sous-chefs peuvent effectuer cette opération' 
+    return res.status(403).json({
+      success: false,
+      message: 'Droits insuffisants. Seuls les admins, chefs et sous-chefs peuvent effectuer cette opération'
     });
 
   } catch (err) {

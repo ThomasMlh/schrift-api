@@ -5,6 +5,7 @@ import { processBatchScreenshots, SCREENSHOTTER_CONFIGS } from '../utils/ocrProc
 import { computeDifferential } from '../services/scoreDifferential.js';
 import { findBestMatch, getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
+import { getGuildAccountRoster, resolveScoreAccounts } from '../utils/bbsAccounts.js';
 import sharp from 'sharp';
 
 const router = express.Router();
@@ -74,11 +75,10 @@ router.post('/batch-guild-ranking', async (req, res) => {
       });
     }
     
-    // Récupérer les membres de la guilde
-    const guildMembers = await req.db.collection('users').find({
-      guilde_id: guild_id
-    }).toArray();
-    
+    // Récupérer les comptes bbs (principaux ou alts) rattachés à la guilde — une ligne par compte,
+    // pas par user, pour que le matching puisse cibler un alt précis.
+    const guildMembers = await getGuildAccountRoster(req.db, guild_id);
+
     if (guildMembers.length === 0) {
       return res.status(400).json({
         success: false,
@@ -104,6 +104,8 @@ router.post('/batch-guild-ranking', async (req, res) => {
           matching: {
             bestMatch: match.user ? {
               _id: match.user._id.toString(),
+              user_id: match.user.user_id,
+              bbs_id: match.user.bbs_id,
               bbs_name: match.user.bbs_name,
               global_name: match.user.global_name,
               avatar: match.user.avatar,
@@ -112,6 +114,8 @@ router.post('/batch-guild-ranking', async (req, res) => {
             } : null,
             alternatives: match.alternatives.map(alt => ({
               _id: alt.user._id.toString(),
+              user_id: alt.user.user_id,
+              bbs_id: alt.user.bbs_id,
               bbs_name: alt.user.bbs_name,
               global_name: alt.user.global_name,
               confidence: alt.confidence
@@ -240,20 +244,32 @@ router.post('/submit-batch', async (req, res) => {
     
     const insertedScores = [];
     const errors = [];
-    
+
+    // Vérifier que chaque bbs_id appartient bien au user_id ciblé et à la bonne guilde
+    // (best-effort : les scores sans bbs_id valide sont rejetés individuellement plus bas)
+    let accountMap = new Map();
+    try {
+      accountMap = await resolveScoreAccounts(
+        req.db,
+        scores.filter(s => s.user_id && s.bbs_id).map(s => ({ user_id: s.user_id, bbs_id: s.bbs_id, guild_id }))
+      );
+    } catch (ownershipErr) {
+      return res.status(400).json({ success: false, message: ownershipErr.message });
+    }
+
     // Insérer chaque score avec calcul différentiel
     for (const scoreData of scores) {
       try {
-        const { user_id, raw_score, screenshot_index } = scoreData;
-        
-        if (!user_id || raw_score === undefined) {
+        const { user_id, bbs_id, raw_score, screenshot_index } = scoreData;
+
+        if (!user_id || !bbs_id || raw_score === undefined) {
           errors.push({
             user_id,
-            error: 'Données manquantes'
+            error: 'Données manquantes (user_id, bbs_id et raw_score requis)'
           });
           continue;
         }
-        
+
         const rawScoreInt = parseInt(raw_score);
         let previousRawScore;
 
@@ -261,6 +277,7 @@ router.post('/submit-batch', async (req, res) => {
           const previousRotationId = cycle.rotations[rotationIndex - 1].rotation_id;
           const previousScore = await req.db.collection('scores').findOne({
             user_id,
+            bbs_id,
             cycle_id,
             rotation_id: previousRotationId
           });
@@ -270,10 +287,13 @@ router.post('/submit-batch', async (req, res) => {
         }
 
         const { score: finalScore, isDifferential } = computeDifferential(rawScoreInt, rotationIndex, previousRawScore);
-        
+        const account = accountMap.get(`${user_id}-${bbs_id}`);
+
         // Créer le document score
         const scoreDocument = {
           user_id,
+          bbs_id,
+          bbs_name: account?.bbs_name || null,
           cycle_id,
           rotation_id,
           guild_id,
@@ -286,11 +306,12 @@ router.post('/submit-batch', async (req, res) => {
           source: 'ocr',
           screenshot_index
         };
-        
+
         // Upsert (insert ou update si existe déjà)
         const result = await req.db.collection('scores').updateOne(
           {
             user_id,
+            bbs_id,
             cycle_id,
             rotation_id
           },
@@ -299,14 +320,16 @@ router.post('/submit-batch', async (req, res) => {
           },
           { upsert: true }
         );
-        
+
         insertedScores.push({
           user_id,
+          bbs_id,
+          bbs_name: scoreDocument.bbs_name,
           raw_score: rawScoreInt,
           score: finalScore,
           is_differential: isDifferential
         });
-        
+
       } catch (error) {
         console.error(`Erreur insertion score pour ${scoreData.user_id}:`, error);
         errors.push({
@@ -335,7 +358,7 @@ router.post('/submit-batch', async (req, res) => {
       const sortedForNotif = [...insertedScores].sort((a, b) => b.score - a.score);
       const scoresForNotif = sortedForNotif.map((s, i) => {
         const user = userMap.get(s.user_id);
-        const pseudo = getUserDisplayName(user, s.user_id);
+        const pseudo = s.bbs_name || getUserDisplayName(user, s.user_id);
         return { rank: i + 1, pseudo, score: s.score, raw_score: s.raw_score };
       });
 

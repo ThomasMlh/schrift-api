@@ -87,8 +87,13 @@ describe('requireScoresAccess', () => {
     expect(req.user.hasFullAccess).toBe(true);
   });
 
-  it('grants restricted access to a chef with a guilde_id', () => {
-    const token = makeToken({ id: '2', role: 'chef', guilde_id: 'guild-1' });
+  it('grants restricted access to a chef with a guilde_id (via guild_roles)', () => {
+    const token = makeToken({
+      id: '2',
+      role: 'chef',
+      guilde_id: 'guild-1',
+      guild_roles: [{ bbs_id: 'bbs-2', guilde_id: 'guild-1', role: 'chef' }]
+    });
     const req = { headers: { authorization: `Bearer ${token}` } };
     const res = mockRes();
     const next = jest.fn();
@@ -97,10 +102,29 @@ describe('requireScoresAccess', () => {
 
     expect(next).toHaveBeenCalled();
     expect(req.user.hasFullAccess).toBe(false);
-    expect(req.user.allowedGuildId).toBe('guild-1');
+    expect(req.user.allowedGuildIds).toEqual(['guild-1']);
   });
 
-  it('returns 403 when a chef has no guilde_id', () => {
+  it('grants access scoped to multiple guilds when the user has several chef/sous-chef accounts', () => {
+    const token = makeToken({
+      id: '2b',
+      guild_roles: [
+        { bbs_id: 'bbs-2', guilde_id: 'guild-1', role: 'chef' },
+        { bbs_id: 'bbs-2-alt', guilde_id: 'guild-2', role: 'sous-chef' }
+      ]
+    });
+    const req = { headers: { authorization: `Bearer ${token}` } };
+    const res = mockRes();
+    const next = jest.fn();
+
+    requireScoresAccess(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(req.user.hasFullAccess).toBe(false);
+    expect(req.user.allowedGuildIds.sort()).toEqual(['guild-1', 'guild-2']);
+  });
+
+  it('returns 403 when there are no guild_roles', () => {
     const token = makeToken({ id: '3', role: 'chef' });
     const req = { headers: { authorization: `Bearer ${token}` } };
     const res = mockRes();

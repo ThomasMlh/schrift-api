@@ -7,6 +7,8 @@ import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferen
 import { getUserDisplayName } from "../utils/nameMatching.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 import { USER_DISPLAY, USER_DISPLAY_WITH_ID, USER_SCORES_LOOKUP } from "../utils/projections.js";
+import { resolveScoreAccounts } from "../utils/bbsAccounts.js";
+import { escapeRegex } from "../utils/regexUtils.js";
 
 const router = express.Router();
 
@@ -37,7 +39,7 @@ router.get("/", async (req, res) => {
     let pipeline = [];
 
     if (req.query.search && req.query.search.trim()) {
-      const searchTerm = req.query.search.trim();
+      const searchTerm = escapeRegex(req.query.search.trim());
 
       // Pipeline d'agrégation pour joindre avec la collection users et filtrer par global_name
       pipeline = [
@@ -110,6 +112,7 @@ router.get("/", async (req, res) => {
     // Pour le count, on utilise la même logique
     let totalCount;
     if (req.query.search && req.query.search.trim()) {
+      const countSearchTerm = escapeRegex(req.query.search.trim());
       const countPipeline = [
         { $match: filters },
         {
@@ -143,19 +146,19 @@ router.get("/", async (req, res) => {
             $or: [
               {
                 "user.global_name": {
-                  $regex: req.query.search.trim(),
+                  $regex: countSearchTerm,
                   $options: "i"
                 }
               },
               {
                 "user.username": {
-                  $regex: req.query.search.trim(),
+                  $regex: countSearchTerm,
                   $options: "i"
                 }
               },
               {
                 "user.bbs_name": {
-                  $regex: req.query.search.trim(),
+                  $regex: countSearchTerm,
                   $options: "i"
                 }
               }
@@ -319,9 +322,18 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
       });
     }
 
-    // Chef/Sous-chef : forcer guild_id à leur propre guilde
+    // Chef/Sous-chef : restreindre à une guilde qu'ils gèrent
     if (!req.user.hasFullAccess) {
-      guild_id = req.user.allowedGuildId;
+      const allowedGuildIds = req.user.allowedGuildIds || [];
+      if (guild_id) {
+        if (!allowedGuildIds.includes(guild_id)) {
+          return res.status(403).json({ success: false, message: `Accès refusé à la guilde ${guild_id}` });
+        }
+      } else if (allowedGuildIds.length === 1) {
+        guild_id = allowedGuildIds[0];
+      } else {
+        return res.status(400).json({ success: false, message: "guild_id requis (vous gérez plusieurs guildes)" });
+      }
     }
 
     const cycle = await req.db.collection("cycles").findOne({
@@ -363,6 +375,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
     for (const score of sourceScores) {
       const existing = await req.db.collection("scores").findOne({
         user_id: score.user_id,
+        bbs_id: score.bbs_id,
         cycle_id,
         rotation_id: target_rotation_id
       });
@@ -391,6 +404,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
         if (previousRotationId !== source_rotation_id) {
           const prevScore = await req.db.collection("scores").findOne({
             user_id: score.user_id,
+            bbs_id: score.bbs_id,
             cycle_id,
             rotation_id: previousRotationId
           });
@@ -448,6 +462,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
       // S'il existe un score sur la cible pour ce joueur, le supprimer d'abord
       const existingTarget = await req.db.collection("scores").findOne({
         user_id: score.user_id,
+        bbs_id: score.bbs_id,
         cycle_id,
         rotation_id: target_rotation_id
       });
@@ -473,9 +488,11 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
     // Si la rotation cible est une base (index pair), recalculer les différentiels suivants
     let recalculatedCount = 0;
     if (targetIndex % 2 === 0) {
-      const userIds = [...new Set(sourceScores.map(s => s.user_id))];
-      for (const userId of userIds) {
-        const ids = await recalculateAffectedDifferentials(req.db, cycle, targetIndex, userId, cycle_id);
+      const accountPairs = [...new Map(
+        sourceScores.map(s => [`${s.user_id}-${s.bbs_id}`, { userId: s.user_id, bbsId: s.bbs_id }])
+      ).values()];
+      for (const { userId, bbsId } of accountPairs) {
+        const ids = await recalculateAffectedDifferentials(req.db, cycle, targetIndex, userId, cycle_id, bbsId);
         recalculatedCount += ids.length;
       }
     }
@@ -557,19 +574,20 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     // Validation de chaque score et vérification des droits de guilde
     const guildIds = new Set();
     for (const score of scores) {
-      const { user_id, cycle_id, rotation_id, guild_id, raw_score } = score;
+      const { user_id, cycle_id, rotation_id, guild_id, bbs_id, raw_score } = score;
 
       if (
         !user_id ||
         !cycle_id ||
         !rotation_id ||
         !guild_id ||
+        !bbs_id ||
         raw_score === undefined
       ) {
         return res.status(400).json({
           success: false,
           message:
-            "Chaque score doit contenir user_id, cycle_id, rotation_id, guild_id et raw_score"
+            "Chaque score doit contenir user_id, bbs_id, cycle_id, rotation_id, guild_id et raw_score"
         });
       }
 
@@ -585,26 +603,29 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
     // Vérification des droits de guilde pour chef/sous-chef
     if (!req.user.hasFullAccess) {
-      // Chef ou sous-chef : vérifier que tous les scores sont pour leur guilde
-      const allowedGuildId = req.user.allowedGuildId;
-      const invalidGuilds = Array.from(guildIds).filter(guildId => guildId !== allowedGuildId);
-      
+      // Chef ou sous-chef : vérifier que tous les scores sont pour une guilde qu'ils gèrent
+      const allowedGuildIds = req.user.allowedGuildIds || [];
+      const invalidGuilds = Array.from(guildIds).filter(guildId => !allowedGuildIds.includes(guildId));
+
       if (invalidGuilds.length > 0) {
         return res.status(403).json({
           success: false,
-          message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez saisir des scores que pour votre guilde (${allowedGuildId}). Guildes non autorisées détectées : ${invalidGuilds.join(', ')}`
+          message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez saisir des scores que pour vos guildes (${allowedGuildIds.join(', ')}). Guildes non autorisées détectées : ${invalidGuilds.join(', ')}`
         });
       }
     }
 
+    // Vérifier que chaque bbs_id appartient bien au user_id ciblé et à la bonne guilde
+    const accountMap = await resolveScoreAccounts(req.db, scores);
+
     // Vérifier les doublons dans la requête
     const duplicateCheck = new Set();
     for (const score of scores) {
-      const key = `${score.user_id}-${score.cycle_id}-${score.rotation_id}`;
+      const key = `${score.user_id}-${score.bbs_id}-${score.cycle_id}-${score.rotation_id}`;
       if (duplicateCheck.has(key)) {
         return res.status(400).json({
           success: false,
-          message: `Doublon détecté : l'utilisateur ${score.user_id} a plusieurs scores pour la même rotation ${score.rotation_id}`
+          message: `Doublon détecté : le compte ${score.bbs_id} a plusieurs scores pour la même rotation ${score.rotation_id}`
         });
       }
       duplicateCheck.add(key);
@@ -615,13 +636,14 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     for (const score of scores) {
       const existingScore = await req.db.collection("scores").findOne({
         user_id: score.user_id,
+        bbs_id: score.bbs_id,
         cycle_id: score.cycle_id,
         rotation_id: score.rotation_id
       });
 
       if (existingScore) {
         existingScores.set(
-          `${score.user_id}-${score.cycle_id}-${score.rotation_id}`,
+          `${score.user_id}-${score.bbs_id}-${score.cycle_id}-${score.rotation_id}`,
           existingScore
         );
       }
@@ -663,19 +685,22 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         ? cycle.rotations[currentRotationIndex - 1].rotation_id
         : null;
       let previousRawScore = previousRotationId
-        ? currentBatchScores.get(`${score.user_id}-${previousRotationId}`)
+        ? currentBatchScores.get(`${score.user_id}-${score.bbs_id}-${previousRotationId}`)
         : undefined;
       if (previousRawScore === undefined && previousRotationId) {
         const prevScore = await req.db.collection("scores").findOne({
-          user_id: score.user_id, cycle_id: score.cycle_id, rotation_id: previousRotationId
+          user_id: score.user_id, bbs_id: score.bbs_id, cycle_id: score.cycle_id, rotation_id: previousRotationId
         });
         if (prevScore) previousRawScore = prevScore.raw_score;
       }
 
       const { score: finalScore, isDifferential } = computeDifferential(rawScore, currentRotationIndex, previousRawScore);
+      const account = accountMap.get(`${score.user_id}-${score.bbs_id}`);
 
       const scoreData = {
         user_id: score.user_id,
+        bbs_id: score.bbs_id,
+        bbs_name: account?.bbs_name || null,
         cycle_id: score.cycle_id,
         rotation_id: score.rotation_id,
         guild_id: score.guild_id,
@@ -687,9 +712,9 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       };
 
       finalScores.push(scoreData);
-      
+
       // Stocker ce score dans le map du lot pour les calculs suivants
-      const currentKey = `${score.user_id}-${score.rotation_id}`;
+      const currentKey = `${score.user_id}-${score.bbs_id}-${score.rotation_id}`;
       currentBatchScores.set(currentKey, rawScore);
     }
 
@@ -703,11 +728,12 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     for (const scoreData of finalScores) {
       const filter = {
         user_id: scoreData.user_id,
+        bbs_id: scoreData.bbs_id,
         cycle_id: scoreData.cycle_id,
         rotation_id: scoreData.rotation_id
       };
 
-      const existingKey = `${scoreData.user_id}-${scoreData.cycle_id}-${scoreData.rotation_id}`;
+      const existingKey = `${scoreData.user_id}-${scoreData.bbs_id}-${scoreData.cycle_id}-${scoreData.rotation_id}`;
       const isExisting = existingScores.has(existingKey);
       const currentRotationIndex = rotationIndexMap.get(scoreData.rotation_id);
 
@@ -735,7 +761,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
       // SOLUTION 2: Si c'est un score de base (index pair), recalculer les différentiels suivants
       if (currentRotationIndex % 2 === 0) {
-        const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, scoreData.user_id, scoreData.cycle_id);
+        const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, scoreData.user_id, scoreData.cycle_id, scoreData.bbs_id);
         recalculatedIds.push(...affectedIds);
         recalculatedCount += affectedIds.length;
       }
@@ -770,7 +796,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       const sortedForNotif = [...finalScores].sort((a, b) => b.score - a.score);
       const scoresForNotif = sortedForNotif.map((s, i) => {
         const user = userMap.get(s.user_id);
-        const pseudo = getUserDisplayName(user, s.user_id);
+        const pseudo = s.bbs_name || getUserDisplayName(user, s.user_id);
         return { rank: i + 1, pseudo, score: s.score, raw_score: s.raw_score };
       });
 
@@ -816,15 +842,16 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error("Erreur lors de la saisie groupée:", err);
-    res.status(500).json({ error: err.message });
+    const status = err.statusCode || 500;
+    if (status === 500) console.error("Erreur lors de la saisie groupée:", err);
+    res.status(status).json({ success: false, error: err.message });
   }
 });
 
 // POST créer un nouveau score
-router.post("/", async (req, res) => {
+router.post("/", requireScoresAccess, async (req, res) => {
   try {
-    const { user_id, cycle_id, rotation_id, guild_id, raw_score } = req.body;
+    const { user_id, cycle_id, rotation_id, guild_id, bbs_id, raw_score } = req.body;
 
     // Validation des champs requis
     if (
@@ -832,12 +859,13 @@ router.post("/", async (req, res) => {
       !cycle_id ||
       !rotation_id ||
       !guild_id ||
+      !bbs_id ||
       raw_score === undefined
     ) {
       return res.status(400).json({
         success: false,
         message:
-          "Les champs user_id, cycle_id, rotation_id, guild_id et raw_score sont requis"
+          "Les champs user_id, bbs_id, cycle_id, rotation_id, guild_id et raw_score sont requis"
       });
     }
 
@@ -848,6 +876,18 @@ router.post("/", async (req, res) => {
         message: "Le raw_score doit être un nombre"
       });
     }
+
+    // Vérification des droits de guilde pour chef/sous-chef
+    if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(guild_id)) {
+      return res.status(403).json({
+        success: false,
+        message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez saisir des scores que pour vos guildes.`
+      });
+    }
+
+    // Vérifier que le bbs_id appartient bien au user_id ciblé et à la bonne guilde
+    const accountMap = await resolveScoreAccounts(req.db, [{ user_id, bbs_id, guild_id }]);
+    const account = accountMap.get(`${user_id}-${bbs_id}`);
 
     // Récupérer le cycle pour avoir l'ordre des rotations
     const cycle = await req.db.collection("cycles").findOne({
@@ -875,9 +915,10 @@ router.post("/", async (req, res) => {
     // Créer un map des rotations avec leur index pour l'ordre
     const rotationIndexMap = buildRotationIndexMap(cycle);
 
-    // Vérifier l'existence d'un score pour ce user/cycle/rotation
+    // Vérifier l'existence d'un score pour ce compte/cycle/rotation
     const existingScore = await req.db.collection("scores").findOne({
       user_id: user_id,
+      bbs_id: bbs_id,
       cycle_id: cycle_id,
       rotation_id: rotation_id
     });
@@ -885,7 +926,7 @@ router.post("/", async (req, res) => {
     if (existingScore) {
       return res.status(400).json({
         success: false,
-        message: `Un score existe déjà pour ce joueur dans la rotation #${
+        message: `Un score existe déjà pour ce compte dans la rotation #${
           rotationIndexMap.get(rotation_id) + 1
         } du ${cycle.name}`
       });
@@ -898,7 +939,7 @@ router.post("/", async (req, res) => {
     if (currentRotationIndex > 0) {
       const previousRotationId = cycle.rotations[currentRotationIndex - 1].rotation_id;
       const previousScore = await req.db.collection("scores").findOne({
-        user_id, cycle_id, rotation_id: previousRotationId
+        user_id, bbs_id, cycle_id, rotation_id: previousRotationId
       });
       if (previousScore) previousRawScore = previousScore.raw_score;
     }
@@ -907,6 +948,8 @@ router.post("/", async (req, res) => {
 
     const scoreData = {
       user_id,
+      bbs_id,
+      bbs_name: account?.bbs_name || null,
       cycle_id,
       rotation_id,
       guild_id,
@@ -922,7 +965,7 @@ router.post("/", async (req, res) => {
     // Recalculer les scores différentiels suivants si c'est un score de base
     let recalculatedCount = 0;
     if (currentRotationIndex % 2 === 0) {
-      const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, user_id, cycle_id);
+      const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, user_id, cycle_id, bbs_id);
       recalculatedCount = affectedIds.length;
     }
 
@@ -939,14 +982,16 @@ router.post("/", async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.statusCode || 500;
+    if (status === 500) console.error("Erreur lors de la création du score:", err);
+    res.status(status).json({ success: false, error: err.message });
   }
 });
 
 // PUT modifier un score
 router.put("/:id", requireScoresAccess, async (req, res) => {
   try {
-    const { user_id, cycle_id, rotation_id, guild_id, score } = req.body;
+    const { user_id, bbs_id, cycle_id, rotation_id, guild_id, score } = req.body;
 
     // Récupérer le score existant pour avoir les données actuelles
     const existingScore = await req.db.collection("scores").findOne({
@@ -959,14 +1004,38 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         .json({ success: false, message: "Score non trouvé" });
     }
 
+    // Vérification des droits de guilde pour chef/sous-chef (guilde actuelle ET cible si changée)
+    if (!req.user.hasFullAccess) {
+      const allowedGuildIds = req.user.allowedGuildIds || [];
+      const targetGuildId = guild_id || existingScore.guild_id;
+      if (!allowedGuildIds.includes(existingScore.guild_id) || !allowedGuildIds.includes(targetGuildId)) {
+        return res.status(403).json({
+          success: false,
+          message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez modifier que des scores de vos guildes.`
+        });
+      }
+    }
+
     const updateData = {
       updated_at: new Date()
     };
 
     if (user_id) updateData.user_id = user_id;
+    if (bbs_id) updateData.bbs_id = bbs_id;
     if (cycle_id) updateData.cycle_id = cycle_id;
     if (rotation_id) updateData.rotation_id = rotation_id;
     if (guild_id) updateData.guild_id = guild_id;
+
+    // Si le user_id ou le bbs_id changent, revérifier que le compte appartient bien au user visé
+    if (user_id || bbs_id) {
+      const targetUserId = user_id || existingScore.user_id;
+      const targetBbsId = bbs_id || existingScore.bbs_id;
+      const accountMap = await resolveScoreAccounts(req.db, [{
+        user_id: targetUserId, bbs_id: targetBbsId, guild_id: guild_id || existingScore.guild_id
+      }]);
+      const account = accountMap.get(`${targetUserId}-${targetBbsId}`);
+      if (account?.bbs_name) updateData.bbs_name = account.bbs_name;
+    }
 
     // Si le score est modifié, recalculer le raw_score selon la logique différentielle
     if (score !== undefined) {
@@ -980,6 +1049,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
       const targetCycleId = cycle_id || existingScore.cycle_id;
       const targetRotationId = rotation_id || existingScore.rotation_id;
       const targetUserId = user_id || existingScore.user_id;
+      const targetBbsId = bbs_id || existingScore.bbs_id;
 
       const cycle = await req.db.collection("cycles").findOne({
         _id: new ObjectId(targetCycleId)
@@ -1005,6 +1075,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
 
         const previousScore = await req.db.collection("scores").findOne({
           user_id: targetUserId,
+          bbs_id: targetBbsId,
           cycle_id: targetCycleId,
           rotation_id: previousRotationId
         });
@@ -1036,8 +1107,9 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
     if (score !== undefined) {
       const targetCycleId = cycle_id || existingScore.cycle_id;
       const targetUserId = user_id || existingScore.user_id;
+      const targetBbsId = bbs_id || existingScore.bbs_id;
       const targetRotationId = rotation_id || existingScore.rotation_id;
-      
+
       const cycle = await req.db.collection("cycles").findOne({
         _id: new ObjectId(targetCycleId)
       });
@@ -1045,9 +1117,9 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
       if (cycle) {
         const rotationIndexMap = buildRotationIndexMap(cycle);
         const currentRotationIndex = rotationIndexMap.get(targetRotationId);
-        
+
         if (currentRotationIndex % 2 === 0) { // Score de base modifié
-          const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, targetUserId, targetCycleId);
+          const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, targetUserId, targetCycleId, targetBbsId);
           recalculatedCount = affectedIds.length;
         }
       }
@@ -1063,7 +1135,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
           { _id: new ObjectId(targetUserId) },
           { projection: USER_DISPLAY }
         );
-        const pseudo = getUserDisplayName(editedUser, targetUserId);
+        const pseudo = updateData.bbs_name || existingScore.bbs_name || getUserDisplayName(editedUser, targetUserId);
 
         const guild = await req.db.collection('guildes').findOne({ _id: new ObjectId(targetGuildId) });
         const guildName = guild?.name || '';
@@ -1123,7 +1195,9 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
           : { recalculatedCount: recalculatedCount }
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err.statusCode || 500;
+    if (status === 500) console.error("Erreur lors de la mise à jour du score:", err);
+    res.status(status).json({ success: false, error: err.message });
   }
 });
 
