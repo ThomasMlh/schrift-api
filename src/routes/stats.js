@@ -16,13 +16,28 @@ router.get('/community', async (req, res) => {
     const totalGuilds = activeGuilds.length;
     const activeGuildIds = activeGuilds.map(g => g._id.toString());
 
-    const guildMembers = await req.db.collection('users').find(
-      { guilde_id: { $in: activeGuildIds } },
-      { projection: { _id: 1 } }
+    const communityUsers = await req.db.collection('users').find(
+      {
+        $or: [
+          { guilde_id: { $in: activeGuildIds } },
+          { 'bbs_accounts.guilde_id': { $in: activeGuildIds } },
+        ],
+      },
+      { projection: { _id: 1, guilde_id: 1, bbs_accounts: 1 } }
     ).toArray();
 
-    const totalMembers = guildMembers.length;
-    const memberIds = guildMembers.map(m => m._id.toString());
+    let totalMembers = 0;
+    const memberIds = [];
+    for (const user of communityUsers) {
+      const accounts = Array.isArray(user.bbs_accounts) && user.bbs_accounts.length > 0
+        ? user.bbs_accounts
+        : [{ guilde_id: user.guilde_id }];
+      const activeAccountsCount = accounts.filter(a => activeGuildIds.includes(a.guilde_id)).length;
+      if (activeAccountsCount > 0) {
+        totalMembers += activeAccountsCount;
+        memberIds.push(user._id.toString());
+      }
+    }
 
     const scoresQuery = { user_id: { $in: memberIds } };
     if (cycleId) scoresQuery.cycle_id = cycleId;
