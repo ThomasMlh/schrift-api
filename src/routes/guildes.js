@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
     const includeDisabled = req.query.include_disabled === 'true';
     const filter = includeDisabled ? {} : { disabled: { $ne: true } };
     const guildes = await req.db.collection('guildes').find(filter).toArray();
-    guildes.sort((a, b) => a.name.localeCompare(b.name));
+    guildes.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     res.status(200).json(guildes);
   } catch (err) {
     res.status(500).json({ error: err.message });
