@@ -117,6 +117,56 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
+// Route pour créer manuellement un joueur SANS discord_id (admin seulement) : cas rare d'un joueur
+// sans compte Discord, à qui on veut quand même pouvoir rattacher un compte bbs et saisir des scores.
+router.post('/manual', requireAdmin, async (req, res) => {
+  try {
+    const { bbs_id, bbs_name, guilde_id, role } = req.body;
+
+    if (!bbs_id) {
+      return res.status(400).json({ success: false, message: 'bbs_id requis' });
+    }
+
+    await assertBbsIdAvailable(req.db, bbs_id);
+
+    if (role === 'chef' || role === 'sous-chef') {
+      await assertRoleAvailable(req.db, guilde_id, role);
+    }
+
+    const bbsAccounts = upsertPrimaryAccount([], { bbsId: bbs_id, bbsName: bbs_name, guildeId: guilde_id, role });
+    const mirror = deriveMirrorFields(bbsAccounts);
+
+    const newUser = {
+      discord_id: null,
+      username: null,
+      global_name: null,
+      discriminator: null,
+      avatar: null,
+      banner: null,
+      bbs_accounts: bbsAccounts,
+      bbs_id: mirror.bbs_id,
+      bbs_name: mirror.bbs_name,
+      guilde_id: mirror.guilde_id,
+      role: mirror.role,
+      is_admin: false,
+      is_authorized: false,
+      is_banned: false,
+      last_login: null,
+      created_via: 'manual_admin',
+      created_at: new Date(),
+    };
+
+    const insertResult = await req.db.collection('users').insertOne(newUser);
+    const savedUser = await req.db.collection('users').findOne({ _id: insertResult.insertedId });
+
+    res.status(201).json({ success: true, message: 'Joueur créé avec succès', user: savedUser });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors de la création manuelle du joueur:', error);
+    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+  }
+});
+
 // Route pour récupérer tous les utilisateurs avec pagination (accessible à tous)
 router.get('/', async (req, res) => {
   try {
