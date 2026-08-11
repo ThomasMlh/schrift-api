@@ -27,19 +27,18 @@ router.get('/community', async (req, res) => {
     ).toArray();
 
     let totalMembers = 0;
-    const memberIds = [];
     for (const user of communityUsers) {
       const accounts = Array.isArray(user.bbs_accounts) && user.bbs_accounts.length > 0
         ? user.bbs_accounts
         : [{ guilde_id: user.guilde_id }];
       const activeAccountsCount = accounts.filter(a => activeGuildIds.includes(a.guilde_id)).length;
-      if (activeAccountsCount > 0) {
-        totalMembers += activeAccountsCount;
-        memberIds.push(user._id.toString());
-      }
+      totalMembers += activeAccountsCount;
     }
 
-    const scoresQuery = { user_id: { $in: memberIds } };
+    // Scores scopés par guilde (champ dénormalisé sur chaque score), pas par user : un score reste
+    // rattaché à la guilde active au moment de la saisie, même si le user a par ailleurs un autre
+    // compte dans une guilde désactivée depuis.
+    const scoresQuery = { guild_id: { $in: activeGuildIds } };
     if (cycleId) scoresQuery.cycle_id = cycleId;
 
     const scores = await req.db.collection('scores').find(scoresQuery, { projection: { score: 1 } }).toArray();
