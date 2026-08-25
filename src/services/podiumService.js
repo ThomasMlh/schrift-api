@@ -4,6 +4,12 @@ import { ObjectId } from 'mongodb';
 // d'un champ user_id présent sur le document, et guildes à partir d'un champ guild_id présent sur
 // le document lui-même (le guild_id/bbs_name du SCORE, jamais la guilde/le pseudo actuels du user
 // — un même user peut avoir plusieurs comptes bbs classés séparément dans des guildes différentes).
+// Nombre minimum de rotations jouées pour apparaître dans un classement basé sur
+// une moyenne (sinon un joueur avec 1-2 scores excellents peut dominer des joueurs
+// réguliers avec beaucoup plus de scores). Ne s'applique pas aux vues par rotation
+// unique (un seul score possible) ni aux misses (comptage, pas une moyenne).
+const MIN_SCORES_FOR_RANKING = 10;
+
 const lookupUserAndGuild = () => {
   return [
     {
@@ -99,6 +105,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
         totalScores: { $sum: 1 }
       }
     },
+    { $match: { totalScores: { $gte: MIN_SCORES_FOR_RANKING } } },
     ...lookupUserAndGuild(),
     {
       $project: {
@@ -125,7 +132,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
   return {
     podium: podiumWithRank,
     filters: { cycle_id, guild_id: guild_id || null },
-    meta: { totalPlayers: podium.length, cycleId: cycle_id, guildSpecific: !!guild_id }
+    meta: { totalPlayers: podium.length, cycleId: cycle_id, guildSpecific: !!guild_id, minScoresRequired: MIN_SCORES_FOR_RANKING }
   };
 }
 
@@ -230,6 +237,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
           totalRawScore: { $sum: "$raw_score" }
         }
       },
+      { $match: { totalScores: { $gte: MIN_SCORES_FOR_RANKING } } },
       ...lookupUserAndGuild(),
       {
         $project: {
@@ -293,7 +301,8 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
       guildSpecific: !!guild_name,
       fullPodium: true,
       podiumType: rotation_id ? 'individual_scores' : (normalizedRankingType === 'max' ? 'max_scores' : 'average_scores'),
-      ...(rotation_id && overallAverageScore !== null && { averageScore: overallAverageScore })
+      ...(rotation_id && overallAverageScore !== null && { averageScore: overallAverageScore }),
+      ...(!rotation_id && { minScoresRequired: MIN_SCORES_FOR_RANKING })
     }
   };
 }
