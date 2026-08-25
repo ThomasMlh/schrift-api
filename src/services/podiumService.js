@@ -130,7 +130,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
 }
 
 // GET podium complet paginé (par cycle_name, optionnel rotation_id)
-export const getPodiumFull = async (db, { cycle_name, rotation_id, guild_name, ranking_type = 'average', page = 1, limit = 50 }) => {
+export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_name, ranking_type = 'average', page = 1, limit = 50 }) => {
   if (!cycle_name) {
     const err = new Error('Le paramètre cycle_name est obligatoire');
     err.statusCode = 400;
@@ -147,7 +147,12 @@ export const getPodiumFull = async (db, { cycle_name, rotation_id, guild_name, r
     throw err;
   }
 
-  const cycle = await db.collection('cycles').findOne({ name: cycle_name });
+  // Le nom d'un cycle peut être réutilisé d'une année à l'autre (l'année les distingue) :
+  // on filtre par year quand il est fourni, et on trie par created_at desc en repli pour
+  // résoudre vers le plus récent si year est absent ou si un doublon name+year existe.
+  const cycleQuery = { name: cycle_name };
+  if (year) cycleQuery.year = parseInt(year, 10);
+  const cycle = await db.collection('cycles').findOne(cycleQuery, { sort: { created_at: -1 } });
   if (!cycle) {
     const err = new Error(`Cycle avec le nom "${cycle_name}" non trouvé`);
     err.statusCode = 404;
@@ -294,7 +299,7 @@ export const getPodiumFull = async (db, { cycle_name, rotation_id, guild_name, r
 }
 
 // GET podium hebdomadaire (2 rotations consécutives)
-export const getPodiumWeekly = async (db, { cycle_name, week_number, guild_name, page = 1, limit = 50 }) => {
+export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild_name, page = 1, limit = 50 }) => {
   if (!cycle_name) {
     const err = new Error('Le paramètre cycle_name est obligatoire');
     err.statusCode = 400;
@@ -316,7 +321,12 @@ export const getPodiumWeekly = async (db, { cycle_name, week_number, guild_name,
   const pageNumber = Math.max(1, parseInt(page, 10) || 1);
   const limitNumber = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
 
-  const cycle = await db.collection('cycles').findOne({ name: cycle_name });
+  // Le nom d'un cycle peut être réutilisé d'une année à l'autre (l'année les distingue) :
+  // on filtre par year quand il est fourni, et on trie par created_at desc en repli pour
+  // résoudre vers le plus récent si year est absent ou si un doublon name+year existe.
+  const cycleQuery = { name: cycle_name };
+  if (year) cycleQuery.year = parseInt(year, 10);
+  const cycle = await db.collection('cycles').findOne(cycleQuery, { sort: { created_at: -1 } });
   if (!cycle) {
     const err = new Error(`Cycle avec le nom "${cycle_name}" non trouvé`);
     err.statusCode = 404;
@@ -471,7 +481,7 @@ export const getPodiumWeekly = async (db, { cycle_name, week_number, guild_name,
 }
 
 // GET podium des miss (scores à 0 ou négatifs)
-export const getPodiumMisses = async (db, { cycle_name, guild_name, page = 1, limit = 50 }) => {
+export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page = 1, limit = 50 }) => {
   if (!cycle_name) {
     const err = new Error('Le paramètre cycle_name est obligatoire');
     err.statusCode = 400;
@@ -481,7 +491,12 @@ export const getPodiumMisses = async (db, { cycle_name, guild_name, page = 1, li
   const pageNumber = Math.max(1, parseInt(page, 10) || 1);
   const limitNumber = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
 
-  const cycle = await db.collection('cycles').findOne({ name: cycle_name });
+  // Le nom d'un cycle peut être réutilisé d'une année à l'autre (l'année les distingue) :
+  // on filtre par year quand il est fourni, et on trie par created_at desc en repli pour
+  // résoudre vers le plus récent si year est absent ou si un doublon name+year existe.
+  const cycleQuery = { name: cycle_name };
+  if (year) cycleQuery.year = parseInt(year, 10);
+  const cycle = await db.collection('cycles').findOne(cycleQuery, { sort: { created_at: -1 } });
   if (!cycle) {
     const err = new Error(`Cycle avec le nom "${cycle_name}" non trouvé`);
     err.statusCode = 404;
