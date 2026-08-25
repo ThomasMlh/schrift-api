@@ -43,48 +43,55 @@ const getDiscordConfig = () => ({
     DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID
 });
 
-// Route pour échanger le code d'autorisation contre un token
-router.post('/discord/callback', async (req, res) => {
-    try {
-        const { code } = req.body;
-        const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI, JWT_SECRET, ADMIN_DISCORD_IDS, DISCORD_GUILD_ID } = getDiscordConfig();
+// Échange code -> access token Discord. redirectUri optionnel : omis pour le flow
+// Activity (SDK embedded, pas de redirection navigateur), requis pour le flow web classique.
+async function exchangeCodeForToken({ code, redirectUri }) {
+    const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } = getDiscordConfig();
 
-        if (!code) {
-            return res.status(400).json({ success: false, message: 'Code d\'autorisation manquant' });
-        }
+    const params = {
+        client_id: DISCORD_CLIENT_ID,
+        client_secret: DISCORD_CLIENT_SECRET,
+        grant_type: 'authorization_code',
+        code: code,
+    };
+    if (redirectUri) {
+        params.redirect_uri = redirectUri;
+    }
 
-        // Toujours utiliser la redirect_uri configurée côté serveur (sécurité)
-        const finalRedirectUri = DISCORD_REDIRECT_URI;
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams(params),
+    });
 
-        // Échanger le code contre un access token
-        const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams({
-                client_id: DISCORD_CLIENT_ID,
-                client_secret: DISCORD_CLIENT_SECRET,
-                grant_type: 'authorization_code',
-                code: code,
-                redirect_uri: finalRedirectUri, // ✅ Utiliser la bonne redirect_uri
-            }),
-        });
-
-        if (!tokenResponse.ok) {
-            const errorData = await tokenResponse.text();
-            console.error('❌ Erreur Discord API:', errorData);
-            console.error('❌ Status:', tokenResponse.status);
-            console.error('❌ Headers:', Object.fromEntries(tokenResponse.headers.entries()));
-            return res.status(400).json({
+    if (!tokenResponse.ok) {
+        const errorData = await tokenResponse.text();
+        console.error('❌ Erreur Discord API:', errorData);
+        console.error('❌ Status:', tokenResponse.status);
+        console.error('❌ Headers:', Object.fromEntries(tokenResponse.headers.entries()));
+        return {
+            ok: false,
+            status: 400,
+            body: {
                 success: false,
                 message: 'Erreur lors de l\'échange du code',
                 details: errorData,
                 status: tokenResponse.status
-            });
-        }
+            }
+        };
+    }
 
-        const tokenData = await tokenResponse.json();
+    return { ok: true, tokenData: await tokenResponse.json() };
+}
+
+// Tout ce qui suit l'obtention d'un access_token Discord valide : récupération des
+// infos utilisateur, vérifs ban/guild, upsert Mongo, émission JWT. Partagé entre le
+// flow web classique (/discord/callback) et le flow Activity (/discord/activity-callback).
+async function completeDiscordLogin(req, tokenData) {
+    try {
+        const { JWT_SECRET, ADMIN_DISCORD_IDS, DISCORD_GUILD_ID } = getDiscordConfig();
 
         // Récupérer les informations de l'utilisateur avec plus de détails
         const userResponse = await fetch('https://discord.com/api/users/@me', {
@@ -96,11 +103,15 @@ router.post('/discord/callback', async (req, res) => {
         if (!userResponse.ok) {
             const errorData = await userResponse.text();
             console.error('❌ Erreur récupération utilisateur:', errorData);
-            return res.status(400).json({
-                success: false,
-                message: 'Erreur lors de la récupération des données utilisateur',
-                details: errorData
-            });
+            return {
+                ok: false,
+                status: 400,
+                body: {
+                    success: false,
+                    message: 'Erreur lors de la récupération des données utilisateur',
+                    details: errorData
+                }
+            };
         }
 
         const userData = await userResponse.json();
@@ -171,11 +182,15 @@ router.post('/discord/callback', async (req, res) => {
         // 1. Vérifier si l'utilisateur est banni
         if (existingUser?.is_banned) {
             console.warn('⛔ Utilisateur banni:', userData.username);
-            return res.status(403).json({
-                success: false,
-                message: 'Votre compte a été banni.',
-                reason: existingUser.ban_reason || null
-            });
+            return {
+                ok: false,
+                status: 403,
+                body: {
+                    success: false,
+                    message: 'Votre compte a été banni.',
+                    reason: existingUser.ban_reason || null
+                }
+            };
         }
 
         // 2. Vérifier si l'utilisateur fait partie de la guild requise
@@ -185,10 +200,14 @@ router.post('/discord/callback', async (req, res) => {
 
         if (!isAuthorized) {
             console.warn('⛔ Utilisateur non autorisé (guild manquante):', userData.username);
-            return res.status(403).json({
-                success: false,
-                message: 'Vous n\'êtes pas autorisé à vous connecter. Vous devez être membre du serveur Discord.'
-            });
+            return {
+                ok: false,
+                status: 403,
+                body: {
+                    success: false,
+                    message: 'Vous n\'êtes pas autorisé à vous connecter. Vous devez être membre du serveur Discord.'
+                }
+            };
         }
         
         let playerInfo = null;
@@ -278,20 +297,72 @@ router.post('/discord/callback', async (req, res) => {
             { $set: { refresh_token_hash: refreshTokenHash } }
         );
 
-        res.json({
-            success: true,
-            token: jwtToken,
-            refreshToken,
-            user: {
-                global_name: userData.global_name,
-                isAuthorized: isAuthorized
+        return {
+            ok: true,
+            body: {
+                success: true,
+                token: jwtToken,
+                refreshToken,
+                user: {
+                    global_name: userData.global_name,
+                    isAuthorized: isAuthorized
+                }
             }
-        });
+        };
 
     } catch (error) {
         console.error('❌ Erreur lors de l\'authentification Discord:', error);
-        res.status(500).json({ success: false, message: 'Erreur serveur lors de l\'authentification' });
+        return {
+            ok: false,
+            status: 500,
+            body: { success: false, message: 'Erreur serveur lors de l\'authentification' }
+        };
     }
+}
+
+// Route pour échanger le code d'autorisation contre un token (flow web classique, redirection navigateur)
+router.post('/discord/callback', async (req, res) => {
+    const { code } = req.body;
+    const { DISCORD_REDIRECT_URI } = getDiscordConfig();
+
+    if (!code) {
+        return res.status(400).json({ success: false, message: 'Code d\'autorisation manquant' });
+    }
+
+    // Toujours utiliser la redirect_uri configurée côté serveur (sécurité)
+    const exchange = await exchangeCodeForToken({ code, redirectUri: DISCORD_REDIRECT_URI });
+    if (!exchange.ok) {
+        return res.status(exchange.status).json(exchange.body);
+    }
+
+    const result = await completeDiscordLogin(req, exchange.tokenData);
+    return res.status(result.ok ? 200 : result.status).json(result.body);
+});
+
+// Route pour échanger le code d'autorisation contre un token (flow Discord Activity, SDK embedded).
+// Pas de redirect_uri : le code vient de discordSdk.commands.authorize(), pas d'une redirection navigateur.
+router.post('/discord/activity-callback', async (req, res) => {
+    const { code } = req.body;
+
+    if (!code) {
+        return res.status(400).json({ success: false, message: 'Code d\'autorisation manquant' });
+    }
+
+    const exchange = await exchangeCodeForToken({ code, redirectUri: undefined });
+    if (!exchange.ok) {
+        return res.status(exchange.status).json(exchange.body);
+    }
+
+    const result = await completeDiscordLogin(req, exchange.tokenData);
+    if (!result.ok) {
+        return res.status(result.status).json(result.body);
+    }
+
+    // Nécessaire côté client pour discordSdk.commands.authenticate({ access_token })
+    return res.status(200).json({
+        ...result.body,
+        discord_access_token: exchange.tokenData.access_token
+    });
 });
 
 // Route pour rafraîchir le JWT via refresh token
