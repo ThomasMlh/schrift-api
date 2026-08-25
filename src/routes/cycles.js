@@ -78,6 +78,19 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Prendre l'année en cours
+    const currentYear = new Date().getFullYear();
+
+    // Validation : le nom doit être unique pour une même année (le nom peut être
+    // réutilisé d'une année à l'autre, l'année sert de clé de résolution du podium)
+    const existingCycle = await req.db.collection('cycles').findOne({ name, year: currentYear });
+    if (existingCycle) {
+      return res.status(409).json({
+        success: false,
+        message: `Un cycle nommé "${name}" existe déjà pour l'année ${currentYear}`
+      });
+    }
+
     // Validation : toutes les rotations doivent être uniques
     const rotationStrings = rotations.map(rotation => 
       JSON.stringify({
@@ -105,9 +118,6 @@ router.post('/', async (req, res) => {
       ...rotation,
       _id: new ObjectId()
     }));
-
-    // Prendre l'année en cours
-    const currentYear = new Date().getFullYear();
 
     const cycle = {
       name,
@@ -166,12 +176,32 @@ router.put('/:cycleId', async (req, res) => {
       }
     }
 
+    if (name) {
+      const currentCycle = await req.db.collection('cycles').findOne({ _id: new ObjectId(req.params.cycleId) });
+      if (!currentCycle) {
+        return res.status(404).json({ success: false, message: 'Cycle non trouvé' });
+      }
+      // Le nom peut être réutilisé d'une année à l'autre : on ne bloque que le
+      // doublon name+year (l'année d'un cycle n'est pas modifiable via cette route).
+      const existingCycle = await req.db.collection('cycles').findOne({
+        name,
+        year: currentCycle.year,
+        _id: { $ne: new ObjectId(req.params.cycleId) }
+      });
+      if (existingCycle) {
+        return res.status(409).json({
+          success: false,
+          message: `Un cycle nommé "${name}" existe déjà pour l'année ${currentCycle.year}`
+        });
+      }
+    }
+
     const updateData = {
       updated_at: new Date()
     };
 
     if (name) updateData.name = name;
-    
+
     if (rotations) {
       // Préserver les IDs existants ou en créer de nouveaux
       updateData.rotations = rotations.map(rotation => ({
