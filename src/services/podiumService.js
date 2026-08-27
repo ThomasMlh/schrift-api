@@ -237,7 +237,9 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
           totalRawScore: { $sum: "$raw_score" }
         }
       },
-      { $match: { totalScores: { $gte: MIN_SCORES_FOR_RANKING } } },
+      // Le seuil ne s'applique qu'au classement par moyenne : en "max" (somme), un joueur
+      // avec peu de scores n'a de toute façon qu'un total plus bas, pas d'avantage injustifié.
+      ...(normalizedRankingType === 'max' ? [] : [{ $match: { totalScores: { $gte: MIN_SCORES_FOR_RANKING } } }]),
       ...lookupUserAndGuild(),
       {
         $project: {
@@ -302,7 +304,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
       fullPodium: true,
       podiumType: rotation_id ? 'individual_scores' : (normalizedRankingType === 'max' ? 'max_scores' : 'average_scores'),
       ...(rotation_id && overallAverageScore !== null && { averageScore: overallAverageScore }),
-      ...(!rotation_id && { minScoresRequired: MIN_SCORES_FOR_RANKING })
+      ...(!rotation_id && normalizedRankingType !== 'max' && { minScoresRequired: MIN_SCORES_FOR_RANKING })
     }
   };
 }
