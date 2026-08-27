@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
+import { USER_DISPLAY } from '../utils/projections.js';
 import {
   getGuildAccountRoster, findAccount, assertRoleAvailable,
   upsertPrimaryAccount, updateAccount, deriveMirrorFields
@@ -422,6 +423,22 @@ router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
       message: `Guilde ${guilde.name} ${action} avec succès`,
       disabled: newDisabledState
     });
+
+    // Notification Discord (non bloquante)
+    try {
+      const toggler = await req.db.collection('users').findOne(
+        { _id: new ObjectId(req.user._id) },
+        { projection: USER_DISPLAY }
+      );
+      notifyDiscord('guild_toggle', {
+        action: newDisabledState ? 'disable' : 'enable',
+        guild_name: guilde.name,
+        toggled_by: getUserDisplayName(toggler),
+        toggled_at: new Date().toISOString()
+      }, guilde.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+    } catch (notifErr) {
+      console.error('[guildes/toggle-disable] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
