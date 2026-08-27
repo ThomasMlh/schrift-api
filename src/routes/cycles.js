@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { requireDb } from '../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 import { USER_SCORES_LOOKUP } from '../utils/projections.js';
+import { notifyDiscord } from '../utils/notifyDiscord.js';
 
 const router = express.Router();
 
@@ -128,12 +129,24 @@ router.post('/', async (req, res) => {
     };
 
     const result = await req.db.collection('cycles').insertOne(cycle);
-    
+
     res.status(201).json({
       success: true,
       id: result.insertedId,
       message: 'Cycle créé avec succès'
     });
+
+    // Notification Discord (non bloquante)
+    try {
+      notifyDiscord('cycle_change', {
+        action: 'create',
+        cycle_name: cycle.name,
+        cycle_year: cycle.year,
+        rotation_count: cycle.rotations.length
+      });
+    } catch (notifErr) {
+      console.error('[cycles/create] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -176,11 +189,12 @@ router.put('/:cycleId', async (req, res) => {
       }
     }
 
+    const currentCycle = await req.db.collection('cycles').findOne({ _id: new ObjectId(req.params.cycleId) });
+    if (!currentCycle) {
+      return res.status(404).json({ success: false, message: 'Cycle non trouvé' });
+    }
+
     if (name) {
-      const currentCycle = await req.db.collection('cycles').findOne({ _id: new ObjectId(req.params.cycleId) });
-      if (!currentCycle) {
-        return res.status(404).json({ success: false, message: 'Cycle non trouvé' });
-      }
       // Le nom peut être réutilisé d'une année à l'autre : on ne bloque que le
       // doublon name+year (l'année d'un cycle n'est pas modifiable via cette route).
       const existingCycle = await req.db.collection('cycles').findOne({
@@ -220,6 +234,18 @@ router.put('/:cycleId', async (req, res) => {
     }
 
     res.json({ success: true, message: 'Cycle mis à jour avec succès' });
+
+    // Notification Discord (non bloquante)
+    try {
+      notifyDiscord('cycle_change', {
+        action: 'update',
+        cycle_name: updateData.name || currentCycle.name,
+        cycle_year: currentCycle.year,
+        rotation_count: (updateData.rotations || currentCycle.rotations).length
+      });
+    } catch (notifErr) {
+      console.error('[cycles/update] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -228,8 +254,10 @@ router.put('/:cycleId', async (req, res) => {
 // DELETE supprimer un cycle
 router.delete('/:cycleId', async (req, res) => {
   try {
-    const result = await req.db.collection('cycles').deleteOne({ 
-      _id: new ObjectId(req.params.cycleId) 
+    const cycleToDelete = await req.db.collection('cycles').findOne({ _id: new ObjectId(req.params.cycleId) });
+
+    const result = await req.db.collection('cycles').deleteOne({
+      _id: new ObjectId(req.params.cycleId)
     });
 
     if (result.deletedCount === 0) {
@@ -237,6 +265,18 @@ router.delete('/:cycleId', async (req, res) => {
     }
 
     res.json({ success: true, message: 'Cycle supprimé avec succès' });
+
+    // Notification Discord (non bloquante)
+    try {
+      notifyDiscord('cycle_change', {
+        action: 'delete',
+        cycle_name: cycleToDelete.name,
+        cycle_year: cycleToDelete.year,
+        rotation_count: (cycleToDelete.rotations || []).length
+      });
+    } catch (notifErr) {
+      console.error('[cycles/delete] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
