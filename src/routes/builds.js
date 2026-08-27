@@ -3,6 +3,8 @@ import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin, optionalAuth, validateObjectIdParam } from '../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 import { USER_BUILD } from '../utils/projections.js';
+import { notifyDiscord } from '../utils/notifyDiscord.js';
+import { getUserDisplayName } from '../utils/nameMatching.js';
 
 const router = express.Router();
 
@@ -416,6 +418,21 @@ router.post('/', optionalAuth, async (req, res) => {
         team: enrichedTeam
       }
     });
+
+    // Notification Discord (non bloquante)
+    try {
+      const rotation = enrichedWithRotation.rotation;
+      notifyDiscord('build_proposal', {
+        action: 'proposal',
+        proposed_by: enrichedBuild.user ? getUserDisplayName(enrichedBuild.user) : 'Anonyme',
+        description: newBuild.description,
+        killer: rotation?.killer || '',
+        attack: rotation?.attack || '',
+        team_size: enrichedTeam.length
+      });
+    } catch (notifErr) {
+      console.error('[builds/create] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (error) {
     console.error('Erreur lors de la création du build:', error);
     res.status(500).json({
@@ -881,6 +898,9 @@ router.patch('/:id/validate', requireAdmin, validateObjectIdParam('id'), async (
 router.delete('/:id', validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
+
+    const buildToDelete = await req.db.collection('builds').findOne({ _id: new ObjectId(id) });
+
     const result = await req.db.collection('builds').deleteOne({
       _id: new ObjectId(id)
     });
@@ -896,6 +916,22 @@ router.delete('/:id', validateObjectIdParam('id'), async (req, res) => {
       success: true,
       message: 'Build supprimé avec succès'
     });
+
+    // Notification Discord (non bloquante)
+    try {
+      const enrichedBuild = await enrichWithUser(buildToDelete, req.db);
+      const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
+      const rotation = enrichedWithRotation.rotation;
+      notifyDiscord('build_delete', {
+        action: 'delete',
+        proposed_by: enrichedBuild.user ? getUserDisplayName(enrichedBuild.user) : 'Anonyme',
+        description: buildToDelete.description,
+        killer: rotation?.killer || '',
+        attack: rotation?.attack || ''
+      });
+    } catch (notifErr) {
+      console.error('[builds/delete] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (error) {
     console.error('Erreur lors de la suppression du build:', error);
     res.status(500).json({
