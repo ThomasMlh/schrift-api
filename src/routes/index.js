@@ -19,6 +19,8 @@ import ocrRouter from './ocr.js';
 import ocrDebugRouter from './ocr-debug.js';
 import statsRouter from './stats.js';
 import webviewRouter from './webview.js';
+import settingsRouter from './settings.js';
+import activityRouter from './activity.js';
 
 const router = express.Router();
 
@@ -42,5 +44,7 @@ router.use('/ocr', ocrRouter);
 router.use('/ocr/debug', ocrDebugRouter);
 router.use('/stats', statsRouter);
 router.use('/webview', webviewRouter);
+router.use('/settings', settingsRouter);
+router.use('/activity', activityRouter);
 
 export default router;

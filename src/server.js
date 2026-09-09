@@ -6,6 +6,7 @@ import express from 'express';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
 import apiRoutes from './routes/index.js';
+import { setDb } from './config/database.js';
 
 const app = express();
 
@@ -55,7 +56,9 @@ const initDb = async () => {
     }
     // Rendre la DB accessible aux routes via app.locals
     app.locals.db = db;
-    
+    // Et aux modules hors requête Express (ex: notifyDiscord.js)
+    setDb(db);
+
     console.log('✅ Connecté à MongoDB');
   } catch (err) {
     console.error('❌ Connexion MongoDB échouée:', err.message);

@@ -1,19 +1,9 @@
-// Alternative : src/config/database.js
-import { MongoClient } from 'mongodb';
-
+// Singleton d'accès à la connexion Mongo établie dans server.js (initDb()),
+// pour les modules hors du cycle requête/réponse Express (pas de req.db disponible).
 let db = null;
 
-export const connectDB = async () => {
-  try {
-    const client = new MongoClient(process.env.MONGODB_URI);
-    await client.connect();
-    db = client.db('schrift');
-    console.log('✅ Connecté à MongoDB');
-    return db;
-  } catch (err) {
-    console.error('❌ Connexion MongoDB échouée:', err);
-    process.exit(1);
-  }
+export const setDb = (database) => {
+  db = database;
 }
 
 export const getDB = () => {
@@ -23,7 +13,7 @@ export const getDB = () => {
   return db;
 }
 
-// Utilisation dans les routes :
+// Utilisation :
 // import { getDB } from '../config/database.js';
 // const db = getDB();
 // const guildes = await db.collection('guildes').find();
