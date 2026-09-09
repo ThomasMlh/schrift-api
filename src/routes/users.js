@@ -185,28 +185,41 @@ router.get('/', async (req, res) => {
       query.is_banned = { $ne: true };
     }
 
-    // Filtre par guilde
-    if (guilde_id && guilde_id.trim()) {
-      query.guilde_id = guilde_id.trim();
-    }
+    // $and accumule les conditions $or indépendantes (guilde/rôle, recherche) : les combiner en
+    // écrivant plusieurs fois query.$or les écraserait entre elles (un seul $or par niveau).
+    const andConditions = [];
 
-    // Filtre par rôle
-    if (role && role.trim()) {
-      query.role = role.trim();
+    // Filtre par guilde et/ou rôle — matche soit le compte principal (champs miroir), soit
+    // n'importe quel compte bbs (alt compris) ayant CETTE guilde ET CE rôle ensemble ($elemMatch
+    // pour corréler les deux conditions sur le même compte, pas deux comptes différents).
+    const guildeIdTrim = guilde_id && guilde_id.trim();
+    const roleTrim = role && role.trim();
+    if (guildeIdTrim || roleTrim) {
+      const mirrorMatch = {};
+      const accountMatch = {};
+      if (guildeIdTrim) { mirrorMatch.guilde_id = guildeIdTrim; accountMatch.guilde_id = guildeIdTrim; }
+      if (roleTrim) { mirrorMatch.role = roleTrim; accountMatch.role = roleTrim; }
+      andConditions.push({ $or: [mirrorMatch, { bbs_accounts: { $elemMatch: accountMatch } }] });
     }
 
     // Filtre par recherche textuelle (nom d'utilisateur, nom global, ou n'importe quel compte bbs — alt compris)
     if (search && search.trim()) {
       const searchTerm = escapeRegex(search.trim());
-      query.$or = [
-        { username: { $regex: searchTerm, $options: 'i' } },
-        { global_name: { $regex: searchTerm, $options: 'i' } },
-        { bbs_name: { $regex: searchTerm, $options: 'i' } },
-        { discord_id: { $regex: searchTerm, $options: 'i' } },
-        { bbs_id: { $regex: searchTerm, $options: 'i' } },
-        { 'bbs_accounts.bbs_name': { $regex: searchTerm, $options: 'i' } },
-        { 'bbs_accounts.bbs_id': { $regex: searchTerm, $options: 'i' } }
-      ];
+      andConditions.push({
+        $or: [
+          { username: { $regex: searchTerm, $options: 'i' } },
+          { global_name: { $regex: searchTerm, $options: 'i' } },
+          { bbs_name: { $regex: searchTerm, $options: 'i' } },
+          { discord_id: { $regex: searchTerm, $options: 'i' } },
+          { bbs_id: { $regex: searchTerm, $options: 'i' } },
+          { 'bbs_accounts.bbs_name': { $regex: searchTerm, $options: 'i' } },
+          { 'bbs_accounts.bbs_id': { $regex: searchTerm, $options: 'i' } }
+        ]
+      });
+    }
+
+    if (andConditions.length > 0) {
+      query.$and = andConditions;
     }
 
     const users = await req.db.collection('users')
