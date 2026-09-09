@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
+import { sanitizeDisabledTypes } from '../utils/notificationTypes.js';
 import { USER_DISPLAY } from '../utils/projections.js';
 import {
   getGuildAccountRoster, findAccount, assertRoleAvailable,
@@ -383,9 +384,15 @@ router.put('/:id', async (req, res) => {
     const currentGuilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
 
     const updateFields = { name: name.trim() };
-    const { discord_channel_id } = req.body;
+    const { discord_channel_id, discord_general_channel_id, disabled_notification_types } = req.body;
     if (discord_channel_id !== undefined) {
       updateFields.discord_channel_id = discord_channel_id;
+    }
+    if (discord_general_channel_id !== undefined) {
+      updateFields.discord_general_channel_id = discord_general_channel_id;
+    }
+    if (disabled_notification_types !== undefined) {
+      updateFields.disabled_notification_types = sanitizeDisabledTypes(disabled_notification_types);
     }
 
     await req.db.collection('guildes').updateOne(
