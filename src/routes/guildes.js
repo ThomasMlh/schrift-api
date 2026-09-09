@@ -342,6 +342,16 @@ router.post('/', async (req, res) => {
       insertedId: result.insertedId,
       message: `Guilde ${name.trim()} ajoutée avec succès`
     });
+
+    // Notification Discord (non bloquante)
+    try {
+      notifyDiscord('guild_change', {
+        action: 'create',
+        guild_name: name.trim()
+      }, req.body.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+    } catch (notifErr) {
+      console.error('[guildes/create] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -370,6 +380,8 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+    const currentGuilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
+
     const updateFields = { name: name.trim() };
     const { discord_channel_id } = req.body;
     if (discord_channel_id !== undefined) {
@@ -382,6 +394,19 @@ router.put('/:id', async (req, res) => {
     );
 
     res.status(200).json({ success: true, message: `Guilde renommée en ${name.trim()}` });
+
+    // Notification Discord (non bloquante)
+    if (currentGuilde && currentGuilde.name !== name.trim()) {
+      try {
+        notifyDiscord('guild_change', {
+          action: 'rename',
+          old_name: currentGuilde.name,
+          guild_name: name.trim()
+        }, updateFields.discord_channel_id || currentGuilde.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+      } catch (notifErr) {
+        console.error('[guildes/rename] Erreur notification Discord (non bloquant):', notifErr.message);
+      }
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -454,6 +479,16 @@ router.delete('/:id', async (req, res) => {
 
     await req.db.collection('guildes').deleteOne({ _id: new ObjectId(req.params.id) });
     res.status(200).json({ success: true, message: `Guilde ${guilde.name} supprimée avec succès` });
+
+    // Notification Discord (non bloquante)
+    try {
+      notifyDiscord('guild_change', {
+        action: 'delete',
+        guild_name: guilde.name
+      }, guilde.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+    } catch (notifErr) {
+      console.error('[guildes/delete] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
