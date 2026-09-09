@@ -414,6 +414,8 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
     // Vérifier les contraintes de rôle (au niveau des comptes, pas des users)
     await assertRoleAvailable(req.db, guildeId, role, targetAccount?.bbs_id);
 
+    const oldRole = targetAccount?.role || 'membre';
+
     const bbsAccounts = bbs_id
       ? updateAccount(user.bbs_accounts, bbs_id, { role })
       : upsertPrimaryAccount(user.bbs_accounts, {
@@ -430,6 +432,21 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
     }
 
     res.json({ success: true, message: `Rôle mis à jour vers ${role}` });
+
+    // Notification Discord (non bloquante)
+    if (oldRole !== role) {
+      try {
+        const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
+        notifyDiscord('membre_role_change', {
+          membre_name: targetAccount?.bbs_name || getUserDisplayName(user),
+          guild_name: guilde?.name || '',
+          old_role: oldRole,
+          new_role: role
+        }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+      } catch (notifErr) {
+        console.error('[users/role] Erreur notification Discord (non bloquant):', notifErr.message);
+      }
+    }
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors de la mise à jour du rôle:', error);
