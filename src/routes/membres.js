@@ -1,6 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb } from '../middleware/auth.js';
+import { notifyDiscord } from '../utils/notifyDiscord.js';
 
 const router = express.Router();
 
@@ -71,6 +72,21 @@ router.put('/:id/role', async (req, res) => {
       { $set: { role: newRole } }
     );
     res.json({ success: true, message: `Rôle du membre ${member.name} mis à jour avec succès` });
+
+    // Notification Discord (non bloquante)
+    if (member.role !== newRole) {
+      try {
+        const guilde = guildeId ? await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) }) : null;
+        notifyDiscord('membre_role_change', {
+          membre_name: member.name,
+          guild_name: guilde?.name || '',
+          old_role: member.role || 'membre',
+          new_role: newRole
+        }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+      } catch (notifErr) {
+        console.error('[membres/role] Erreur notification Discord (non bloquant):', notifErr.message);
+      }
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
