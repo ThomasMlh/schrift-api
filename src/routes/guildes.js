@@ -533,6 +533,19 @@ router.post('/:id/assign-member', async (req, res) => {
     );
 
     res.json({ success: true, message: `${user.global_name || 'Utilisateur'} assigné à la guilde avec succès` });
+
+    // Notification Discord (non bloquante)
+    try {
+      const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
+      notifyDiscord('guild_member_change', {
+        action: 'join',
+        username: targetAccount?.bbs_name || getUserDisplayName(user),
+        guild_name: guilde?.name || 'Inconnue',
+        role
+      }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+    } catch (notifErr) {
+      console.error('[guildes/assign-member] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     const status = err.statusCode || 500;
     if (status === 500) console.error('Erreur lors de l\'assignation du membre:', err);
@@ -569,6 +582,18 @@ router.delete('/:id/members/:userId', async (req, res) => {
     );
 
     res.json({ success: true, message: 'Utilisateur retiré de la guilde' });
+
+    // Notification Discord (non bloquante)
+    try {
+      const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
+      notifyDiscord('guild_member_change', {
+        action: 'leave',
+        username: targetAccount.bbs_name || getUserDisplayName(user),
+        guild_name: guilde?.name || 'Inconnue'
+      }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+    } catch (notifErr) {
+      console.error('[guildes/remove-member] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     const status = err.statusCode || 500;
     if (status === 500) console.error(err);
@@ -613,6 +638,18 @@ router.delete('/:guildeId/membres/:userId', async (req, res) => {
       success: true,
       message: `${user.global_name || 'Utilisateur'} retiré de la guilde avec succès`
     });
+
+    // Notification Discord (non bloquante)
+    try {
+      const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
+      notifyDiscord('guild_member_change', {
+        action: 'leave',
+        username: targetAccount.bbs_name || getUserDisplayName(user),
+        guild_name: guilde?.name || 'Inconnue'
+      }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+    } catch (notifErr) {
+      console.error('[guildes/remove-membre] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     console.error('Erreur lors de la suppression du membre:', err);
     res.status(err.statusCode || 500).json({ success: false, message: err.message || 'Erreur serveur' });
@@ -644,6 +681,19 @@ router.post('/:id/membres', async (req, res) => {
     const membre = { ...req.body, bbs_accounts: bbsAccounts, ...mirror };
     await req.db.collection('users').insertOne(membre);
     res.status(201).json({ success: true, message: `${mirror.bbs_name || 'Membre'} ajouté avec succès` });
+
+    // Notification Discord (non bloquante)
+    try {
+      const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
+      notifyDiscord('guild_member_change', {
+        action: 'join',
+        username: mirror.bbs_name || 'Membre',
+        guild_name: guilde?.name || 'Inconnue',
+        role
+      }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+    } catch (notifErr) {
+      console.error('[guildes/add-membre] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (err) {
     const status = err.statusCode || 500;
     if (status === 500) console.error('Erreur lors de l\'ajout du membre:', err);
