@@ -47,6 +47,40 @@ async function notifyGuildChange(db, userBefore, newGuildeId) {
   await Promise.allSettled(promises);
 }
 
+// Notifie un join/leave de guilde pour UN compte bbs précis (utilisé par les routes /accounts/*,
+// qui portent la vraie logique d'édition guilde/rôle depuis EditUserModal — contrairement aux
+// routes legacy /role et /guild ci-dessous qui ne ciblent que le compte principal).
+async function notifyAccountGuildMove(db, { username, oldGuildeId, newGuildeId, role }) {
+  const [oldGuilde, newGuilde] = await Promise.all([
+    oldGuildeId ? db.collection('guildes').findOne({ _id: new ObjectId(oldGuildeId) }) : null,
+    newGuildeId ? db.collection('guildes').findOne({ _id: new ObjectId(newGuildeId) }) : null,
+  ]);
+
+  const promises = [];
+  if (oldGuilde) {
+    promises.push(notifyDiscord('guild_member_change', {
+      action: 'leave', username, guild_name: oldGuilde.name
+    }, oldGuilde.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF));
+  }
+  if (newGuilde) {
+    promises.push(notifyDiscord('guild_member_change', {
+      action: 'join', username, guild_name: newGuilde.name, role
+    }, newGuilde.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF));
+  }
+  await Promise.allSettled(promises);
+}
+
+// Notifie un changement de rôle pour UN compte bbs précis (guilde inchangée).
+async function notifyAccountRoleChange(db, { username, guildeId, oldRole, newRole }) {
+  const guilde = guildeId ? await db.collection('guildes').findOne({ _id: new ObjectId(guildeId) }) : null;
+  await notifyDiscord('membre_role_change', {
+    membre_name: username,
+    guild_name: guilde?.name || '',
+    old_role: oldRole || 'membre',
+    new_role: newRole
+  }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
+}
+
 // Middleware pour toutes les routes users
 router.use(requireDb);
 
@@ -552,6 +586,20 @@ router.post('/:userId/accounts', requireAdmin, validateObjectIdParam('userId', "
     );
 
     res.status(201).json({ success: true, message: 'Compte bbs ajouté avec succès', bbs_accounts: bbsAccounts });
+
+    // Notification Discord (non bloquante)
+    if (guilde_id) {
+      try {
+        await notifyAccountGuildMove(req.db, {
+          username: bbs_name || getUserDisplayName(user),
+          oldGuildeId: null,
+          newGuildeId: guilde_id,
+          role
+        });
+      } catch (notifErr) {
+        console.error('[users/accounts POST] Erreur notification Discord (non bloquant):', notifErr.message);
+      }
+    }
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors de l\'ajout du compte bbs:', error);
@@ -573,9 +621,10 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
+    const accountBefore = findAccount(user, bbsId);
+
     if (role === 'chef' || role === 'sous-chef') {
-      const account = findAccount(user, bbsId);
-      const targetGuildeId = guilde_id !== undefined ? guilde_id : account?.guilde_id;
+      const targetGuildeId = guilde_id !== undefined ? guilde_id : accountBefore?.guilde_id;
       await assertRoleAvailable(req.db, targetGuildeId, role, bbsId);
     }
 
@@ -606,6 +655,23 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
     }
 
     res.json({ success: true, message: 'Compte bbs mis à jour avec succès', bbs_accounts: bbsAccounts });
+
+    // Notification Discord (non bloquante) : guilde et/ou rôle du compte ont pu changer.
+    try {
+      const oldGuildeId = accountBefore?.guilde_id || null;
+      const oldRole = accountBefore?.role || null;
+      const newGuildeId = guilde_id !== undefined ? (guilde_id || null) : oldGuildeId;
+      const newRole = role !== undefined ? role : oldRole;
+      const username = (bbs_name !== undefined ? bbs_name : accountBefore?.bbs_name) || getUserDisplayName(user);
+
+      if (newGuildeId !== oldGuildeId) {
+        await notifyAccountGuildMove(req.db, { username, oldGuildeId, newGuildeId, role: newRole });
+      } else if (newRole !== oldRole) {
+        await notifyAccountRoleChange(req.db, { username, guildeId: newGuildeId, oldRole, newRole });
+      }
+    } catch (notifErr) {
+      console.error('[users/accounts PUT] Erreur notification Discord (non bloquant):', notifErr.message);
+    }
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors de la mise à jour du compte bbs:', error);
@@ -623,6 +689,7 @@ router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('u
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
+    const accountBefore = findAccount(user, bbsId);
     const bbsAccounts = removeAccount(user.bbs_accounts, bbsId);
 
     await req.db.collection('users').updateOne(
@@ -631,6 +698,19 @@ router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('u
     );
 
     res.json({ success: true, message: 'Compte bbs retiré avec succès', bbs_accounts: bbsAccounts });
+
+    // Notification Discord (non bloquante)
+    if (accountBefore?.guilde_id) {
+      try {
+        await notifyAccountGuildMove(req.db, {
+          username: accountBefore.bbs_name || getUserDisplayName(user),
+          oldGuildeId: accountBefore.guilde_id,
+          newGuildeId: null
+        });
+      } catch (notifErr) {
+        console.error('[users/accounts DELETE] Erreur notification Discord (non bloquant):', notifErr.message);
+      }
+    }
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors du retrait du compte bbs:', error);
