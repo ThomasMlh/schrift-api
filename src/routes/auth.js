@@ -45,7 +45,7 @@ const getDiscordConfig = () => ({
 
 // Échange code -> access token Discord. redirectUri optionnel : omis pour le flow
 // Activity (SDK embedded, pas de redirection navigateur), requis pour le flow web classique.
-async function exchangeCodeForToken({ code, redirectUri }) {
+const exchangeCodeForToken = async ({ code, redirectUri }) => {
     const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } = getDiscordConfig();
 
     const params = {
@@ -84,12 +84,12 @@ async function exchangeCodeForToken({ code, redirectUri }) {
     }
 
     return { ok: true, tokenData: await tokenResponse.json() };
-}
+};
 
 // Tout ce qui suit l'obtention d'un access_token Discord valide : récupération des
 // infos utilisateur, vérifs ban/guild, upsert Mongo, émission JWT. Partagé entre le
 // flow web classique (/discord/callback) et le flow Activity (/discord/activity-callback).
-async function completeDiscordLogin(req, tokenData) {
+const completeDiscordLogin = async (req, tokenData) => {
     try {
         const { JWT_SECRET, ADMIN_DISCORD_IDS, DISCORD_GUILD_ID } = getDiscordConfig();
 
@@ -318,7 +318,7 @@ async function completeDiscordLogin(req, tokenData) {
             body: { success: false, message: 'Erreur serveur lors de l\'authentification' }
         };
     }
-}
+};
 
 // Route pour échanger le code d'autorisation contre un token (flow web classique, redirection navigateur)
 router.post('/discord/callback', async (req, res) => {

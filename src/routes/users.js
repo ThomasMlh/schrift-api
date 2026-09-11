@@ -16,7 +16,7 @@ import players from '../assets/joueurs.json' with { type: "json" };
 
 const router = express.Router();
 
-async function notifyGuildChange(db, userBefore, newGuildeId) {
+const notifyGuildChange = async (db, userBefore, newGuildeId) => {
   const username = getUserDisplayName(userBefore);
   const oldGuildeId = userBefore.guilde_id || null;
 
@@ -45,12 +45,12 @@ async function notifyGuildChange(db, userBefore, newGuildeId) {
   }
 
   await Promise.allSettled(promises);
-}
+};
 
 // Notifie un join/leave de guilde pour UN compte bbs précis (utilisé par les routes /accounts/*,
 // qui portent la vraie logique d'édition guilde/rôle depuis EditUserModal — contrairement aux
 // routes legacy /role et /guild ci-dessous qui ne ciblent que le compte principal).
-async function notifyAccountGuildMove(db, { username, oldGuildeId, newGuildeId, role }) {
+const notifyAccountGuildMove = async (db, { username, oldGuildeId, newGuildeId, role }) => {
   const [oldGuilde, newGuilde] = await Promise.all([
     oldGuildeId ? db.collection('guildes').findOne({ _id: new ObjectId(oldGuildeId) }) : null,
     newGuildeId ? db.collection('guildes').findOne({ _id: new ObjectId(newGuildeId) }) : null,
@@ -68,10 +68,10 @@ async function notifyAccountGuildMove(db, { username, oldGuildeId, newGuildeId, 
     }, newGuilde.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF));
   }
   await Promise.allSettled(promises);
-}
+};
 
 // Notifie un changement de rôle pour UN compte bbs précis (guilde inchangée).
-async function notifyAccountRoleChange(db, { username, guildeId, oldRole, newRole }) {
+const notifyAccountRoleChange = async (db, { username, guildeId, oldRole, newRole }) => {
   const guilde = guildeId ? await db.collection('guildes').findOne({ _id: new ObjectId(guildeId) }) : null;
   await notifyDiscord('membre_role_change', {
     membre_name: username,
@@ -79,7 +79,7 @@ async function notifyAccountRoleChange(db, { username, guildeId, oldRole, newRol
     old_role: oldRole || 'membre',
     new_role: newRole
   }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
-}
+};
 
 // Middleware pour toutes les routes users
 router.use(requireDb);

@@ -12,7 +12,7 @@ import { getDB } from '../config/database.js';
 
 // Résout les settings applicables à ce channel : ceux de la guilde propriétaire
 // du channel si elle en a un, sinon les settings globaux (types hors-guilde comme `ban`).
-async function resolveNotificationSettings(db, channel) {
+const resolveNotificationSettings = async (db, channel) => {
   try {
     const guilde = channel
       ? await db.collection('guildes').findOne(
@@ -31,9 +31,9 @@ async function resolveNotificationSettings(db, channel) {
     console.error(`[notifyDiscord] Erreur résolution settings (non bloquant): ${err.message}`);
     return { guildeId: null, disabledTypes: [] };
   }
-}
+};
 
-async function logActivity(db, { type, data, channel, guildeId }) {
+const logActivity = async (db, { type, data, channel, guildeId }) => {
   try {
     await db.collection('activity_log').insertOne({
       type,
@@ -45,7 +45,7 @@ async function logActivity(db, { type, data, channel, guildeId }) {
   } catch (err) {
     console.error(`[notifyDiscord] Erreur écriture activity_log (non bloquant): ${err.message}`);
   }
-}
+};
 
 /**
  * Envoie une notification au bot Discord (sauf si désactivée dans les settings)
@@ -97,4 +97,4 @@ export const notifyDiscord = async (type, data, channelId) => {
     // Non bloquant : on log l'erreur mais on ne fait pas échouer la requête API
     console.error(`[notifyDiscord] Impossible de joindre le bot: ${err.message}`);
   }
-}
+};

@@ -46,41 +46,35 @@ const DEFAULTS = {
 };
 
 /** Config effective = defauts + document Mongo. */
-async function getConfig(db) {
+const getConfig = async (db) => {
   const doc = await db.collection(COLLECTION).findOne({ _id: CONFIG_ID });
   return { ...DEFAULTS, ...(doc || {}) };
-}
+};
 
-function appHeaders(cfg, lang) {
-  return {
-    'Cookie': `X-WEB-VIEW-TOKEN=${cfg.token}`,
-    'X-WORLD': cfg.world,
-    'X-DEVICE-ID': cfg.deviceId,
-    'X-PLATFORM': cfg.platform,
-    'X-CLIENT-OS': cfg.clientOs,
-    'X-CLIENT-TIMEZONE': cfg.timezone,
-    'X-BUNDLE-VERSION': cfg.bundleVersion,
-    'X-LANGUAGE': lang,
-    'User-Agent': cfg.userAgent,
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  };
-}
+const appHeaders = (cfg, lang) => ({
+  'Cookie': `X-WEB-VIEW-TOKEN=${cfg.token}`,
+  'X-WORLD': cfg.world,
+  'X-DEVICE-ID': cfg.deviceId,
+  'X-PLATFORM': cfg.platform,
+  'X-CLIENT-OS': cfg.clientOs,
+  'X-CLIENT-TIMEZONE': cfg.timezone,
+  'X-BUNDLE-VERSION': cfg.bundleVersion,
+  'X-LANGUAGE': lang,
+  'User-Agent': cfg.userAgent,
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+});
 
 const BASE = '/api/webview';
 
 /** Reecrit les liens de navigation internes pour rester dans le proxy. */
-function rewriteHtml(html, lang) {
-  return html.replace(/Transition\('\/([^']*)'\)/g, (_m, path) => {
-    const sep = path.includes('?') ? '&' : '?';
-    return `Transition('${BASE}/${path}${sep}lang=${lang}')`;
-  });
-}
+const rewriteHtml = (html, lang) => html.replace(/Transition\('\/([^']*)'\)/g, (_m, path) => {
+  const sep = path.includes('?') ? '&' : '?';
+  return `Transition('${BASE}/${path}${sep}lang=${lang}')`;
+});
 
 /** Heuristique : le contenu verrouille par le token est-il present ? */
-function looksAuthenticated(html) {
-  return /news-view-title|_news-index-flick-item|_news-history|common-main-img/
-    .test(html);
-}
+const looksAuthenticated = (html) =>
+  /news-view-title|_news-index-flick-item|_news-history|common-main-img/.test(html);
 
 router.use(requireDb);
 

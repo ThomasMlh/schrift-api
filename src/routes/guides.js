@@ -111,7 +111,7 @@ router.patch('/orbes/:id', async (req, res) => {
 // Calcule l'ordre d'insertion pour une catégorie : à la suite de la dernière
 // ligne de cette catégorie si elle existe déjà, sinon à la toute fin du
 // tableau. La numérotation démarre à 1.
-async function computeAbilitySlotInsertOrder(db, category) {
+const computeAbilitySlotInsertOrder = async (db, category) => {
   const [lastInCategory] = await db.collection('guide_ability_slots')
     .find({ category })
     .sort({ order: -1 })
@@ -129,7 +129,7 @@ async function computeAbilitySlotInsertOrder(db, category) {
     .toArray();
 
   return (lastOverall?.order ?? 0) + 1;
-}
+};
 
 // GET /guides/ability-slots - Tableau des emplacements de capacités
 router.get('/ability-slots', async (req, res) => {
