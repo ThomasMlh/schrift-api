@@ -774,14 +774,16 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       }, { projection: USER_DISPLAY_WITH_ID }).toArray();
       const userMap = new Map(users.map(u => [u._id.toString(), u]));
 
-      // Résoudre la guilde (nom + channel Discord)
+      // Résoudre la guilde (nom + channels Discord)
       const firstGuildId = finalScores[0]?.guild_id;
       let guildName = "";
       let guildChannelId = "";
+      let guildGeneralChannelId = "";
       if (firstGuildId) {
         const guild = await req.db.collection("guildes").findOne({ _id: new ObjectId(firstGuildId) });
         guildName = guild?.name || "";
         guildChannelId = guild?.discord_channel_id || "";
+        guildGeneralChannelId = guild?.discord_general_channel_id || "";
       }
 
       // Killer et type d'attaque de la rotation
@@ -817,6 +819,22 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         scores: scoresForNotif,
         summary: `${insertedCount} créés, ${updatedCount} mis à jour, ${recalculatedCount} recalculés`
       }, guildChannelId);
+
+      // Capture automatique du podium (image) vers le salon membres de la guilde,
+      // en plus du récapitulatif texte envoyé au salon chefs ci-dessus.
+      if (process.env.FRONTEND_URL && guildName && rotation?.position !== undefined) {
+        const cycleSlug = `${(cycle.name || "").toLowerCase().replace(/\s+/g, "-")}-${cycle.year}`;
+        const captureUrl = `${process.env.FRONTEND_URL.replace(/\/$/, "")}/podium?capture=1&mode=rotation`
+          + `&cycle_name=${encodeURIComponent(cycleSlug)}&rotation=${rotation.position}&guild_name=${encodeURIComponent(guildName)}`;
+
+        notifyDiscord("podium_snapshot", {
+          guild_name: guildName,
+          cycle_name: cycle.name || "",
+          killer,
+          attack,
+          podium_url: captureUrl,
+        }, guildGeneralChannelId || guildChannelId);
+      }
     } catch (notifErr) {
       console.error("[scores/bulk] Erreur notification Discord (non bloquant):", notifErr.message);
     }

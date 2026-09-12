@@ -2,6 +2,7 @@
 // Source de vérité utilisée pour valider les payloads de settings (guilde et global).
 export const NOTIFICATION_TYPES = [
   'scores',
+  'podium_snapshot',
   'score_edit',
   'rotation_transfer',
   'character_update',

@@ -16,7 +16,7 @@ const resolveNotificationSettings = async (db, channel) => {
   try {
     const guilde = channel
       ? await db.collection('guildes').findOne(
-          { discord_channel_id: channel },
+          { $or: [{ discord_channel_id: channel }, { discord_general_channel_id: channel }] },
           { projection: { _id: 1, disabled_notification_types: 1 } }
         )
       : null;
