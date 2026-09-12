@@ -6,6 +6,7 @@ import express from 'express';
 import cors from 'cors';
 import { MongoClient } from 'mongodb';
 import apiRoutes from '../src/routes/index.js';
+import { setDb } from '../src/config/database.js';
 
 const app = express();
 
@@ -54,6 +55,8 @@ async function connectToDatabase() {
     }
 
     cachedClient = client;
+    // Rend la DB accessible hors du cycle requête/réponse Express (ex: notifyDiscord.js)
+    setDb(cachedDb);
 
     console.log('✅ Connecté à MongoDB');
     return { client: cachedClient, db: cachedDb };
