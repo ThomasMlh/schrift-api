@@ -50,6 +50,36 @@ const lookupUserAndGuild = () => {
 // Alias conservé pour lisibilité aux call sites existants (même pipeline).
 const lookupUserByUserId = lookupUserAndGuild;
 
+// Résout les bbs_id actuellement rattachés à une guilde (users.bbs_accounts[].guilde_id),
+// pour attribuer un score à la guilde ACTUELLE du compte plutôt qu'à la guilde figée sur
+// le score au moment de la saisie (utile après un transfert de guilde en cours de cycle).
+const getCurrentGuildBbsIds = async (db, guildId) => {
+  const users = await db.collection('users').find(
+    { 'bbs_accounts.guilde_id': guildId },
+    { projection: { 'bbs_accounts.bbs_id': 1, 'bbs_accounts.guilde_id': 1 } }
+  ).toArray();
+
+  const bbsIds = [];
+  for (const user of users) {
+    for (const account of user.bbs_accounts || []) {
+      if (account.guilde_id === guildId && account.bbs_id) bbsIds.push(account.bbs_id);
+    }
+  }
+  return bbsIds;
+};
+
+// Condition de match pour une guilde : scores des comptes actuellement dans la guilde (via
+// bbs_id). Les scores sans bbs_id (anciens, en voie de suppression) ne remontent jamais.
+const buildGuildMatch = (currentBbsIds) => ({ bbs_id: { $in: currentBbsIds } });
+
+// Une fois le filtre par guilde appliqué, chaque ligne appartient par construction à cette
+// guilde : on force l'affichage dessus plutôt que sur le guild_id (potentiellement obsolète,
+// cf. buildGuildMatch) figé sur le score.
+const overrideGuildName = (results, guildName) => {
+  if (guildName) results.forEach(r => { r.guild_name = guildName; });
+  return results;
+};
+
 // Calcule les ranks en tenant compte des ex-aequo
 const applyRanks = (results, scoreKey) => {
   let currentRank = 1;
@@ -90,8 +120,13 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
     throw err;
   }
 
-  const matchStage = { cycle_id };
-  if (guild_id) matchStage.guild_id = guild_id;
+  let currentGuildName = null;
+  const matchStage = { cycle_id, bbs_id: { $ne: null } };
+  if (guild_id) {
+    Object.assign(matchStage, buildGuildMatch(await getCurrentGuildBbsIds(db, guild_id)));
+    const guildDoc = await db.collection('guildes').findOne({ _id: new ObjectId(guild_id) });
+    currentGuildName = guildDoc?.name || null;
+  }
 
   const pipeline = [
     { $match: matchStage },
@@ -127,6 +162,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
   ];
 
   const podium = await db.collection('scores').aggregate(pipeline).toArray();
+  overrideGuildName(podium, currentGuildName);
   const podiumWithRank = podium.map((player, index) => ({ rank: index + 1, ...player }));
 
   return {
@@ -183,6 +219,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
   }
 
   let guildId = null;
+  let currentGuildName = null;
   if (guild_name?.trim()) {
     const guild = await db.collection('guildes').findOne({ name: guild_name.trim() });
     if (!guild) {
@@ -191,11 +228,12 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
       throw err;
     }
     guildId = guild._id.toString();
+    currentGuildName = guild.name;
   }
 
-  const matchStage = { cycle_id: cycle._id.toString() };
+  const matchStage = { cycle_id: cycle._id.toString(), bbs_id: { $ne: null } };
   if (rotation_id) matchStage.rotation_id = rotation_id;
-  if (guildId) matchStage.guild_id = guildId;
+  if (guildId) Object.assign(matchStage, buildGuildMatch(await getCurrentGuildBbsIds(db, guildId)));
 
   let pipeline;
   if (rotation_id) {
@@ -263,6 +301,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
   }
 
   const allResults = await db.collection('scores').aggregate(pipeline).toArray();
+  overrideGuildName(allResults, currentGuildName);
   const scoreKey = rotation_id ? 'score' : (normalizedRankingType === 'max' ? 'totalScore' : 'averageScore');
   const resultsWithRank = applyRanks(allResults, scoreKey);
   const { items: data, pagination } = paginate(resultsWithRank, pageNumber, limitNumber);
@@ -377,6 +416,7 @@ export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild
   ]);
 
   let guildId = null;
+  let currentGuildName = null;
   if (guild_name?.trim()) {
     const guild = await db.collection('guildes').findOne({ name: guild_name.trim() });
     if (!guild) {
@@ -385,13 +425,15 @@ export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild
       throw err;
     }
     guildId = guild._id.toString();
+    currentGuildName = guild.name;
   }
 
   const matchStage = {
     cycle_id: cycle._id.toString(),
-    rotation_id: { $in: [rotation1Id, rotation2Id] }
+    rotation_id: { $in: [rotation1Id, rotation2Id] },
+    bbs_id: { $ne: null }
   };
-  if (guildId) matchStage.guild_id = guildId;
+  if (guildId) Object.assign(matchStage, buildGuildMatch(await getCurrentGuildBbsIds(db, guildId)));
 
   const pipeline = [
     { $match: matchStage },
@@ -452,6 +494,7 @@ export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild
   ];
 
   const allResults = await db.collection('scores').aggregate(pipeline).toArray();
+  overrideGuildName(allResults, currentGuildName);
   const resultsWithRank = applyRanks(allResults, 'week_total_score');
   const { items: data, pagination } = paginate(resultsWithRank, pageNumber, limitNumber);
 
@@ -515,6 +558,7 @@ export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page =
   }
 
   let guildId = null;
+  let currentGuildName = null;
   if (guild_name?.trim()) {
     const guild = await db.collection('guildes').findOne({ name: guild_name.trim() });
     if (!guild) {
@@ -523,10 +567,11 @@ export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page =
       throw err;
     }
     guildId = guild._id.toString();
+    currentGuildName = guild.name;
   }
 
-  const matchStage = { cycle_id: cycle._id.toString(), score: { $lte: 0 } };
-  if (guildId) matchStage.guild_id = guildId;
+  const matchStage = { cycle_id: cycle._id.toString(), score: { $lte: 0 }, bbs_id: { $ne: null } };
+  if (guildId) Object.assign(matchStage, buildGuildMatch(await getCurrentGuildBbsIds(db, guildId)));
 
   const pipeline = [
     { $match: matchStage },
@@ -590,6 +635,7 @@ export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page =
   ];
 
   const allResults = await db.collection('scores').aggregate(pipeline).toArray();
+  overrideGuildName(allResults, currentGuildName);
 
   // Rank tenant compte des ex-aequo sur les 2 critères
   let currentRank = 1;
