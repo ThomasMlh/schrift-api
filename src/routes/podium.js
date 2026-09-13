@@ -4,6 +4,7 @@ import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMisses, getDraftProposal } from '../services/podiumService.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { USER_DISPLAY } from '../utils/projections.js';
+import { notifyDiscord } from '../utils/notifyDiscord.js';
 
 const router = express.Router();
 
@@ -125,6 +126,61 @@ router.delete('/draft-proposal/history/:id', requireAdmin, async (req, res) => {
     res.json({ success: true, message: 'Entrée supprimée' });
   } catch (error) {
     res.status(400).json({ success: false, message: 'Format d\'ID invalide' });
+  }
+});
+
+// POST publication manuelle d'un récap de podium de fin de cycle (capture d'écran), envoyé au
+// salon général de la/les guilde(s) concernée(s). Réutilise l'infra podium_snapshot déjà en
+// place pour les rotations (même type de notification côté bot), déclenché ici à la main par
+// un admin plutôt qu'automatiquement après une saisie de scores.
+router.post('/publish-cycle-recap', requireAdmin, async (req, res) => {
+  try {
+    const { cycle_name, year, ranking_type = 'average', guild_name } = req.body;
+
+    if (!cycle_name) {
+      return res.status(400).json({ success: false, message: 'cycle_name requis' });
+    }
+    if (!process.env.FRONTEND_URL) {
+      return res.status(500).json({ success: false, message: 'FRONTEND_URL non configuré côté serveur' });
+    }
+
+    const cycleQuery = { name: cycle_name };
+    if (year) cycleQuery.year = parseInt(year, 10);
+    const cycle = await req.db.collection('cycles').findOne(cycleQuery, { sort: { created_at: -1 } });
+    if (!cycle) {
+      return res.status(404).json({ success: false, message: `Cycle "${cycle_name}" non trouvé` });
+    }
+
+    const guildQuery = guild_name ? { name: guild_name } : { disabled: { $ne: true } };
+    const targetGuilds = await req.db.collection('guildes').find(guildQuery).toArray();
+    if (targetGuilds.length === 0) {
+      return res.status(404).json({ success: false, message: 'Aucune guilde correspondante' });
+    }
+
+    const cycleSlug = `${(cycle.name || '').toLowerCase().replace(/\s+/g, '-')}-${cycle.year}`;
+    const results = targetGuilds.map(guild => {
+      const channelId = guild.discord_general_channel_id || guild.discord_channel_id;
+      if (!channelId) {
+        return { guild: guild.name, status: 'skipped', reason: 'Aucun salon Discord configuré' };
+      }
+
+      const captureUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}/podium?capture=1&mode=cycle`
+        + `&ranking_type=${encodeURIComponent(ranking_type)}&cycle_name=${encodeURIComponent(cycleSlug)}`
+        + `&guild_name=${encodeURIComponent(guild.name)}`;
+
+      notifyDiscord('podium_snapshot', {
+        guild_name: guild.name,
+        cycle_name: cycle.name,
+        podium_url: captureUrl,
+      }, channelId);
+
+      return { guild: guild.name, status: 'requested' };
+    });
+
+    res.json({ success: true, results });
+  } catch (err) {
+    console.error('Erreur publication récap de cycle:', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur lors de la publication du récap' });
   }
 });
 
