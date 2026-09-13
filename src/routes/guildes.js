@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireDb, requireAdmin } from '../middleware/auth.js';
+import { requireDb, requireAdmin, requireScoresAccess } from '../middleware/auth.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { sanitizeDisabledTypes } from '../utils/notificationTypes.js';
@@ -416,6 +416,57 @@ router.put('/:id', async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Envoie une notification de test au channel fourni (pas forcément celui déjà enregistré en
+// base — sert à vérifier un ID de channel avant de sauvegarder). Contrairement à
+// notifyDiscord() (non bloquant, jamais d'erreur remontée), on attend et on renvoie le
+// résultat réel : c'est tout l'intérêt d'un bouton de test.
+router.post('/:id/test-notification', requireScoresAccess, async (req, res) => {
+  try {
+    const guildeId = req.params.id;
+    const { channel_id } = req.body;
+
+    if (!channel_id || !channel_id.trim()) {
+      return res.status(400).json({ success: false, message: 'channel_id requis' });
+    }
+    if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(guildeId)) {
+      return res.status(403).json({ success: false, message: 'Accès refusé à cette guilde' });
+    }
+
+    const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
+    if (!guilde) {
+      return res.status(404).json({ success: false, message: 'Guilde introuvable' });
+    }
+
+    const botUrl = `${process.env.BOT_WEBHOOK_URL || 'http://localhost:8080'}/webhook`;
+    const payload = {
+      type: 'generic',
+      channel: channel_id.trim(),
+      data: {
+        title: '🔔 Test de notification',
+        message: `Ceci est un test envoyé depuis les paramètres de notification de la guilde **${guilde.name}**.`,
+      },
+    };
+
+    const botResponse = await fetch(botUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!botResponse.ok) {
+      const body = await botResponse.text().catch(() => '');
+      return res.status(502).json({
+        success: false,
+        message: `Le bot a répondu ${botResponse.status}${body ? `: ${body.slice(0, 300)}` : ''}`
+      });
+    }
+
+    res.json({ success: true, message: 'Notification de test envoyée' });
+  } catch (err) {
+    res.status(502).json({ success: false, message: `Impossible de joindre le bot: ${err.message}` });
   }
 });
 
