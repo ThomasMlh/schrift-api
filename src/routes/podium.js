@@ -1,6 +1,6 @@
 import express from 'express';
-import { requireDb } from '../middleware/auth.js';
-import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMisses } from '../services/podiumService.js';
+import { requireDb, requireAdmin } from '../middleware/auth.js';
+import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMisses, getDraftProposal } from '../services/podiumService.js';
 
 const router = express.Router();
 
@@ -51,6 +51,18 @@ router.get('/misses', async (req, res) => {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors de la creation du podium des miss:', error);
     res.status(status).json({ success: false, message: error.message || 'Erreur serveur lors de la creation du podium des miss' });
+  }
+});
+
+// GET proposition de draft (admin) : répartition simulée par score sur un cycle
+router.get('/draft-proposal', requireAdmin, async (req, res) => {
+  try {
+    const result = await getDraftProposal(req.db, req.query);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    if (status === 500) console.error('Erreur lors de la génération de la proposition de draft:', error);
+    res.status(status).json({ success: false, message: error.message || 'Erreur serveur lors de la génération de la proposition de draft' });
   }
 });
 

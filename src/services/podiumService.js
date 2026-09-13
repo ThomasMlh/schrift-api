@@ -663,3 +663,129 @@ export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page =
     meta: { totalPlayersWithMisses: pagination.totalCount, totalMissesInCycle, averageMissesPerPlayer }
   };
 }
+
+const DEFAULT_DRAFT_GUILD_ORDER = ['A', 'C', 'B', 'E', 'D'];
+const DRAFT_GUILD_SIZE = 20;
+
+// Propose une répartition des joueurs des guildes sélectionnées sur un cycle donné : classe
+// tout le monde par score (moyenne ou total) et découpe par paquets de 20 dans l'ordre de
+// guildes fourni (les meilleurs vont dans la 1re guilde, les 20 suivants dans la 2e, etc.).
+// Pur outil de simulation en lecture seule : ne modifie rien, l'admin applique manuellement
+// via l'onglet Draft s'il valide la proposition.
+export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'average', guild_names }) => {
+  if (!cycle_name) {
+    const err = new Error('Le paramètre cycle_name est obligatoire');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const normalizedRankingType = String(ranking_type).toLowerCase();
+  if (!['average', 'total'].includes(normalizedRankingType)) {
+    const err = new Error('ranking_type doit être "average" ou "total"');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const requestedOrder = Array.isArray(guild_names)
+    ? guild_names
+    : String(guild_names || '').split(',').map(n => n.trim()).filter(Boolean);
+  const guildOrder = requestedOrder.length > 0 ? requestedOrder : DEFAULT_DRAFT_GUILD_ORDER;
+
+  const cycleQuery = { name: cycle_name };
+  if (year) cycleQuery.year = parseInt(year, 10);
+  const cycle = await db.collection('cycles').findOne(cycleQuery, { sort: { created_at: -1 } });
+  if (!cycle) {
+    const err = new Error(`Cycle avec le nom "${cycle_name}" non trouvé`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const guildDocs = await db.collection('guildes').find({ name: { $in: guildOrder } }).toArray();
+  const guildByName = new Map(guildDocs.map(g => [g.name, g]));
+  const missing = guildOrder.filter(n => !guildByName.has(n));
+  if (missing.length > 0) {
+    const err = new Error(`Guilde(s) introuvable(s): ${missing.join(', ')}`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Pool de candidats : membres actuels des guildes concernées (via bbs_accounts, cf.
+  // getCurrentGuildBbsIds), avec leur guilde actuelle pour que le front puisse repérer qui
+  // bougerait par rapport à la répartition d'aujourd'hui.
+  const currentGuildByBbsId = new Map();
+  for (const name of guildOrder) {
+    const guildId = guildByName.get(name)._id.toString();
+    const bbsIds = await getCurrentGuildBbsIds(db, guildId);
+    for (const bbsId of bbsIds) currentGuildByBbsId.set(bbsId, name);
+  }
+  const candidateBbsIds = [...currentGuildByBbsId.keys()];
+
+  const emptyResult = {
+    guilds: guildOrder.map(name => ({ guild_name: name, players: [] })),
+    leftover: [],
+    meta: {
+      cycleName: cycle_name, rankingType: normalizedRankingType, totalCandidates: 0,
+      chunkSize: DRAFT_GUILD_SIZE, guildOrder,
+      ...(normalizedRankingType === 'average' && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
+    }
+  };
+  if (candidateBbsIds.length === 0) return emptyResult;
+
+  const pipeline = [
+    { $match: { cycle_id: cycle._id.toString(), bbs_id: { $in: candidateBbsIds } } },
+    {
+      $group: {
+        _id: "$bbs_id",
+        user_id: { $first: "$user_id" },
+        bbs_name: { $first: "$bbs_name" },
+        averageScore: { $avg: "$score" },
+        totalScore: { $sum: "$score" },
+        totalScores: { $sum: 1 },
+      }
+    },
+    ...(normalizedRankingType === 'average' ? [{ $match: { totalScores: { $gte: MIN_SCORES_FOR_RANKING } } }] : []),
+    ...lookupUserAndGuild(),
+    {
+      $project: {
+        _id: 0,
+        bbs_id: "$_id",
+        user_id: 1,
+        bbs_name: 1,
+        discord_id: { $arrayElemAt: ["$user.discord_id", 0] },
+        global_name: { $arrayElemAt: ["$user.global_name", 0] },
+        avatar: { $arrayElemAt: ["$user.avatar", 0] },
+        averageScore: { $round: ["$averageScore", 0] },
+        totalScore: { $round: ["$totalScore", 0] },
+        totalScores: 1,
+        hasUser: 1,
+      }
+    },
+    { $sort: { [normalizedRankingType === 'average' ? 'averageScore' : 'totalScore']: -1 } },
+  ];
+
+  const ranked = await db.collection('scores').aggregate(pipeline).toArray();
+  const withCurrentGuild = ranked.map((p, i) => ({
+    ...p,
+    overallRank: i + 1,
+    currentGuildName: currentGuildByBbsId.get(p.bbs_id) || null,
+  }));
+
+  const guilds = guildOrder.map((name, i) => ({
+    guild_name: name,
+    players: withCurrentGuild.slice(i * DRAFT_GUILD_SIZE, (i + 1) * DRAFT_GUILD_SIZE),
+  }));
+  const leftover = withCurrentGuild.slice(guildOrder.length * DRAFT_GUILD_SIZE);
+
+  return {
+    guilds,
+    leftover,
+    meta: {
+      cycleName: cycle_name,
+      rankingType: normalizedRankingType,
+      totalCandidates: withCurrentGuild.length,
+      chunkSize: DRAFT_GUILD_SIZE,
+      guildOrder,
+      ...(normalizedRankingType === 'average' && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
+    }
+  };
+}
