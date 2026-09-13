@@ -8,7 +8,9 @@ import { ObjectId } from 'mongodb';
 // une moyenne (sinon un joueur avec 1-2 scores excellents peut dominer des joueurs
 // réguliers avec beaucoup plus de scores). Ne s'applique pas aux vues par rotation
 // unique (un seul score possible) ni aux misses (comptage, pas une moyenne).
-const MIN_SCORES_FOR_RANKING = 10;
+// Désactivé pour le moment (mis à 0) à la demande de l'utilisateur — repasser à 10 pour
+// le réactiver ; meta.minScoresRequired n'est exposé que quand la valeur est > 0.
+const MIN_SCORES_FOR_RANKING = 0;
 
 const lookupUserAndGuild = () => {
   return [
@@ -168,7 +170,10 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
   return {
     podium: podiumWithRank,
     filters: { cycle_id, guild_id: guild_id || null },
-    meta: { totalPlayers: podium.length, cycleId: cycle_id, guildSpecific: !!guild_id, minScoresRequired: MIN_SCORES_FOR_RANKING }
+    meta: {
+      totalPlayers: podium.length, cycleId: cycle_id, guildSpecific: !!guild_id,
+      ...(MIN_SCORES_FOR_RANKING > 0 && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
+    }
   };
 }
 
@@ -343,7 +348,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
       fullPodium: true,
       podiumType: rotation_id ? 'individual_scores' : (normalizedRankingType === 'max' ? 'max_scores' : 'average_scores'),
       ...(rotation_id && overallAverageScore !== null && { averageScore: overallAverageScore }),
-      ...(!rotation_id && normalizedRankingType !== 'max' && { minScoresRequired: MIN_SCORES_FOR_RANKING })
+      ...(!rotation_id && normalizedRankingType !== 'max' && MIN_SCORES_FOR_RANKING > 0 && { minScoresRequired: MIN_SCORES_FOR_RANKING })
     }
   };
 }
@@ -726,7 +731,7 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
     meta: {
       cycleName: cycle_name, rankingType: normalizedRankingType, totalCandidates: 0,
       chunkSize: DRAFT_GUILD_SIZE, guildOrder,
-      ...(normalizedRankingType === 'average' && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
+      ...(normalizedRankingType === 'average' && MIN_SCORES_FOR_RANKING > 0 && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
     }
   };
   if (candidateBbsIds.length === 0) return emptyResult;
@@ -785,7 +790,7 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
       totalCandidates: withCurrentGuild.length,
       chunkSize: DRAFT_GUILD_SIZE,
       guildOrder,
-      ...(normalizedRankingType === 'average' && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
+      ...(normalizedRankingType === 'average' && MIN_SCORES_FOR_RANKING > 0 && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
     }
   };
 }
