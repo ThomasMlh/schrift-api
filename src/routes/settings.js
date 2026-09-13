@@ -33,4 +33,37 @@ router.put('/notifications', requireAdmin, async (req, res) => {
   }
 });
 
+// Récupérer le réglage du seuil minimum de scores pour apparaître au podium (moyenne)
+router.get('/podium', requireAdmin, async (req, res) => {
+  try {
+    const settings = await req.db.collection('app_settings').findOne({ _id: 'podium' });
+    res.json({
+      success: true,
+      min_scores_for_ranking: typeof settings?.min_scores_for_ranking === 'number' ? settings.min_scores_for_ranking : 0,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Mettre à jour le seuil (0 = désactivé)
+router.put('/podium', requireAdmin, async (req, res) => {
+  try {
+    const value = parseInt(req.body.min_scores_for_ranking, 10);
+    if (isNaN(value) || value < 0) {
+      return res.status(400).json({ success: false, message: 'min_scores_for_ranking doit être un entier positif ou nul' });
+    }
+
+    await req.db.collection('app_settings').updateOne(
+      { _id: 'podium' },
+      { $set: { min_scores_for_ranking: value } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, message: 'Seuil du podium mis à jour', min_scores_for_ranking: value });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;

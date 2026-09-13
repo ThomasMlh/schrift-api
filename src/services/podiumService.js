@@ -4,13 +4,19 @@ import { ObjectId } from 'mongodb';
 // d'un champ user_id présent sur le document, et guildes à partir d'un champ guild_id présent sur
 // le document lui-même (le guild_id/bbs_name du SCORE, jamais la guilde/le pseudo actuels du user
 // — un même user peut avoir plusieurs comptes bbs classés séparément dans des guildes différentes).
-// Nombre minimum de rotations jouées pour apparaître dans un classement basé sur
-// une moyenne (sinon un joueur avec 1-2 scores excellents peut dominer des joueurs
-// réguliers avec beaucoup plus de scores). Ne s'applique pas aux vues par rotation
-// unique (un seul score possible) ni aux misses (comptage, pas une moyenne).
-// Désactivé pour le moment (mis à 0) à la demande de l'utilisateur — repasser à 10 pour
-// le réactiver ; meta.minScoresRequired n'est exposé que quand la valeur est > 0.
-const MIN_SCORES_FOR_RANKING = 0;
+// Nombre minimum de rotations jouées pour apparaître dans un classement basé sur une moyenne
+// (sinon un joueur avec 1-2 scores excellents peut dominer des joueurs réguliers avec beaucoup
+// plus de scores). Ne s'applique pas aux vues par rotation unique (un seul score possible) ni
+// aux misses (comptage, pas une moyenne). Configurable par l'admin (app_settings/podium) ;
+// 0 = désactivé. Repli si aucun réglage n'existe encore en base.
+const DEFAULT_MIN_SCORES_FOR_RANKING = 0;
+
+const getMinScoresForRanking = async (db) => {
+  const settings = await db.collection('app_settings').findOne({ _id: 'podium' });
+  return typeof settings?.min_scores_for_ranking === 'number'
+    ? settings.min_scores_for_ranking
+    : DEFAULT_MIN_SCORES_FOR_RANKING;
+};
 
 const lookupUserAndGuild = () => {
   return [
@@ -122,6 +128,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
     throw err;
   }
 
+  const minScores = await getMinScoresForRanking(db);
   let currentGuildName = null;
   const matchStage = { cycle_id, bbs_id: { $ne: null } };
   if (guild_id) {
@@ -142,7 +149,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
         totalScores: { $sum: 1 }
       }
     },
-    { $match: { totalScores: { $gte: MIN_SCORES_FOR_RANKING } } },
+    { $match: { totalScores: { $gte: minScores } } },
     ...lookupUserAndGuild(),
     {
       $project: {
@@ -172,7 +179,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
     filters: { cycle_id, guild_id: guild_id || null },
     meta: {
       totalPlayers: podium.length, cycleId: cycle_id, guildSpecific: !!guild_id,
-      ...(MIN_SCORES_FOR_RANKING > 0 && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
+      ...(minScores > 0 && { minScoresRequired: minScores }),
     }
   };
 }
@@ -188,6 +195,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
   const pageNumber = Math.max(1, parseInt(page, 10) || 1);
   const limitNumber = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
   const normalizedRankingType = String(ranking_type).toLowerCase();
+  const minScores = await getMinScoresForRanking(db);
 
   if (!rotation_id && !['average', 'max'].includes(normalizedRankingType)) {
     const err = new Error('ranking_type doit être "average" ou "max"');
@@ -282,7 +290,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
       },
       // Le seuil ne s'applique qu'au classement par moyenne : en "max" (somme), un joueur
       // avec peu de scores n'a de toute façon qu'un total plus bas, pas d'avantage injustifié.
-      ...(normalizedRankingType === 'max' ? [] : [{ $match: { totalScores: { $gte: MIN_SCORES_FOR_RANKING } } }]),
+      ...(normalizedRankingType === 'max' ? [] : [{ $match: { totalScores: { $gte: minScores } } }]),
       ...lookupUserAndGuild(),
       {
         $project: {
@@ -348,7 +356,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
       fullPodium: true,
       podiumType: rotation_id ? 'individual_scores' : (normalizedRankingType === 'max' ? 'max_scores' : 'average_scores'),
       ...(rotation_id && overallAverageScore !== null && { averageScore: overallAverageScore }),
-      ...(!rotation_id && normalizedRankingType !== 'max' && MIN_SCORES_FOR_RANKING > 0 && { minScoresRequired: MIN_SCORES_FOR_RANKING })
+      ...(!rotation_id && normalizedRankingType !== 'max' && minScores > 0 && { minScoresRequired: minScores })
     }
   };
 }
@@ -690,6 +698,7 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
     err.statusCode = 400;
     throw err;
   }
+  const minScores = await getMinScoresForRanking(db);
 
   const requestedOrder = Array.isArray(guild_names)
     ? guild_names
@@ -731,7 +740,7 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
     meta: {
       cycleName: cycle_name, rankingType: normalizedRankingType, totalCandidates: 0,
       chunkSize: DRAFT_GUILD_SIZE, guildOrder,
-      ...(normalizedRankingType === 'average' && MIN_SCORES_FOR_RANKING > 0 && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
+      ...(normalizedRankingType === 'average' && minScores > 0 && { minScoresRequired: minScores }),
     }
   };
   if (candidateBbsIds.length === 0) return emptyResult;
@@ -748,7 +757,7 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
         totalScores: { $sum: 1 },
       }
     },
-    ...(normalizedRankingType === 'average' ? [{ $match: { totalScores: { $gte: MIN_SCORES_FOR_RANKING } } }] : []),
+    ...(normalizedRankingType === 'average' ? [{ $match: { totalScores: { $gte: minScores } } }] : []),
     ...lookupUserAndGuild(),
     {
       $project: {
@@ -790,7 +799,7 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
       totalCandidates: withCurrentGuild.length,
       chunkSize: DRAFT_GUILD_SIZE,
       guildOrder,
-      ...(normalizedRankingType === 'average' && MIN_SCORES_FOR_RANKING > 0 && { minScoresRequired: MIN_SCORES_FOR_RANKING }),
+      ...(normalizedRankingType === 'average' && minScores > 0 && { minScoresRequired: minScores }),
     }
   };
 }
