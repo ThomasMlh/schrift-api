@@ -685,7 +685,7 @@ const DRAFT_GUILD_SIZE = 20;
 // guildes fourni (les meilleurs vont dans la 1re guilde, les 20 suivants dans la 2e, etc.).
 // Pur outil de simulation en lecture seule : ne modifie rien, l'admin applique manuellement
 // via l'onglet Draft s'il valide la proposition.
-export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'average', guild_names }) => {
+export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'average', guild_names, excluded_bbs_ids, pinned_bbs_ids }) => {
   if (!cycle_name) {
     const err = new Error('Le paramètre cycle_name est obligatoire');
     err.statusCode = 400;
@@ -732,7 +732,16 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
     const bbsIds = await getCurrentGuildBbsIds(db, guildId);
     for (const bbsId of bbsIds) currentGuildByBbsId.set(bbsId, name);
   }
-  const candidateBbsIds = [...currentGuildByBbsId.keys()];
+  // "Et si" : exclus complètement de la simulation (aucune guilde), ou garantis de rester
+  // dans leur guilde ACTUELLE quel que soit leur score (ex: un chef qu'on ne veut pas voir
+  // bouger). Les deux listes viennent du front sous forme de bbs_id séparés par des virgules.
+  const parseIdList = (value) => Array.isArray(value)
+    ? value
+    : String(value || '').split(',').map(s => s.trim()).filter(Boolean);
+  const excludedBbsIds = new Set(parseIdList(excluded_bbs_ids));
+  const pinnedBbsIds = new Set(parseIdList(pinned_bbs_ids));
+
+  const candidateBbsIds = [...currentGuildByBbsId.keys()].filter(id => !excludedBbsIds.has(id));
 
   const emptyResult = {
     guilds: guildOrder.map(name => ({ guild_name: name, players: [] })),
@@ -782,13 +791,24 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
     ...p,
     overallRank: i + 1,
     currentGuildName: currentGuildByBbsId.get(p.bbs_id) || null,
+    isPinned: pinnedBbsIds.has(p.bbs_id),
   }));
 
-  const guilds = guildOrder.map((name, i) => ({
-    guild_name: name,
-    players: withCurrentGuild.slice(i * DRAFT_GUILD_SIZE, (i + 1) * DRAFT_GUILD_SIZE),
-  }));
-  const leftover = withCurrentGuild.slice(guildOrder.length * DRAFT_GUILD_SIZE);
+  // Les joueurs épinglés occupent d'abord une place dans leur guilde actuelle ; le reste des
+  // places de chaque guilde (dans l'ordre choisi) est comblé par les meilleurs scores restants.
+  const floating = withCurrentGuild.filter(p => !p.isPinned);
+  let floatingCursor = 0;
+  const scoreKey = normalizedRankingType === 'average' ? 'averageScore' : 'totalScore';
+
+  const guilds = guildOrder.map((name) => {
+    const pinnedHere = withCurrentGuild.filter(p => p.isPinned && p.currentGuildName === name);
+    const slotsLeft = Math.max(0, DRAFT_GUILD_SIZE - pinnedHere.length);
+    const floatingHere = floating.slice(floatingCursor, floatingCursor + slotsLeft);
+    floatingCursor += floatingHere.length;
+    const players = [...pinnedHere, ...floatingHere].sort((a, b) => b[scoreKey] - a[scoreKey]);
+    return { guild_name: name, players };
+  });
+  const leftover = floating.slice(floatingCursor);
 
   return {
     guilds,
