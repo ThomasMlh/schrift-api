@@ -860,7 +860,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
   } catch (err) {
     const status = err.statusCode || 500;
     if (status === 500) console.error("Erreur lors de la saisie groupée:", err);
-    res.status(status).json({ success: false, error: err.message });
+    res.status(status).json({ success: false, message: err.message });
   }
 });
 
@@ -1000,7 +1000,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
   } catch (err) {
     const status = err.statusCode || 500;
     if (status === 500) console.error("Erreur lors de la création du score:", err);
-    res.status(status).json({ success: false, error: err.message });
+    res.status(status).json({ success: false, message: err.message });
   }
 });
 
