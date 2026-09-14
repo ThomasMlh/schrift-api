@@ -7,7 +7,7 @@ import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferen
 import { getUserDisplayName } from "../utils/nameMatching.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 import { USER_DISPLAY, USER_DISPLAY_WITH_ID, USER_SCORES_LOOKUP } from "../utils/projections.js";
-import { resolveScoreAccounts } from "../utils/bbsAccounts.js";
+import { resolveScoreAccounts, findAccount } from "../utils/bbsAccounts.js";
 import { escapeRegex } from "../utils/regexUtils.js";
 
 const router = express.Router();
@@ -33,6 +33,10 @@ router.get("/", async (req, res) => {
 
     if (req.query.guild_id) {
       filters.guild_id = req.query.guild_id;
+    }
+
+    if (req.query.bbs_id) {
+      filters.bbs_id = req.query.bbs_id;
     }
 
     // Pour la recherche par nom d'utilisateur (global_name), on doit toujours faire une agrégation
@@ -1051,6 +1055,25 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
       }]);
       const account = accountMap.get(`${targetUserId}-${targetBbsId}`);
       if (account?.bbs_name) updateData.bbs_name = account.bbs_name;
+
+      // Transfert vers un autre compte (bbs_id différent) : le compte cible ne doit pas avoir
+      // déjà un score sur cette même rotation, sinon on écraserait silencieusement le sien.
+      if (targetBbsId !== existingScore.bbs_id) {
+        const targetCycleId = cycle_id || existingScore.cycle_id;
+        const targetRotationId = rotation_id || existingScore.rotation_id;
+        const duplicate = await req.db.collection("scores").findOne({
+          bbs_id: targetBbsId,
+          cycle_id: targetCycleId,
+          rotation_id: targetRotationId,
+          _id: { $ne: existingScore._id }
+        });
+        if (duplicate) {
+          return res.status(400).json({
+            success: false,
+            message: `Le compte cible a déjà un score sur cette rotation (${duplicate.score.toLocaleString()})`
+          });
+        }
+      }
     }
 
     // Si le score est modifié, recalculer le raw_score selon la logique différentielle
@@ -1210,7 +1233,122 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
   } catch (err) {
     const status = err.statusCode || 500;
     if (status === 500) console.error("Erreur lors de la mise à jour du score:", err);
-    res.status(status).json({ success: false, error: err.message });
+    res.status(status).json({ success: false, message: err.message });
+  }
+});
+
+// PUT réattribuer un score à un autre compte bbs (ex: score saisi sous le mauvais membre du
+// roster faute de mieux, à corriger a posteriori). Contrairement à PUT /:id, le compte cible n'a
+// PAS besoin d'appartenir ACTUELLEMENT à la guilde du score — le transfert sert justement à
+// rattacher un score historique à un compte qui a depuis changé de guilde. guild_id, cycle_id et
+// rotation_id ne bougent jamais ; seuls user_id/bbs_id/bbs_name changent, et raw_score est
+// recalculé par rapport à l'historique du compte cible si la rotation transférée est différentielle
+// (le score affiché, lui, est préservé tel quel).
+router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
+  try {
+    const { target_user_id, target_bbs_id } = req.body;
+
+    if (!target_user_id || !target_bbs_id) {
+      return res.status(400).json({ success: false, message: "target_user_id et target_bbs_id sont requis" });
+    }
+
+    const existingScore = await req.db.collection("scores").findOne({ _id: new ObjectId(req.params.id) });
+    if (!existingScore) {
+      return res.status(404).json({ success: false, message: "Score non trouvé" });
+    }
+
+    if (target_bbs_id === existingScore.bbs_id) {
+      return res.status(400).json({ success: false, message: "Le compte cible doit être différent du compte source" });
+    }
+
+    // Le score ne change pas de guilde pendant le transfert : les droits chef/sous-chef se
+    // vérifient donc uniquement sur la guilde du score existant.
+    if (!req.user.hasFullAccess) {
+      const allowedGuildIds = req.user.allowedGuildIds || [];
+      if (!allowedGuildIds.includes(existingScore.guild_id)) {
+        return res.status(403).json({
+          success: false,
+          message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez modifier que des scores de vos guildes.`
+        });
+      }
+    }
+
+    const targetUser = await req.db.collection("users").findOne({ _id: new ObjectId(target_user_id) });
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: "Utilisateur cible non trouvé" });
+    }
+    // Pas de contrôle de guilde ici (contrairement à resolveScoreAccounts) : un transfert vise
+    // justement un compte qui a pu quitter la guilde du score depuis.
+    const targetAccount = findAccount(targetUser, target_bbs_id);
+    if (!targetAccount) {
+      return res.status(400).json({ success: false, message: "Ce compte bbs n'appartient pas à l'utilisateur cible" });
+    }
+
+    const duplicate = await req.db.collection("scores").findOne({
+      bbs_id: target_bbs_id,
+      cycle_id: existingScore.cycle_id,
+      rotation_id: existingScore.rotation_id,
+      _id: { $ne: existingScore._id }
+    });
+    if (duplicate) {
+      return res.status(400).json({
+        success: false,
+        message: `Le compte cible a déjà un score sur cette rotation (${duplicate.score.toLocaleString()})`
+      });
+    }
+
+    const cycle = await req.db.collection("cycles").findOne({ _id: new ObjectId(existingScore.cycle_id) });
+    if (!cycle) {
+      return res.status(400).json({ success: false, message: "Cycle non trouvé" });
+    }
+
+    const rotationIndexMap = buildRotationIndexMap(cycle);
+    const currentRotationIndex = rotationIndexMap.get(existingScore.rotation_id);
+
+    // Recalcule raw_score par rapport à l'historique du compte CIBLE — le score affiché
+    // (existingScore.score) est préservé, seule sa provenance (raw_score) change de référentiel.
+    let calculatedRawScore = existingScore.score;
+    let isDifferential = false;
+    if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
+      const previousRotationId = cycle.rotations[currentRotationIndex - 1].rotation_id;
+      const previousScore = await req.db.collection("scores").findOne({
+        bbs_id: target_bbs_id, cycle_id: existingScore.cycle_id, rotation_id: previousRotationId
+      });
+      if (previousScore) {
+        calculatedRawScore = existingScore.score + previousScore.raw_score;
+        isDifferential = true;
+      }
+    }
+
+    const updateData = {
+      user_id: target_user_id,
+      bbs_id: target_bbs_id,
+      bbs_name: targetAccount.bbs_name || null,
+      raw_score: calculatedRawScore,
+      is_differential: isDifferential,
+      updated_at: new Date()
+    };
+
+    await req.db.collection("scores").updateOne({ _id: existingScore._id }, { $set: updateData });
+
+    // Le score de base a changé de compte : recalculer les différentiels suivants du compte
+    // cible (comme à la création) ET ceux qui suivaient encore l'ancien compte.
+    let recalculatedCount = 0;
+    if (currentRotationIndex % 2 === 0) {
+      const affectedTarget = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, existingScore.cycle_id, target_bbs_id);
+      const affectedSource = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, existingScore.cycle_id, existingScore.bbs_id);
+      recalculatedCount = affectedTarget.length + affectedSource.length;
+    }
+
+    res.json({
+      success: true,
+      message: "Score transféré avec succès" + (recalculatedCount > 0 ? ` et ${recalculatedCount} scores différentiels recalculés` : ""),
+      details: { rawScore: calculatedRawScore, isDifferential, recalculatedCount }
+    });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    if (status === 500) console.error("Erreur lors du transfert de score:", err);
+    res.status(status).json({ success: false, message: err.message });
   }
 });
 
