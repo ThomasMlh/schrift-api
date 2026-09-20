@@ -71,13 +71,13 @@ router.put('/:id/role', async (req, res) => {
       { _id: new ObjectId(memberId) },
       { $set: { role: newRole } }
     );
-    res.json({ success: true, message: `Rôle du membre ${member.name} mis à jour avec succès` });
-
-    // Notification Discord (non bloquante)
+    // Notification Discord — attendue avant la réponse : sur Vercel (serverless), l'exécution
+    // peut être coupée dès la réponse envoyée, donc un appel non attendu après res.json() n'est
+    // pas garanti d'aboutir (silencieusement manqué, de façon intermittente).
     if (member.role !== newRole) {
       try {
         const guilde = guildeId ? await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) }) : null;
-        notifyDiscord('membre_role_change', {
+        await notifyDiscord('membre_role_change', {
           membre_name: member.name,
           guild_name: guilde?.name || '',
           old_role: member.role || 'membre',
@@ -87,6 +87,8 @@ router.put('/:id/role', async (req, res) => {
         console.error('[membres/role] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
+
+    res.json({ success: true, message: `Rôle du membre ${member.name} mis à jour avec succès` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -814,7 +814,11 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         submittedBy = getUserDisplayName(submitter);
       }
 
-      notifyDiscord("scores", {
+      // Attendues avant la réponse : sur Vercel (serverless), l'exécution peut être coupée dès la
+      // réponse envoyée, donc un appel non attendu n'est pas garanti d'aboutir (manqué de façon
+      // intermittente — c'est ce qui expliquait les captures podium parfois jamais envoyées).
+      // maxDuration=300s côté vercel.json laisse largement la marge pour la capture Playwright.
+      await notifyDiscord("scores", {
         submitted_by: submittedBy,
         guild_name: guildName,
         cycle_name: cycle.name || "",
@@ -831,7 +835,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         const captureUrl = `${process.env.FRONTEND_URL.replace(/\/$/, "")}/podium?capture=1&mode=rotation`
           + `&cycle_name=${encodeURIComponent(cycleSlug)}&rotation=${rotation.position}&guild_name=${encodeURIComponent(guildName)}`;
 
-        notifyDiscord("podium_snapshot", {
+        await notifyDiscord("podium_snapshot", {
           guild_name: guildName,
           cycle_name: cycle.name || "",
           killer,

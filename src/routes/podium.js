@@ -158,7 +158,9 @@ router.post('/publish-cycle-recap', requireAdmin, async (req, res) => {
     }
 
     const cycleSlug = `${(cycle.name || '').toLowerCase().replace(/\s+/g, '-')}-${cycle.year}`;
-    const results = targetGuilds.map(guild => {
+    // Attendues avant la réponse (Promise.all) : sur Vercel (serverless), l'exécution peut être
+    // coupée dès la réponse envoyée, donc des appels non attendus ne sont pas garantis d'aboutir.
+    const results = await Promise.all(targetGuilds.map(async guild => {
       const channelId = guild.discord_general_channel_id || guild.discord_channel_id;
       if (!channelId) {
         return { guild: guild.name, status: 'skipped', reason: 'Aucun salon Discord configuré' };
@@ -168,14 +170,14 @@ router.post('/publish-cycle-recap', requireAdmin, async (req, res) => {
         + `&ranking_type=${encodeURIComponent(ranking_type)}&cycle_name=${encodeURIComponent(cycleSlug)}`
         + `&guild_name=${encodeURIComponent(guild.name)}`;
 
-      notifyDiscord('podium_snapshot', {
+      await notifyDiscord('podium_snapshot', {
         guild_name: guild.name,
         cycle_name: cycle.name,
         podium_url: captureUrl,
       }, channelId);
 
       return { guild: guild.name, status: 'requested' };
-    });
+    }));
 
     res.json({ success: true, results });
   } catch (err) {

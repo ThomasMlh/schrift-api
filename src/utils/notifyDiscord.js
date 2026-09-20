@@ -81,10 +81,15 @@ export const notifyDiscord = async (type, data, channelId) => {
   const payload = { type, channel, data };
 
   try {
+    // Timeout de sécurité : les appelants attendent désormais cet appel avant de répondre (cf.
+    // routes scores/users/membres/podium), donc un bot injoignable ne doit pas bloquer
+    // indéfiniment leur réponse. 90s laisse la marge pour une capture podium (Playwright) avec
+    // retries côté bot ; au-delà, on abandonne et on log, comme pour toute autre erreur réseau.
     const res = await fetch(botUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(90000),
     });
 
     if (!res.ok) {

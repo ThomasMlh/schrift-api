@@ -478,13 +478,13 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
-    res.json({ success: true, message: `Rôle mis à jour vers ${role}` });
-
-    // Notification Discord (non bloquante)
+    // Notification Discord — attendue avant la réponse : sur Vercel (serverless), l'exécution
+    // peut être coupée dès la réponse envoyée, donc un appel non attendu après res.json() n'est
+    // pas garanti d'aboutir (silencieusement manqué, de façon intermittente).
     if (oldRole !== role) {
       try {
         const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
-        notifyDiscord('membre_role_change', {
+        await notifyDiscord('membre_role_change', {
           membre_name: targetAccount?.bbs_name || getUserDisplayName(user),
           guild_name: guilde?.name || '',
           old_role: oldRole,
@@ -494,6 +494,8 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
         console.error('[users/role] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
+
+    res.json({ success: true, message: `Rôle mis à jour vers ${role}` });
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors de la mise à jour du rôle:', error);
