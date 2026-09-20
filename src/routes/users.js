@@ -401,14 +401,14 @@ router.patch('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateu
 
     const updatedUser = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
 
-    res.json({ success: true, message: `${getUserDisplayName(updatedUser)} mis à jour avec succès` });
-
-    // Notification Discord si la guilde a changé (non bloquant)
+    // Notification Discord si la guilde a changé — attendue avant la réponse.
     if ('guilde_id' in updates && updates.guilde_id !== userBefore.guilde_id) {
-      notifyGuildChange(req.db, userBefore, updates.guilde_id || null).catch(e =>
+      await notifyGuildChange(req.db, userBefore, updates.guilde_id || null).catch(e =>
         console.error('[users/patch] Erreur notification Discord:', e.message)
       );
     }
+
+    res.json({ success: true, message: `${getUserDisplayName(updatedUser)} mis à jour avec succès` });
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
@@ -543,15 +543,15 @@ router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Form
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    res.json({ success: true, message: `${getUserDisplayName(user, 'Utilisateur')} déplacé vers la nouvelle guilde` });
-
-    // Notification Discord (non bloquant) — uniquement pertinente pour le compte principal
-    // (c'est ce que reflètent les champs racine guilde_id/role affichés ailleurs).
+    // Notification Discord — uniquement pertinente pour le compte principal (c'est ce que
+    // reflètent les champs racine guilde_id/role affichés ailleurs) — attendue avant la réponse.
     if (!bbs_id || targetAccount?.is_primary) {
-      notifyGuildChange(req.db, user, guildeId).catch(e =>
+      await notifyGuildChange(req.db, user, guildeId).catch(e =>
         console.error('[users/guild] Erreur notification Discord:', e.message)
       );
     }
+
+    res.json({ success: true, message: `${getUserDisplayName(user, 'Utilisateur')} déplacé vers la nouvelle guilde` });
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors du changement de guilde:', error);
@@ -587,9 +587,7 @@ router.post('/:userId/accounts', requireAdmin, validateObjectIdParam('userId', "
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    res.status(201).json({ success: true, message: 'Compte bbs ajouté avec succès', bbs_accounts: bbsAccounts });
-
-    // Notification Discord (non bloquante)
+    // Notification Discord — attendue avant la réponse.
     if (guilde_id) {
       try {
         await notifyAccountGuildMove(req.db, {
@@ -602,6 +600,8 @@ router.post('/:userId/accounts', requireAdmin, validateObjectIdParam('userId', "
         console.error('[users/accounts POST] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
+
+    res.status(201).json({ success: true, message: 'Compte bbs ajouté avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors de l\'ajout du compte bbs:', error);
@@ -656,9 +656,7 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
       );
     }
 
-    res.json({ success: true, message: 'Compte bbs mis à jour avec succès', bbs_accounts: bbsAccounts });
-
-    // Notification Discord (non bloquante) : guilde et/ou rôle du compte ont pu changer.
+    // Notification Discord — guilde et/ou rôle du compte ont pu changer, attendue avant la réponse.
     try {
       const oldGuildeId = accountBefore?.guilde_id || null;
       const oldRole = accountBefore?.role || null;
@@ -674,6 +672,8 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
     } catch (notifErr) {
       console.error('[users/accounts PUT] Erreur notification Discord (non bloquant):', notifErr.message);
     }
+
+    res.json({ success: true, message: 'Compte bbs mis à jour avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors de la mise à jour du compte bbs:', error);
@@ -699,9 +699,7 @@ router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('u
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    res.json({ success: true, message: 'Compte bbs retiré avec succès', bbs_accounts: bbsAccounts });
-
-    // Notification Discord (non bloquante)
+    // Notification Discord — attendue avant la réponse.
     if (accountBefore?.guilde_id) {
       try {
         await notifyAccountGuildMove(req.db, {
@@ -713,6 +711,8 @@ router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('u
         console.error('[users/accounts DELETE] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
+
+    res.json({ success: true, message: 'Compte bbs retiré avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
     const status = error.statusCode || 500;
     if (status === 500) console.error('Erreur lors du retrait du compte bbs:', error);
@@ -871,7 +871,7 @@ router.post('/:userId/ban', requireAdmin, validateObjectIdParam('userId', "Forma
       );
       const bannerName = getUserDisplayName(banner);
       const bannedName = getUserDisplayName(user);
-      notifyDiscord('ban', {
+      await notifyDiscord('ban', {
         action: 'ban',
         banned_by: bannerName,
         banned_user: bannedName,
@@ -926,7 +926,7 @@ router.post('/:userId/unban', requireAdmin, validateObjectIdParam('userId', "For
       );
       const unbannerName = getUserDisplayName(unbanner);
       const unbannedName = getUserDisplayName(user);
-      notifyDiscord('ban', {
+      await notifyDiscord('ban', {
         action: 'unban',
         banned_by: unbannerName,
         banned_user: unbannedName,
