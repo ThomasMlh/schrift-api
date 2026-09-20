@@ -130,15 +130,10 @@ router.post('/', async (req, res) => {
 
     const result = await req.db.collection('cycles').insertOne(cycle);
 
-    res.status(201).json({
-      success: true,
-      id: result.insertedId,
-      message: 'Cycle créé avec succès'
-    });
-
-    // Notification Discord (non bloquante)
+    // Notification Discord — attendue avant la réponse (cf. commit fix(notify) : sur Vercel,
+    // l'exécution peut être coupée dès la réponse envoyée).
     try {
-      notifyDiscord('cycle_change', {
+      await notifyDiscord('cycle_change', {
         action: 'create',
         cycle_name: cycle.name,
         cycle_year: cycle.year,
@@ -147,6 +142,12 @@ router.post('/', async (req, res) => {
     } catch (notifErr) {
       console.error('[cycles/create] Erreur notification Discord (non bloquant):', notifErr.message);
     }
+
+    res.status(201).json({
+      success: true,
+      id: result.insertedId,
+      message: 'Cycle créé avec succès'
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -233,11 +234,9 @@ router.put('/:cycleId', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Cycle non trouvé' });
     }
 
-    res.json({ success: true, message: 'Cycle mis à jour avec succès' });
-
-    // Notification Discord (non bloquante)
+    // Notification Discord — attendue avant la réponse.
     try {
-      notifyDiscord('cycle_change', {
+      await notifyDiscord('cycle_change', {
         action: 'update',
         cycle_name: updateData.name || currentCycle.name,
         cycle_year: currentCycle.year,
@@ -246,6 +245,8 @@ router.put('/:cycleId', async (req, res) => {
     } catch (notifErr) {
       console.error('[cycles/update] Erreur notification Discord (non bloquant):', notifErr.message);
     }
+
+    res.json({ success: true, message: 'Cycle mis à jour avec succès' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -264,11 +265,9 @@ router.delete('/:cycleId', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Cycle non trouvé' });
     }
 
-    res.json({ success: true, message: 'Cycle supprimé avec succès' });
-
-    // Notification Discord (non bloquante)
+    // Notification Discord — attendue avant la réponse.
     try {
-      notifyDiscord('cycle_change', {
+      await notifyDiscord('cycle_change', {
         action: 'delete',
         cycle_name: cycleToDelete.name,
         cycle_year: cycleToDelete.year,
@@ -277,6 +276,8 @@ router.delete('/:cycleId', async (req, res) => {
     } catch (notifErr) {
       console.error('[cycles/delete] Erreur notification Discord (non bloquant):', notifErr.message);
     }
+
+    res.json({ success: true, message: 'Cycle supprimé avec succès' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
