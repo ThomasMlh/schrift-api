@@ -76,6 +76,23 @@ const getCurrentGuildBbsIds = async (db, guildId) => {
   return bbsIds;
 };
 
+// Résout les bbs_id des comptes qui n'appartiennent actuellement à aucune guilde, pour que la
+// draft auto puisse les proposer comme candidats au même titre que les membres déjà en guilde.
+const getUnguildedBbsIds = async (db) => {
+  const users = await db.collection('users').find(
+    { 'bbs_accounts.guilde_id': null },
+    { projection: { 'bbs_accounts.bbs_id': 1, 'bbs_accounts.guilde_id': 1 } }
+  ).toArray();
+
+  const bbsIds = [];
+  for (const user of users) {
+    for (const account of user.bbs_accounts || []) {
+      if (!account.guilde_id && account.bbs_id) bbsIds.push(account.bbs_id);
+    }
+  }
+  return bbsIds;
+};
+
 // Condition de match pour une guilde : scores des comptes actuellement dans la guilde (via
 // bbs_id). Les scores sans bbs_id (anciens, en voie de suppression) ne remontent jamais.
 const buildGuildMatch = (currentBbsIds) => ({ bbs_id: { $in: currentBbsIds } });
@@ -725,13 +742,15 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
 
   // Pool de candidats : membres actuels des guildes concernées (via bbs_accounts, cf.
   // getCurrentGuildBbsIds), avec leur guilde actuelle pour que le front puisse repérer qui
-  // bougerait par rapport à la répartition d'aujourd'hui.
+  // bougerait par rapport à la répartition d'aujourd'hui, plus les comptes sans guilde (agents
+  // libres) qui doivent pouvoir intégrer une guilde via la draft, pas seulement en être exclus.
   const currentGuildByBbsId = new Map();
   for (const name of guildOrder) {
     const guildId = guildByName.get(name)._id.toString();
     const bbsIds = await getCurrentGuildBbsIds(db, guildId);
     for (const bbsId of bbsIds) currentGuildByBbsId.set(bbsId, name);
   }
+  const unguildedBbsIds = await getUnguildedBbsIds(db);
   // "Et si" : exclus complètement de la simulation (aucune guilde), ou garantis de rester
   // dans leur guilde ACTUELLE quel que soit leur score (ex: un chef qu'on ne veut pas voir
   // bouger). Les deux listes viennent du front sous forme de bbs_id séparés par des virgules.
@@ -741,7 +760,8 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
   const excludedBbsIds = new Set(parseIdList(excluded_bbs_ids));
   const pinnedBbsIds = new Set(parseIdList(pinned_bbs_ids));
 
-  const candidateBbsIds = [...currentGuildByBbsId.keys()].filter(id => !excludedBbsIds.has(id));
+  const candidateBbsIds = [...new Set([...currentGuildByBbsId.keys(), ...unguildedBbsIds])]
+    .filter(id => !excludedBbsIds.has(id));
 
   const emptyResult = {
     guilds: guildOrder.map(name => ({ guild_name: name, players: [] })),
@@ -787,12 +807,17 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
   ];
 
   const ranked = await db.collection('scores').aggregate(pipeline).toArray();
-  const withCurrentGuild = ranked.map((p, i) => ({
-    ...p,
-    overallRank: i + 1,
-    currentGuildName: currentGuildByBbsId.get(p.bbs_id) || null,
-    isPinned: pinnedBbsIds.has(p.bbs_id),
-  }));
+  const withCurrentGuild = ranked.map((p, i) => {
+    const currentGuildName = currentGuildByBbsId.get(p.bbs_id) || null;
+    return {
+      ...p,
+      overallRank: i + 1,
+      currentGuildName,
+      // "Rester dans sa guilde actuelle" n'a pas de sens pour un agent libre (pas de guilde
+      // actuelle) : on ignore le pin plutôt que de le laisser disparaître du résultat.
+      isPinned: pinnedBbsIds.has(p.bbs_id) && !!currentGuildName,
+    };
+  });
 
   // Les joueurs épinglés occupent d'abord une place dans leur guilde actuelle ; le reste des
   // places de chaque guilde (dans l'ordre choisi) est comblé par les meilleurs scores restants.
