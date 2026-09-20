@@ -224,7 +224,7 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
     reorderStats: reorderStats || null
   };
 
-  notifyDiscord('character_update', { message, statistics });
+  await notifyDiscord('character_update', { message, statistics });
 
   return { message, statistics, errors: errors.slice(0, 10) };
 }
@@ -314,7 +314,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
   const message = `Batch terminé: ${uploaded} images uploadées pour ${processed} personnages, ${bannersUploaded} bannières, ${remaining} restants`;
   const statistics = { processed, uploaded, bannersUploaded, remaining, errors: errors.length };
 
-  notifyDiscord('image_upload', { message, statistics });
+  await notifyDiscord('image_upload', { message, statistics });
 
   return { message, statistics, errors: errors.slice(0, 10) };
 }

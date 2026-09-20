@@ -523,7 +523,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
 
         const guildScoreCount = sourceScores.filter(s => s.guild_id === gId).length;
 
-        notifyDiscord("rotation_transfer", {
+        await notifyDiscord("rotation_transfer", {
           submitted_by: submittedBy,
           guild_name: guild.name || "",
           cycle_name: cycle.name || "",
@@ -1202,7 +1202,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
           { projection: { name: 1 } }
         );
 
-        notifyDiscord('score_edit', {
+        await notifyDiscord('score_edit', {
           submitted_by: submittedBy,
           guild_name: guildName,
           pseudo,

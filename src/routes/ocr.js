@@ -372,7 +372,7 @@ router.post('/submit-batch', async (req, res) => {
         submittedBy = getUserDisplayName(submitter);
       }
 
-      notifyDiscord('scores', {
+      await notifyDiscord('scores', {
         submitted_by: submittedBy,
         guild_name: guildName,
         cycle_name: cycle.name || '',

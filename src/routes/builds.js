@@ -410,19 +410,10 @@ router.post('/', optionalAuth, async (req, res) => {
     const enrichedBuild = await enrichWithUser(createdBuild, req.db);
     const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
 
-    res.status(201).json({
-      success: true,
-      message: 'Build créé avec succès',
-      data: {
-        ...enrichedWithRotation,
-        team: enrichedTeam
-      }
-    });
-
-    // Notification Discord (non bloquante)
+    // Notification Discord — attendue avant la réponse.
     try {
       const rotation = enrichedWithRotation.rotation;
-      notifyDiscord('build_proposal', {
+      await notifyDiscord('build_proposal', {
         action: 'proposal',
         proposed_by: enrichedBuild.user ? getUserDisplayName(enrichedBuild.user) : 'Anonyme',
         description: newBuild.description,
@@ -433,6 +424,15 @@ router.post('/', optionalAuth, async (req, res) => {
     } catch (notifErr) {
       console.error('[builds/create] Erreur notification Discord (non bloquant):', notifErr.message);
     }
+
+    res.status(201).json({
+      success: true,
+      message: 'Build créé avec succès',
+      data: {
+        ...enrichedWithRotation,
+        team: enrichedTeam
+      }
+    });
   } catch (error) {
     console.error('Erreur lors de la création du build:', error);
     res.status(500).json({
@@ -912,17 +912,12 @@ router.delete('/:id', validateObjectIdParam('id'), async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-      message: 'Build supprimé avec succès'
-    });
-
-    // Notification Discord (non bloquante)
+    // Notification Discord — attendue avant la réponse.
     try {
       const enrichedBuild = await enrichWithUser(buildToDelete, req.db);
       const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
       const rotation = enrichedWithRotation.rotation;
-      notifyDiscord('build_delete', {
+      await notifyDiscord('build_delete', {
         action: 'delete',
         proposed_by: enrichedBuild.user ? getUserDisplayName(enrichedBuild.user) : 'Anonyme',
         description: buildToDelete.description,
@@ -932,6 +927,11 @@ router.delete('/:id', validateObjectIdParam('id'), async (req, res) => {
     } catch (notifErr) {
       console.error('[builds/delete] Erreur notification Discord (non bloquant):', notifErr.message);
     }
+
+    res.json({
+      success: true,
+      message: 'Build supprimé avec succès'
+    });
   } catch (error) {
     console.error('Erreur lors de la suppression du build:', error);
     res.status(500).json({

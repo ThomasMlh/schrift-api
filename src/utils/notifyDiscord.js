@@ -80,16 +80,19 @@ export const notifyDiscord = async (type, data, channelId) => {
 
   const payload = { type, channel, data };
 
+  // Timeout de sécurité : les appelants attendent désormais cet appel avant de répondre (cf.
+  // routes scores/users/membres/podium), donc un bot injoignable ne doit pas bloquer
+  // indéfiniment leur réponse. 90s laisse la marge pour une capture podium (Playwright) avec
+  // retries côté bot ; au-delà, on abandonne et on log, comme pour toute autre erreur réseau.
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), 90000);
+
   try {
-    // Timeout de sécurité : les appelants attendent désormais cet appel avant de répondre (cf.
-    // routes scores/users/membres/podium), donc un bot injoignable ne doit pas bloquer
-    // indéfiniment leur réponse. 90s laisse la marge pour une capture podium (Playwright) avec
-    // retries côté bot ; au-delà, on abandonne et on log, comme pour toute autre erreur réseau.
     const res = await fetch(botUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(90000),
+      signal: abortController.signal,
     });
 
     if (!res.ok) {
@@ -101,5 +104,7 @@ export const notifyDiscord = async (type, data, channelId) => {
   } catch (err) {
     // Non bloquant : on log l'erreur mais on ne fait pas échouer la requête API
     console.error(`[notifyDiscord] Impossible de joindre le bot: ${err.message}`);
+  } finally {
+    clearTimeout(timeoutId);
   }
 };
