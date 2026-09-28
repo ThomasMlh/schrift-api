@@ -11,7 +11,7 @@ import { ObjectId } from 'mongodb';
 // 0 = désactivé. Repli si aucun réglage n'existe encore en base.
 const DEFAULT_MIN_SCORES_FOR_RANKING = 0;
 
-const getMinScoresForRanking = async (db) => {
+export const getMinScoresForRanking = async (db) => {
   const settings = await db.collection('app_settings').findOne({ _id: 'podium' });
   return typeof settings?.min_scores_for_ranking === 'number'
     ? settings.min_scores_for_ranking
@@ -61,7 +61,7 @@ const lookupUserByUserId = lookupUserAndGuild;
 // Résout les bbs_id actuellement rattachés à une guilde (users.bbs_accounts[].guilde_id),
 // pour attribuer un score à la guilde ACTUELLE du compte plutôt qu'à la guilde figée sur
 // le score au moment de la saisie (utile après un transfert de guilde en cours de cycle).
-const getCurrentGuildBbsIds = async (db, guildId) => {
+export const getCurrentGuildBbsIds = async (db, guildId) => {
   const users = await db.collection('users').find(
     { 'bbs_accounts.guilde_id': guildId },
     { projection: { 'bbs_accounts.bbs_id': 1, 'bbs_accounts.guilde_id': 1 } }
@@ -78,7 +78,7 @@ const getCurrentGuildBbsIds = async (db, guildId) => {
 
 // Résout les bbs_id des comptes qui n'appartiennent actuellement à aucune guilde, pour que la
 // draft auto puisse les proposer comme candidats au même titre que les membres déjà en guilde.
-const getUnguildedBbsIds = async (db) => {
+export const getUnguildedBbsIds = async (db) => {
   const users = await db.collection('users').find(
     { 'bbs_accounts.guilde_id': null },
     { projection: { 'bbs_accounts.bbs_id': 1, 'bbs_accounts.guilde_id': 1 } }
@@ -95,18 +95,18 @@ const getUnguildedBbsIds = async (db) => {
 
 // Condition de match pour une guilde : scores des comptes actuellement dans la guilde (via
 // bbs_id). Les scores sans bbs_id (anciens, en voie de suppression) ne remontent jamais.
-const buildGuildMatch = (currentBbsIds) => ({ bbs_id: { $in: currentBbsIds } });
+export const buildGuildMatch = (currentBbsIds) => ({ bbs_id: { $in: currentBbsIds } });
 
 // Une fois le filtre par guilde appliqué, chaque ligne appartient par construction à cette
 // guilde : on force l'affichage dessus plutôt que sur le guild_id (potentiellement obsolète,
 // cf. buildGuildMatch) figé sur le score.
-const overrideGuildName = (results, guildName) => {
+export const overrideGuildName = (results, guildName) => {
   if (guildName) results.forEach(r => { r.guild_name = guildName; });
   return results;
 };
 
 // Calcule les ranks en tenant compte des ex-aequo
-const applyRanks = (results, scoreKey) => {
+export const applyRanks = (results, scoreKey) => {
   let currentRank = 1;
   let previousScore = null;
   return results.map((player, index) => {
@@ -118,7 +118,7 @@ const applyRanks = (results, scoreKey) => {
 }
 
 // Applique la pagination sur un tableau déjà trié
-const paginate = (results, page, limit) => {
+export const paginate = (results, page, limit) => {
   const skip = (page - 1) * limit;
   const totalCount = results.length;
   const totalPages = Math.ceil(totalCount / limit);
