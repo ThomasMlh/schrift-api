@@ -36,7 +36,6 @@ if (!uri) {
   console.error('❌ MONGODB_URI manquant');
   process.exit(1);
 }
-    console.log(uri);
 
 const client = new MongoClient(uri);
 
