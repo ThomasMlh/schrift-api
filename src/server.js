@@ -4,15 +4,21 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { MongoClient } from 'mongodb';
 import apiRoutes from './routes/index.js';
 import { setDb } from './config/database.js';
 
 const app = express();
 
+app.use(helmet());
+
 // Configuration des middlewares
-app.use(express.json({limit: '1000mb'}));
-app.use(express.urlencoded({limit: '1000mb', extended: true}));
+// 50mb couvre large les batches OCR (max 10 screenshots en base64, cf.
+// routes/ocr.js) ; 1000mb n'avait aucune justification et exposait l'API
+// à un épuisement mémoire via des bodies volumineux.
+app.use(express.json({limit: '50mb'}));
+app.use(express.urlencoded({limit: '50mb', extended: true}));
 
 // Configuration CORS
 const allowedOrigins = process.env.NODE_ENV === 'production'
@@ -73,6 +79,18 @@ app.get('/', (_req, res) => {
 
 app.use('/api', apiRoutes);
 
+// 404 pour toute route /api non gérée
+app.use('/api', (_req, res) => {
+  res.status(404).json({ success: false, message: 'Route introuvable' });
+});
+
+// Filet de sécurité : capture toute erreur non gérée par une route (throw
+// synchrone, rejet de Promise transmis via next(err), etc.) pour éviter de
+// laisser fuiter une stack trace ou un message d'erreur interne au client.
+app.use((err, _req, res, _next) => {
+  console.error('❌ Erreur non gérée:', err);
+  res.status(err.status || 500).json({ success: false, message: 'Erreur serveur interne' });
+});
 
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
