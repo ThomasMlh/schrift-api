@@ -1,6 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { requireDb } from '../middleware/auth.js';
+import { authLimiter } from '../middleware/rateLimit.js';
 import { upsertPrimaryAccount, deriveMirrorFields, buildGuildRoles } from '../utils/bbsAccounts.js';
 import players from '../assets/joueurs.json' with { type: "json" };
 
@@ -321,7 +322,7 @@ const completeDiscordLogin = async (req, tokenData) => {
 };
 
 // Route pour échanger le code d'autorisation contre un token (flow web classique, redirection navigateur)
-router.post('/discord/callback', async (req, res) => {
+router.post('/discord/callback', authLimiter, async (req, res) => {
     const { code } = req.body;
     const { DISCORD_REDIRECT_URI } = getDiscordConfig();
 
@@ -341,7 +342,7 @@ router.post('/discord/callback', async (req, res) => {
 
 // Route pour échanger le code d'autorisation contre un token (flow Discord Activity, SDK embedded).
 // Pas de redirect_uri : le code vient de discordSdk.commands.authorize(), pas d'une redirection navigateur.
-router.post('/discord/activity-callback', async (req, res) => {
+router.post('/discord/activity-callback', authLimiter, async (req, res) => {
     const { code } = req.body;
 
     if (!code) {
@@ -366,7 +367,7 @@ router.post('/discord/activity-callback', async (req, res) => {
 });
 
 // Route pour rafraîchir le JWT via refresh token
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', authLimiter, async (req, res) => {
     try {
         const { refreshToken } = req.body;
         const { JWT_SECRET } = getDiscordConfig();
