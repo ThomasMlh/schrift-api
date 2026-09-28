@@ -1,4 +1,5 @@
 import Client from 'ssh2-sftp-client';
+import { logger } from './logger.js';
 
 export class SFTPClient {
   constructor() {
@@ -6,11 +7,11 @@ export class SFTPClient {
   }
 
   async connect(options) {
-    console.log(`Connecting to ${options.host}:${options.port}`);
+    logger.info(`Connecting to ${options.host}:${options.port}`);
     try {
       await this.client.connect(options);
     } catch (err) {
-      console.log('Failed to connect:', err);
+      logger.info('Failed to connect:', err);
     }
   }
 

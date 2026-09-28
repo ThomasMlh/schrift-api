@@ -1,4 +1,5 @@
 import { getDB } from '../config/database.js';
+import { logger } from './logger.js';
 
 /**
  * Utilitaire pour envoyer des notifications au bot Discord via son serveur HTTP,
@@ -28,7 +29,7 @@ const resolveNotificationSettings = async (db, channel) => {
     const globalSettings = await db.collection('app_settings').findOne({ _id: 'notifications' });
     return { guildeId: null, disabledTypes: globalSettings?.disabled_notification_types || [] };
   } catch (err) {
-    console.error(`[notifyDiscord] Erreur résolution settings (non bloquant): ${err.message}`);
+    logger.error(`[notifyDiscord] Erreur résolution settings (non bloquant): ${err.message}`);
     return { guildeId: null, disabledTypes: [] };
   }
 };
@@ -43,7 +44,7 @@ const logActivity = async (db, { type, data, channel, guildeId }) => {
       created_at: new Date(),
     });
   } catch (err) {
-    console.error(`[notifyDiscord] Erreur écriture activity_log (non bloquant): ${err.message}`);
+    logger.error(`[notifyDiscord] Erreur écriture activity_log (non bloquant): ${err.message}`);
   }
 };
 
@@ -65,16 +66,16 @@ export const notifyDiscord = async (type, data, channelId) => {
     await logActivity(db, { type, data, channel, guildeId: settings.guildeId });
   } catch (err) {
     // getDB() peut jeter si la DB n'est pas encore initialisée (ex: script hors serveur) — non bloquant
-    console.error(`[notifyDiscord] Journalisation/settings indisponibles (non bloquant): ${err.message}`);
+    logger.error(`[notifyDiscord] Journalisation/settings indisponibles (non bloquant): ${err.message}`);
   }
 
   if (settings.disabledTypes.includes(type)) {
-    console.log(`[notifyDiscord] Type '${type}' désactivé pour ce channel, envoi Discord ignoré.`);
+    logger.info(`[notifyDiscord] Type '${type}' désactivé pour ce channel, envoi Discord ignoré.`);
     return;
   }
 
   if (!channel) {
-    console.warn(`[notifyDiscord] Pas de channel configuré, notification ignorée.`);
+    logger.warn(`[notifyDiscord] Pas de channel configuré, notification ignorée.`);
     return;
   }
 
@@ -97,13 +98,13 @@ export const notifyDiscord = async (type, data, channelId) => {
 
     if (!res.ok) {
       const body = await res.text();
-      console.error(`[notifyDiscord] Erreur ${res.status}: ${body}`);
+      logger.error(`[notifyDiscord] Erreur ${res.status}: ${body}`);
     } else {
-      console.log(`[notifyDiscord] Notification '${type}' envoyée → channel ${channel}`);
+      logger.info(`[notifyDiscord] Notification '${type}' envoyée → channel ${channel}`);
     }
   } catch (err) {
     // Non bloquant : on log l'erreur mais on ne fait pas échouer la requête API
-    console.error(`[notifyDiscord] Impossible de joindre le bot: ${err.message}`);
+    logger.error(`[notifyDiscord] Impossible de joindre le bot: ${err.message}`);
   } finally {
     clearTimeout(timeoutId);
   }

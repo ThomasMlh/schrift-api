@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { findAccount, getGuildAccountRoster } from '../utils/bbsAccounts.js';
+import { logger } from '../utils/logger.js';
 
 // Helper pour parser la date DD/MM/YYYY
 const parseDate = (dateStr) => {
@@ -345,7 +346,7 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
           .find({ _id: { $in: guildIds.map(id => new ObjectId(id)) } })
           .toArray();
       } catch (err) {
-        console.error('Error fetching guilds for rivals:', err.message);
+        logger.error('Error fetching guilds for rivals:', err.message);
       }
     }
     const guildMap = Object.fromEntries(guilds.map(g => [g._id.toString(), g.name]));

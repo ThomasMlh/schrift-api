@@ -13,6 +13,7 @@ import {
   getAllAccounts, renameAccountBbsId, assertBbsIdAvailable
 } from '../utils/bbsAccounts.js';
 import players from '../assets/joueurs.json' with { type: "json" };
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -146,7 +147,7 @@ router.post('/', requireAdmin, async (req, res) => {
 
     res.status(201).json({ success: true, created: true, message: 'Utilisateur créé avec succès', user: savedUser });
   } catch (error) {
-    console.error('Erreur lors de la création de l\'utilisateur:', error);
+    logger.error('Erreur lors de la création de l\'utilisateur:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
@@ -196,7 +197,7 @@ router.post('/manual', requireAdmin, async (req, res) => {
     res.status(201).json({ success: true, message: 'Joueur créé avec succès', user: savedUser });
   } catch (error) {
     const status = error.statusCode || 500;
-    if (status === 500) console.error('Erreur lors de la création manuelle du joueur:', error);
+    if (status === 500) logger.error('Erreur lors de la création manuelle du joueur:', error);
     res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
@@ -276,7 +277,7 @@ router.get('/', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des utilisateurs:', error);
+    logger.error('Erreur lors de la récupération des utilisateurs:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
@@ -299,7 +300,7 @@ router.get('/without-guild', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des comptes sans guilde:', error);
+    logger.error('Erreur lors de la récupération des comptes sans guilde:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
@@ -331,7 +332,7 @@ router.get('/accounts', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des comptes bbs:', error);
+    logger.error('Erreur lors de la récupération des comptes bbs:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
@@ -351,7 +352,7 @@ router.get('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateur 
 
     res.json({ success: true, user });
   } catch (error) {
-    console.error('Erreur lors de la récupération de l\'utilisateur:', error);
+    logger.error('Erreur lors de la récupération de l\'utilisateur:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
@@ -404,14 +405,14 @@ router.patch('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateu
     // Notification Discord si la guilde a changé — attendue avant la réponse.
     if ('guilde_id' in updates && updates.guilde_id !== userBefore.guilde_id) {
       await notifyGuildChange(req.db, userBefore, updates.guilde_id || null).catch(e =>
-        console.error('[users/patch] Erreur notification Discord:', e.message)
+        logger.error('[users/patch] Erreur notification Discord:', e.message)
       );
     }
 
     res.json({ success: true, message: `${getUserDisplayName(updatedUser)} mis à jour avec succès` });
   } catch (error) {
     const status = error.statusCode || 500;
-    if (status === 500) console.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
+    if (status === 500) logger.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
     res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
@@ -491,14 +492,14 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
           new_role: role
         }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
       } catch (notifErr) {
-        console.error('[users/role] Erreur notification Discord (non bloquant):', notifErr.message);
+        logger.error('[users/role] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
 
     res.json({ success: true, message: `Rôle mis à jour vers ${role}` });
   } catch (error) {
     const status = error.statusCode || 500;
-    if (status === 500) console.error('Erreur lors de la mise à jour du rôle:', error);
+    if (status === 500) logger.error('Erreur lors de la mise à jour du rôle:', error);
     res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
@@ -547,14 +548,14 @@ router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Form
     // reflètent les champs racine guilde_id/role affichés ailleurs) — attendue avant la réponse.
     if (!bbs_id || targetAccount?.is_primary) {
       await notifyGuildChange(req.db, user, guildeId).catch(e =>
-        console.error('[users/guild] Erreur notification Discord:', e.message)
+        logger.error('[users/guild] Erreur notification Discord:', e.message)
       );
     }
 
     res.json({ success: true, message: `${getUserDisplayName(user, 'Utilisateur')} déplacé vers la nouvelle guilde` });
   } catch (error) {
     const status = error.statusCode || 500;
-    if (status === 500) console.error('Erreur lors du changement de guilde:', error);
+    if (status === 500) logger.error('Erreur lors du changement de guilde:', error);
     res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
@@ -597,14 +598,14 @@ router.post('/:userId/accounts', requireAdmin, validateObjectIdParam('userId', "
           role
         });
       } catch (notifErr) {
-        console.error('[users/accounts POST] Erreur notification Discord (non bloquant):', notifErr.message);
+        logger.error('[users/accounts POST] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
 
     res.status(201).json({ success: true, message: 'Compte bbs ajouté avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
     const status = error.statusCode || 500;
-    if (status === 500) console.error('Erreur lors de l\'ajout du compte bbs:', error);
+    if (status === 500) logger.error('Erreur lors de l\'ajout du compte bbs:', error);
     res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
@@ -670,13 +671,13 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
         await notifyAccountRoleChange(req.db, { username, guildeId: newGuildeId, oldRole, newRole });
       }
     } catch (notifErr) {
-      console.error('[users/accounts PUT] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[users/accounts PUT] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({ success: true, message: 'Compte bbs mis à jour avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
     const status = error.statusCode || 500;
-    if (status === 500) console.error('Erreur lors de la mise à jour du compte bbs:', error);
+    if (status === 500) logger.error('Erreur lors de la mise à jour du compte bbs:', error);
     res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
@@ -708,14 +709,14 @@ router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('u
           newGuildeId: null
         });
       } catch (notifErr) {
-        console.error('[users/accounts DELETE] Erreur notification Discord (non bloquant):', notifErr.message);
+        logger.error('[users/accounts DELETE] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
 
     res.json({ success: true, message: 'Compte bbs retiré avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
     const status = error.statusCode || 500;
-    if (status === 500) console.error('Erreur lors du retrait du compte bbs:', error);
+    if (status === 500) logger.error('Erreur lors du retrait du compte bbs:', error);
     res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
@@ -740,7 +741,7 @@ router.put('/:userId/accounts/:bbsId/primary', requireAdmin, validateObjectIdPar
     res.json({ success: true, message: 'Compte principal mis à jour avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
     const status = error.statusCode || 500;
-    if (status === 500) console.error('Erreur lors du changement de compte principal:', error);
+    if (status === 500) logger.error('Erreur lors du changement de compte principal:', error);
     res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
@@ -813,7 +814,7 @@ router.post('/:userId/accounts/:bbsId/transfer', requireAdmin, validateObjectIdP
     });
   } catch (error) {
     const status = error.statusCode || 500;
-    if (status === 500) console.error('Erreur lors du transfert de compte:', error);
+    if (status === 500) logger.error('Erreur lors du transfert de compte:', error);
     res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
   }
 });
@@ -827,7 +828,7 @@ router.get('/:user_id/stats', async (req, res) => {
   } catch (error) {
     const status = error.statusCode || 500;
     const message = status !== 500 ? error.message : 'Erreur serveur lors de la récupération des statistiques';
-    if (status === 500) console.error('Erreur lors de la récupération des statistiques du joueur:', error);
+    if (status === 500) logger.error('Erreur lors de la récupération des statistiques du joueur:', error);
     return res.status(status).json({ success: false, message });
   }
 });
@@ -879,7 +880,7 @@ router.post('/:userId/ban', requireAdmin, validateObjectIdParam('userId', "Forma
         banned_at: new Date().toISOString()
       }, process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
     } catch (notifErr) {
-      console.error('[users/ban] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[users/ban] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({
@@ -887,7 +888,7 @@ router.post('/:userId/ban', requireAdmin, validateObjectIdParam('userId', "Forma
       message: `${getUserDisplayName(user)} a été banni avec succès`
     });
   } catch (error) {
-    console.error('Erreur lors du bannissement:', error);
+    logger.error('Erreur lors du bannissement:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
@@ -933,7 +934,7 @@ router.post('/:userId/unban', requireAdmin, validateObjectIdParam('userId', "For
         reason: null
       }, process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
     } catch (notifErr) {
-      console.error('[users/unban] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[users/unban] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({
@@ -941,7 +942,7 @@ router.post('/:userId/unban', requireAdmin, validateObjectIdParam('userId', "For
       message: `${getUserDisplayName(user)} a été débanni avec succès`
     });
   } catch (error) {
-    console.error('Erreur lors du débannissement:', error);
+    logger.error('Erreur lors du débannissement:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });

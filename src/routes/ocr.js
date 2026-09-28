@@ -7,6 +7,7 @@ import { findBestMatch, getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { getGuildAccountRoster, resolveScoreAccounts } from '../utils/bbsAccounts.js';
 import sharp from 'sharp';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -136,7 +137,7 @@ router.post('/batch-guild-ranking', async (req, res) => {
           .toBuffer();
         thumbnail = `data:image/jpeg;base64,${thumbnailBuffer.toString('base64')}`;
       } catch (error) {
-        console.error('Erreur génération thumbnail:', error);
+        logger.error('Erreur génération thumbnail:', error);
       }
       
       return {
@@ -183,7 +184,7 @@ router.post('/batch-guild-ranking', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Erreur route OCR:', error);
+    logger.error('❌ Erreur route OCR:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors du traitement OCR',
@@ -332,7 +333,7 @@ router.post('/submit-batch', async (req, res) => {
         });
 
       } catch (error) {
-        console.error(`Erreur insertion score pour ${scoreData.user_id}:`, error);
+        logger.error(`Erreur insertion score pour ${scoreData.user_id}:`, error);
         errors.push({
           user_id: scoreData.user_id,
           error: error.message
@@ -383,7 +384,7 @@ router.post('/submit-batch', async (req, res) => {
         source: 'ocr'
       }, guildChannelId);
     } catch (notifErr) {
-      console.error('[ocr/submit-batch] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[ocr/submit-batch] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({
@@ -401,7 +402,7 @@ router.post('/submit-batch', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Erreur soumission batch:', error);
+    logger.error('❌ Erreur soumission batch:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la soumission des scores',

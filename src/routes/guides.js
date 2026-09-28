@@ -1,6 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -39,7 +40,7 @@ router.get('/orbes', async (req, res) => {
       data: orbesGuide
     });
   } catch (error) {
-    console.error('Error fetching orbes guide:', error);
+    logger.error('Error fetching orbes guide:', error);
     res.status(500).json({ error: 'Failed to fetch orbes guide' });
   }
 });
@@ -56,7 +57,7 @@ router.post('/orbes', async (req, res) => {
       insertedId: result.insertedId
     });
   } catch (error) {
-    console.error('Error adding orbes guide entry:', error);
+    logger.error('Error adding orbes guide entry:', error);
     res.status(500).json({ error: 'Failed to add entry' });
   }
 });
@@ -76,7 +77,7 @@ router.delete('/orbes/:id', async (req, res) => {
     
     res.json({ message: `Suppression de l'entrée avec l'ID '${id}' réussie` });
   } catch (error) {
-    console.error('Error deleting orbes guide entry:', error);
+    logger.error('Error deleting orbes guide entry:', error);
     res.status(500).json({ error: 'Failed to delete entry' });
   }
 });
@@ -101,7 +102,7 @@ router.patch('/orbes/:id', async (req, res) => {
       modifiedCount: result.modifiedCount
     });
   } catch (error) {
-    console.error('Error updating orbes guide entry:', error);
+    logger.error('Error updating orbes guide entry:', error);
     res.status(500).json({ error: 'Failed to update entry' });
   }
 });
@@ -140,7 +141,7 @@ router.get('/ability-slots', async (req, res) => {
 
     res.json({ data: abilitySlotsGuide });
   } catch (error) {
-    console.error('Error fetching ability slots guide:', error);
+    logger.error('Error fetching ability slots guide:', error);
     res.status(500).json({ error: 'Failed to fetch ability slots guide' });
   }
 });
@@ -176,7 +177,7 @@ router.post('/ability-slots', requireAdmin, async (req, res) => {
       insertedId: result.insertedId
     });
   } catch (error) {
-    console.error('Error adding ability slots guide entry:', error);
+    logger.error('Error adding ability slots guide entry:', error);
     res.status(500).json({ error: 'Failed to add entry' });
   }
 });
@@ -196,7 +197,7 @@ router.delete('/ability-slots/:id', requireAdmin, async (req, res) => {
 
     res.json({ message: `Suppression de l'entrée avec l'ID '${id}' réussie` });
   } catch (error) {
-    console.error('Error deleting ability slots guide entry:', error);
+    logger.error('Error deleting ability slots guide entry:', error);
     res.status(500).json({ error: 'Failed to delete entry' });
   }
 });
@@ -237,7 +238,7 @@ router.patch('/ability-slots/:id', requireAdmin, async (req, res) => {
       modifiedCount: result.modifiedCount
     });
   } catch (error) {
-    console.error('Error updating ability slots guide entry:', error);
+    logger.error('Error updating ability slots guide entry:', error);
     res.status(500).json({ error: 'Failed to update entry' });
   }
 });
@@ -257,7 +258,7 @@ router.get('/stuff', async (req, res) => {
       items: stuffGuide
     });
   } catch (error) {
-    console.error('Error fetching stuff guide:', error);
+    logger.error('Error fetching stuff guide:', error);
     res.status(500).json({ error: 'Failed to fetch stuff guide' });
   }
 });
@@ -287,7 +288,7 @@ router.get('/:type', async (req, res) => {
       data: guideData
     });
   } catch (error) {
-    console.error(`Error fetching ${req.params.type} guide:`, error);
+    logger.error(`Error fetching ${req.params.type} guide:`, error);
     res.status(500).json({ error: `Failed to fetch ${req.params.type} guide` });
   }
 });

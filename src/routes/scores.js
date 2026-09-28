@@ -9,6 +9,7 @@ import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.
 import { USER_DISPLAY, USER_DISPLAY_WITH_ID, USER_SCORES_LOOKUP } from "../utils/projections.js";
 import { resolveScoreAccounts, findAccount } from "../utils/bbsAccounts.js";
 import { escapeRegex } from "../utils/regexUtils.js";
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -281,7 +282,7 @@ router.get("/compare", async (req, res) => {
       }
     });
   } catch (err) {
-    console.error("Erreur dans route compare:", err);
+    logger.error("Erreur dans route compare:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -536,7 +537,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
         }, guild.discord_channel_id);
       }
     } catch (notifErr) {
-      console.error("[scores/transfer] Erreur notification Discord (non bloquant):", notifErr.message);
+      logger.error("[scores/transfer] Erreur notification Discord (non bloquant):", notifErr.message);
     }
 
     res.json({
@@ -552,7 +553,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Erreur lors du transfert de rotation:", err);
+    logger.error("Erreur lors du transfert de rotation:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -844,7 +845,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         }, guildGeneralChannelId || guildChannelId);
       }
     } catch (notifErr) {
-      console.error("[scores/bulk] Erreur notification Discord (non bloquant):", notifErr.message);
+      logger.error("[scores/bulk] Erreur notification Discord (non bloquant):", notifErr.message);
     }
 
     res.status(200).json({
@@ -867,7 +868,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     });
   } catch (err) {
     const status = err.statusCode || 500;
-    if (status === 500) console.error("Erreur lors de la saisie groupée:", err);
+    if (status === 500) logger.error("Erreur lors de la saisie groupée:", err);
     res.status(status).json({ success: false, message: err.message });
   }
 });
@@ -1007,7 +1008,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
     });
   } catch (err) {
     const status = err.statusCode || 500;
-    if (status === 500) console.error("Erreur lors de la création du score:", err);
+    if (status === 500) logger.error("Erreur lors de la création du score:", err);
     res.status(status).json({ success: false, message: err.message });
   }
 });
@@ -1217,7 +1218,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
           rotation_killer: rotation?.killer || ''
         }, guildChannelId);
       } catch (notifErr) {
-        console.error('[scores/edit] Erreur notification Discord (non bloquant):', notifErr.message);
+        logger.error('[scores/edit] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
 
@@ -1236,7 +1237,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
     });
   } catch (err) {
     const status = err.statusCode || 500;
-    if (status === 500) console.error("Erreur lors de la mise à jour du score:", err);
+    if (status === 500) logger.error("Erreur lors de la mise à jour du score:", err);
     res.status(status).json({ success: false, message: err.message });
   }
 });
@@ -1351,7 +1352,7 @@ router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
     });
   } catch (err) {
     const status = err.statusCode || 500;
-    if (status === 500) console.error("Erreur lors du transfert de score:", err);
+    if (status === 500) logger.error("Erreur lors du transfert de score:", err);
     res.status(status).json({ success: false, message: err.message });
   }
 });

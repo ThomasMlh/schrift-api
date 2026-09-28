@@ -9,6 +9,7 @@ import {
   getGuildAccountRoster, findAccount, assertRoleAvailable,
   upsertPrimaryAccount, updateAccount, deriveMirrorFields
 } from '../utils/bbsAccounts.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -77,7 +78,7 @@ router.get('/rankings', async (req, res) => {
 
     res.json({ success: true, data: results });
   } catch (err) {
-    console.error('Error fetching guild rankings:', err);
+    logger.error('Error fetching guild rankings:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -174,7 +175,7 @@ router.get('/:id/stats', async (req, res) => {
 
     res.json({ success: true, data: stats });
   } catch (err) {
-    console.error('Error fetching guild stats:', err);
+    logger.error('Error fetching guild stats:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -223,7 +224,7 @@ router.get('/:id/top-members', async (req, res) => {
     topMembers.sort((a, b) => b.bestScore - a.bestScore);
     res.json({ success: true, data: topMembers.slice(0, limit) });
   } catch (err) {
-    console.error('Error fetching guild top members:', err);
+    logger.error('Error fetching guild top members:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -259,7 +260,7 @@ router.get('/:id/score-distribution', async (req, res) => {
 
     res.json({ success: true, data: buckets.map(b => ({ label: b.label, count: b.count })) });
   } catch (err) {
-    console.error('Error fetching guild score distribution:', err);
+    logger.error('Error fetching guild score distribution:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -307,7 +308,7 @@ router.get('/:id/evolution', async (req, res) => {
 
     res.json({ success: true, data: results });
   } catch (err) {
-    console.error('Error fetching guild evolution:', err);
+    logger.error('Error fetching guild evolution:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -345,7 +346,7 @@ router.post('/', async (req, res) => {
         guild_name: name.trim()
       }, req.body.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
     } catch (notifErr) {
-      console.error('[guildes/create] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[guildes/create] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.status(200).json({
@@ -409,7 +410,7 @@ router.put('/:id', async (req, res) => {
           guild_name: name.trim()
         }, updateFields.discord_channel_id || currentGuilde.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
       } catch (notifErr) {
-        console.error('[guildes/rename] Erreur notification Discord (non bloquant):', notifErr.message);
+        logger.error('[guildes/rename] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
 
@@ -515,7 +516,7 @@ router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
         toggled_at: new Date().toISOString()
       }, guilde.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
     } catch (notifErr) {
-      console.error('[guildes/toggle-disable] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[guildes/toggle-disable] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.status(200).json({
@@ -545,7 +546,7 @@ router.delete('/:id', async (req, res) => {
         guild_name: guilde.name
       }, guilde.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
     } catch (notifErr) {
-      console.error('[guildes/delete] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[guildes/delete] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.status(200).json({ success: true, message: `Guilde ${guilde.name} supprimée avec succès` });
@@ -602,13 +603,13 @@ router.post('/:id/assign-member', async (req, res) => {
         role
       }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
     } catch (notifErr) {
-      console.error('[guildes/assign-member] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[guildes/assign-member] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({ success: true, message: `${user.global_name || 'Utilisateur'} assigné à la guilde avec succès` });
   } catch (err) {
     const status = err.statusCode || 500;
-    if (status === 500) console.error('Erreur lors de l\'assignation du membre:', err);
+    if (status === 500) logger.error('Erreur lors de l\'assignation du membre:', err);
     res.status(status).json({ success: false, error: err.message, message: err.message });
   }
 });
@@ -650,13 +651,13 @@ router.delete('/:id/members/:userId', async (req, res) => {
         guild_name: guilde?.name || 'Inconnue'
       }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
     } catch (notifErr) {
-      console.error('[guildes/remove-member] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[guildes/remove-member] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({ success: true, message: 'Utilisateur retiré de la guilde' });
   } catch (err) {
     const status = err.statusCode || 500;
-    if (status === 500) console.error(err);
+    if (status === 500) logger.error(err);
     res.status(status).json({ success: false, error: err.message });
   }
 });
@@ -703,7 +704,7 @@ router.delete('/:guildeId/membres/:userId', async (req, res) => {
         guild_name: guilde?.name || 'Inconnue'
       }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
     } catch (notifErr) {
-      console.error('[guildes/remove-membre] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[guildes/remove-membre] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({
@@ -711,7 +712,7 @@ router.delete('/:guildeId/membres/:userId', async (req, res) => {
       message: `${user.global_name || 'Utilisateur'} retiré de la guilde avec succès`
     });
   } catch (err) {
-    console.error('Erreur lors de la suppression du membre:', err);
+    logger.error('Erreur lors de la suppression du membre:', err);
     res.status(err.statusCode || 500).json({ success: false, message: err.message || 'Erreur serveur' });
   }
 });
@@ -751,13 +752,13 @@ router.post('/:id/membres', async (req, res) => {
         role
       }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
     } catch (notifErr) {
-      console.error('[guildes/add-membre] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[guildes/add-membre] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.status(201).json({ success: true, message: `${mirror.bbs_name || 'Membre'} ajouté avec succès` });
   } catch (err) {
     const status = err.statusCode || 500;
-    if (status === 500) console.error('Erreur lors de l\'ajout du membre:', err);
+    if (status === 500) logger.error('Erreur lors de l\'ajout du membre:', err);
     res.status(status).json({ success: false, message: err.message || 'Erreur serveur' });
   }
 });
@@ -974,7 +975,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
           .map(g => notifyDiscord('draft', { guild_name: g.name, moves: g.moves }, g.discord_channel_id || undefined))
       );
     } catch (notifErr) {
-      console.error('[draft] Erreur lors des notifications Discord:', notifErr.message);
+      logger.error('[draft] Erreur lors des notifications Discord:', notifErr.message);
     }
 
     res.json({
@@ -984,7 +985,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
     });
   } catch (err) {
     const status = err.statusCode || 500;
-    if (status === 500) console.error('Erreur lors de l\'exécution du draft:', err);
+    if (status === 500) logger.error('Erreur lors de l\'exécution du draft:', err);
     res.status(status).json({ success: false, message: err.message || 'Erreur serveur lors du draft' });
   }
 });

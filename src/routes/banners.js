@@ -1,6 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -31,7 +32,7 @@ router.get('/', async (req, res) => {
       count: banners.length
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des banners:', error);
+    logger.error('Erreur lors de la récupération des banners:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération des banners'
@@ -58,7 +59,7 @@ router.get('/:id', async (req, res) => {
       data: banner
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération de la bannière:', error);
+    logger.error('Erreur lors de la récupération de la bannière:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération de la bannière'
@@ -115,7 +116,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
       data: updatedBanner
     });
   } catch (error) {
-    console.error('Erreur lors de la mise à jour de la bannière:', error);
+    logger.error('Erreur lors de la mise à jour de la bannière:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la mise à jour de la bannière'
@@ -142,7 +143,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       message: 'Bannière supprimée avec succès'
     });
   } catch (error) {
-    console.error('Erreur lors de la suppression de la bannière:', error);
+    logger.error('Erreur lors de la suppression de la bannière:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la suppression de la bannière'

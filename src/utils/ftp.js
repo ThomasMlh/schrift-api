@@ -1,5 +1,6 @@
 import * as ftp from "basic-ftp";
 import { Readable } from "stream";
+import { logger } from './logger.js';
 
 export class FTPUploader {
   constructor() {
@@ -15,12 +16,12 @@ export class FTPUploader {
       password: process.env.FTP_PASSWORD,
       secure: false,
     });
-    console.log("📁 FTP connecté à", process.env.FTP_HOST);
+    logger.info("📁 FTP connecté à", process.env.FTP_HOST);
   }
 
   async disconnect() {
     this.client.close();
-    console.log("📁 FTP déconnecté");
+    logger.info("📁 FTP déconnecté");
   }
 
   /**
@@ -66,7 +67,7 @@ export class FTPUploader {
     try {
       const response = await fetch(imageUrl);
       if (!response.ok) {
-        console.warn(`⚠️ HTTP ${response.status} pour ${imageUrl}`);
+        logger.warn(`⚠️ HTTP ${response.status} pour ${imageUrl}`);
         return false;
       }
 
@@ -87,7 +88,7 @@ export class FTPUploader {
       await this.client.uploadFrom(stream, remotePath);
       return true;
     } catch (err) {
-      console.error(`❌ Erreur upload FTP ${remotePath}:`, err.message);
+      logger.error(`❌ Erreur upload FTP ${remotePath}:`, err.message);
       return false;
     }
   }

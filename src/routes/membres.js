@@ -2,6 +2,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb } from '../middleware/auth.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -84,7 +85,7 @@ router.put('/:id/role', async (req, res) => {
           new_role: newRole
         }, guilde?.discord_channel_id || process.env.DISCORD_CHANNEL_GLOBAL_CHEF);
       } catch (notifErr) {
-        console.error('[membres/role] Erreur notification Discord (non bloquant):', notifErr.message);
+        logger.error('[membres/role] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
 

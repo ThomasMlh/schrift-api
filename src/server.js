@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import { MongoClient } from 'mongodb';
 import apiRoutes from './routes/index.js';
 import { setDb } from './config/database.js';
+import { logger } from './utils/logger.js';
 
 const app = express();
 
@@ -39,7 +40,7 @@ if (typeof (PhusionPassenger) !== 'undefined') {
 
 const uri = process.env.MONGODB_URI;
 if (!uri) {
-  console.error('❌ MONGODB_URI manquant');
+  logger.error('❌ MONGODB_URI manquant');
   process.exit(1);
 }
 
@@ -50,11 +51,11 @@ let db;
 const initDb = async () => {
   try {
     if(process.env.NODE_ENV === 'production') {
-      console.log('⚠️  Mode production : connexion MongoDB optimisée pour Vercel');
+      logger.info('⚠️  Mode production : connexion MongoDB optimisée pour Vercel');
       await client.connect();
       db = client.db('schrift');
     } else {
-      console.log('⚠️  Mode développement : connexion MongoDB standard');
+      logger.info('⚠️  Mode développement : connexion MongoDB standard');
       await client.connect();
       db = client.db('schrift-test');
     }
@@ -63,9 +64,9 @@ const initDb = async () => {
     // Et aux modules hors requête Express (ex: notifyDiscord.js)
     setDb(db);
 
-    console.log('✅ Connecté à MongoDB');
+    logger.info('✅ Connecté à MongoDB');
   } catch (err) {
-    console.error('❌ Connexion MongoDB échouée:', err.message);
+    logger.error('❌ Connexion MongoDB échouée:', err.message);
     // si la DB est indisponsable, on stoppe pour que Passenger relance
     process.exit(1);
   }
@@ -88,11 +89,11 @@ app.use('/api', (_req, res) => {
 // synchrone, rejet de Promise transmis via next(err), etc.) pour éviter de
 // laisser fuiter une stack trace ou un message d'erreur interne au client.
 app.use((err, _req, res, _next) => {
-  console.error('❌ Erreur non gérée:', err);
+  logger.error('❌ Erreur non gérée:', err);
   res.status(err.status || 500).json({ success: false, message: 'Erreur serveur interne' });
 });
 
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
-  console.log(`API démarrée sur http://0.0.0.0:${port}`);
+  logger.info(`API démarrée sur http://0.0.0.0:${port}`);
 });

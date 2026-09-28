@@ -1,5 +1,6 @@
 import express from 'express';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -173,7 +174,7 @@ router.get('/*splat', async (req, res) => {
 
     if (upstream.status === 200 && ct.includes('text/html')) {
       if (!looksAuthenticated(body)) {
-        console.warn(`[webview] token probablement expire (${path})`);
+        logger.warn(`[webview] token probablement expire (${path})`);
       }
       res.set('Content-Type', 'text/html; charset=UTF-8');
       return res.status(200).send(rewriteHtml(body, lang));
@@ -182,7 +183,7 @@ router.get('/*splat', async (req, res) => {
     if (ct) res.set('Content-Type', ct);
     return res.send(body);
   } catch (e) {
-    console.error('[webview] erreur proxy:', e.message);
+    logger.error('[webview] erreur proxy:', e.message);
     return res.status(502).json({ success: false, message: 'Erreur proxy amont' });
   }
 });

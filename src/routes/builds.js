@@ -5,6 +5,7 @@ import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.
 import { USER_BUILD } from '../utils/projections.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -422,7 +423,7 @@ router.post('/', optionalAuth, async (req, res) => {
         team_size: enrichedTeam.length
       });
     } catch (notifErr) {
-      console.error('[builds/create] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[builds/create] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.status(201).json({
@@ -434,7 +435,7 @@ router.post('/', optionalAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la création du build:', error);
+    logger.error('Erreur lors de la création du build:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la création du build'
@@ -515,7 +516,7 @@ router.get('/', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des builds:', error);
+    logger.error('Erreur lors de la récupération des builds:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération des builds'
@@ -551,7 +552,7 @@ router.get('/:id', validateObjectIdParam('id'), async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération du build:', error);
+    logger.error('Erreur lors de la récupération du build:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération du build'
@@ -828,7 +829,7 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la mise à jour du build:', error);
+    logger.error('Erreur lors de la mise à jour du build:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la mise à jour du build'
@@ -886,7 +887,7 @@ router.patch('/:id/validate', requireAdmin, validateObjectIdParam('id'), async (
       }
     });
   } catch (error) {
-    console.error('Erreur lors de la validation du build:', error);
+    logger.error('Erreur lors de la validation du build:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la validation du build'
@@ -925,7 +926,7 @@ router.delete('/:id', validateObjectIdParam('id'), async (req, res) => {
         attack: rotation?.attack || ''
       });
     } catch (notifErr) {
-      console.error('[builds/delete] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[builds/delete] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({
@@ -933,7 +934,7 @@ router.delete('/:id', validateObjectIdParam('id'), async (req, res) => {
       message: 'Build supprimé avec succès'
     });
   } catch (error) {
-    console.error('Erreur lors de la suppression du build:', error);
+    logger.error('Erreur lors de la suppression du build:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la suppression du build'

@@ -4,6 +4,7 @@ import { requireDb } from '../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 import { USER_SCORES_LOOKUP } from '../utils/projections.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -140,7 +141,7 @@ router.post('/', async (req, res) => {
         rotation_count: cycle.rotations.length
       });
     } catch (notifErr) {
-      console.error('[cycles/create] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[cycles/create] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.status(201).json({
@@ -243,7 +244,7 @@ router.put('/:cycleId', async (req, res) => {
         rotation_count: (updateData.rotations || currentCycle.rotations).length
       });
     } catch (notifErr) {
-      console.error('[cycles/update] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[cycles/update] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({ success: true, message: 'Cycle mis à jour avec succès' });
@@ -274,7 +275,7 @@ router.delete('/:cycleId', async (req, res) => {
         rotation_count: (cycleToDelete.rotations || []).length
       });
     } catch (notifErr) {
-      console.error('[cycles/delete] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[cycles/delete] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({ success: true, message: 'Cycle supprimé avec succès' });

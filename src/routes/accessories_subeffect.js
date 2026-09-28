@@ -1,6 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -31,7 +32,7 @@ router.get('/', async (req, res) => {
       count: subeffects.length
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des accessories_subeffect:', error);
+    logger.error('Erreur lors de la récupération des accessories_subeffect:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération des accessories_subeffect'
@@ -58,7 +59,7 @@ router.get('/:id', async (req, res) => {
       data: subeffect
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération de l\'accessories subeffect:', error);
+    logger.error('Erreur lors de la récupération de l\'accessories subeffect:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération de l\'accessories subeffect'
@@ -115,7 +116,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
       data: updatedSubeffect
     });
   } catch (error) {
-    console.error('Erreur lors de la mise à jour de l\'accessories subeffect:', error);
+    logger.error('Erreur lors de la mise à jour de l\'accessories subeffect:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la mise à jour de l\'accessories subeffect'
@@ -142,7 +143,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       message: 'Accessories subeffect supprimé avec succès'
     });
   } catch (error) {
-    console.error('Erreur lors de la suppression de l\'accessories subeffect:', error);
+    logger.error('Erreur lors de la suppression de l\'accessories subeffect:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la suppression de l\'accessories subeffect'
