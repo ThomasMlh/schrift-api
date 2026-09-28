@@ -1,5 +1,6 @@
 import express from 'express';
 import { requireDb } from '../middleware/auth.js';
+import { sendServerErrorWithFlag } from '../utils/httpErrors.js';
 
 const router = express.Router();
 router.use(requireDb);
@@ -50,7 +51,7 @@ router.get('/community', async (req, res) => {
 
     res.json({ success: true, data: { totalMembers, totalGuilds, totalScores, globalClearRate, avgScore } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 

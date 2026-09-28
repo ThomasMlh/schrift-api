@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { requireDb } from '../middleware/auth.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
+import { sendServerError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.get('/', async (req, res) => {
     const membres = await req.db.collection('membres').find().toArray();
     res.json(membres);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -28,7 +29,7 @@ router.get('/:id', async (req, res) => {
     }
     res.json(membre);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -91,7 +92,7 @@ router.put('/:id/role', async (req, res) => {
 
     res.json({ success: true, message: `Rôle du membre ${member.name} mis à jour avec succès` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -120,7 +121,7 @@ router.put('/:id/guilde', async (req, res) => {
 
     res.json({ success: true, message: `${member.name} déplacé vers la guilde ${newGuilde.name}` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -133,7 +134,7 @@ router.delete('/:id', async (req, res) => {
     await req.db.collection('membres').deleteOne({ _id: new ObjectId(req.params.id) });
     res.json({ success: true, message: `Membre ${member.name} supprimé avec succès` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

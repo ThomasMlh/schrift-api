@@ -5,6 +5,7 @@ import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.
 import { USER_SCORES_LOOKUP } from '../utils/projections.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
+import { sendServerError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -46,7 +47,7 @@ router.get('/', async (req, res) => {
       pagination: buildPaginationMeta(page, limit, totalCount, paginatedCycles.length)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -63,7 +64,7 @@ router.get('/:cycleId', async (req, res) => {
     
     res.json({ success: true, cycle });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -150,7 +151,7 @@ router.post('/', async (req, res) => {
       message: 'Cycle créé avec succès'
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -249,7 +250,7 @@ router.put('/:cycleId', async (req, res) => {
 
     res.json({ success: true, message: 'Cycle mis à jour avec succès' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -280,7 +281,7 @@ router.delete('/:cycleId', async (req, res) => {
 
     res.json({ success: true, message: 'Cycle supprimé avec succès' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -417,7 +418,7 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       pagination: buildPaginationMeta(page, limit, totalCount, scores.length)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

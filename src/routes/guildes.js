@@ -10,6 +10,7 @@ import {
   upsertPrimaryAccount, updateAccount, deriveMirrorFields
 } from '../utils/bbsAccounts.js';
 import { logger } from '../utils/logger.js';
+import { sendServerError, sendServerErrorWithFlag } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -25,7 +26,7 @@ router.get('/', async (req, res) => {
     guildes.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     res.status(200).json(guildes);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -79,7 +80,7 @@ router.get('/rankings', async (req, res) => {
     res.json({ success: true, data: results });
   } catch (err) {
     logger.error('Error fetching guild rankings:', err);
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
@@ -100,7 +101,7 @@ router.get('/members-summary', async (req, res) => {
     const data = Object.fromEntries(rows.map(r => [r._id, r.count]));
     res.json({ success: true, data });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
@@ -113,7 +114,7 @@ router.get('/:id', async (req, res) => {
     }
     res.json(guilde);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -126,7 +127,7 @@ router.get('/:id/membres', async (req, res) => {
     const roster = await getGuildAccountRoster(req.db, guildeId);
     res.json({ success: true, data: roster, count: roster.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -176,7 +177,7 @@ router.get('/:id/stats', async (req, res) => {
     res.json({ success: true, data: stats });
   } catch (err) {
     logger.error('Error fetching guild stats:', err);
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
@@ -225,7 +226,7 @@ router.get('/:id/top-members', async (req, res) => {
     res.json({ success: true, data: topMembers.slice(0, limit) });
   } catch (err) {
     logger.error('Error fetching guild top members:', err);
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
@@ -261,7 +262,7 @@ router.get('/:id/score-distribution', async (req, res) => {
     res.json({ success: true, data: buckets.map(b => ({ label: b.label, count: b.count })) });
   } catch (err) {
     logger.error('Error fetching guild score distribution:', err);
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
@@ -309,7 +310,7 @@ router.get('/:id/evolution', async (req, res) => {
     res.json({ success: true, data: results });
   } catch (err) {
     logger.error('Error fetching guild evolution:', err);
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
@@ -355,7 +356,7 @@ router.post('/', async (req, res) => {
       message: `Guilde ${name.trim()} ajoutée avec succès`
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -416,7 +417,7 @@ router.put('/:id', async (req, res) => {
 
     res.status(200).json({ success: true, message: `Guilde renommée en ${name.trim()}` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -525,7 +526,7 @@ router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
       disabled: newDisabledState
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -551,7 +552,7 @@ router.delete('/:id', async (req, res) => {
 
     res.status(200).json({ success: true, message: `Guilde ${guilde.name} supprimée avec succès` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

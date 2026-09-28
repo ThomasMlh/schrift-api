@@ -10,6 +10,7 @@ import { USER_DISPLAY, USER_DISPLAY_WITH_ID, USER_SCORES_LOOKUP } from "../utils
 import { resolveScoreAccounts, findAccount } from "../utils/bbsAccounts.js";
 import { escapeRegex } from "../utils/regexUtils.js";
 import { logger } from '../utils/logger.js';
+import { sendServerError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -193,7 +194,7 @@ router.get("/", async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -283,7 +284,7 @@ router.get("/compare", async (req, res) => {
     });
   } catch (err) {
     logger.error("Erreur dans route compare:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -303,7 +304,7 @@ router.get("/:id", async (req, res) => {
 
     res.json({ success: true, score });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -554,7 +555,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
 
   } catch (err) {
     logger.error("Erreur lors du transfert de rotation:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -1372,7 +1373,7 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true, message: "Score supprimé avec succès" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -1401,7 +1402,7 @@ router.get("/user/:userId", async (req, res) => {
       pagination: buildPaginationMeta(page, limit, totalCount, scores.length)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -1428,7 +1429,7 @@ router.get("/cycle/:cycleId", async (req, res) => {
       pagination: buildPaginationMeta(page, limit, totalCount, scores.length)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

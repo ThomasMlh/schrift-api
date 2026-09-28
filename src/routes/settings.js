@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { sanitizeDisabledTypes } from '../utils/notificationTypes.js';
+import { sendServerErrorWithFlag } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ router.get('/notifications', requireAdmin, async (req, res) => {
     const settings = await req.db.collection('app_settings').findOne({ _id: 'notifications' });
     res.json({ success: true, disabled_notification_types: settings?.disabled_notification_types || [] });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
@@ -29,7 +30,7 @@ router.put('/notifications', requireAdmin, async (req, res) => {
 
     res.json({ success: true, message: 'Settings de notification mis à jour', disabled_notification_types: disabledTypes });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
@@ -42,7 +43,7 @@ router.get('/podium', requireAdmin, async (req, res) => {
       min_scores_for_ranking: typeof settings?.min_scores_for_ranking === 'number' ? settings.min_scores_for_ranking : 0,
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
@@ -62,7 +63,7 @@ router.put('/podium', requireAdmin, async (req, res) => {
 
     res.json({ success: true, message: 'Seuil du podium mis à jour', min_scores_for_ranking: value });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 
