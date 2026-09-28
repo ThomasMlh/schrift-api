@@ -2,7 +2,6 @@
  * Logique de synchronisation des personnages depuis SFTP et d'upload des images FTP.
  * Extrait de characters.js pour réduire la taille du fichier de routes.
  */
-import { ObjectId } from 'mongodb';
 import { cleanObject } from '../utils/cleaners.js';
 import { SFTPClient } from '../utils/database.js';
 import { FTPUploader } from '../utils/ftp.js';

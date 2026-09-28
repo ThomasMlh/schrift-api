@@ -805,7 +805,7 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       updates.isValid = false;
     }
 
-    const result = await req.db.collection('builds').updateOne(
+    await req.db.collection('builds').updateOne(
       { _id: new ObjectId(id) },
       { $set: updates }
     );

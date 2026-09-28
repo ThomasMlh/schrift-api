@@ -343,41 +343,6 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       matchStage.guild_id = guildId;
     }
 
-    // Vérifier qu'il y a des scores pour cette rotation
-    const scoresCheck = await req.db.collection('scores')
-      .countDocuments(matchStage);
-
-    // Récupérer les scores avec pagination, tri par score décroissant et join avec les utilisateurs
-    let pipeline = [
-      { $match: matchStage },
-      {
-        $lookup: {
-          from: 'users',
-          let: { userId: "$user_id" }, // Pas de conversion ObjectId ici
-          pipeline: [
-            { 
-              $match: { 
-                $expr: { 
-                  $or: [
-                    { $eq: ["$discord_id", "$$userId"] }, // Si user_id est un discord_id
-                    { $eq: [{ $toString: "$_id" }, "$$userId"] } // Si user_id est un ObjectId en string
-                  ]
-                }
-              }
-            },
-            { $project: USER_SCORES_LOOKUP }
-          ],
-          as: 'user'
-        }
-      },
-      {
-        $unwind: {
-          path: '$user',
-          preserveNullAndEmptyArrays: true // Garder les scores même si l'utilisateur n'est pas trouvé
-        }
-      }
-    ];
-
     // Pipeline pour récupérer tous les scores (sans pagination d'abord pour calculer les ranks)
     let pipelineForRanking = [
       { $match: matchStage },
@@ -421,7 +386,6 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
     // Calculer les ranks en tenant compte des égalités
     let currentRank = 1;
     let previousScore = null;
-    let playersWithSameScore = 0;
 
     const scoresWithRank = allScores.map((scoreDoc, index) => {
       if (previousScore !== null && scoreDoc.score !== previousScore) {

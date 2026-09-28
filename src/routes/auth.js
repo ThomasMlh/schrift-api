@@ -267,7 +267,7 @@ const completeDiscordLogin = async (req, tokenData) => {
         };
 
         // Upsert utilisateur
-        const updateResult = await req.db.collection('users').updateOne(
+        await req.db.collection('users').updateOne(
             { discord_id: userData.id },
             { $set: user },
             { upsert: true }

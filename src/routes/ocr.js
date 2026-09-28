@@ -310,7 +310,7 @@ router.post('/submit-batch', async (req, res) => {
 
         // Upsert (insert ou update si existe déjà). Filtre par bbs_id seul (identité du compte) :
         // le $set remet user_id à jour vers le user actuel même si le doc existant portait l'ancien.
-        const result = await req.db.collection('scores').updateOne(
+        await req.db.collection('scores').updateOne(
           {
             bbs_id,
             cycle_id,

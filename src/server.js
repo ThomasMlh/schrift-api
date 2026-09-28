@@ -4,7 +4,7 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
-import { MongoClient, ObjectId } from 'mongodb';
+import { MongoClient } from 'mongodb';
 import apiRoutes from './routes/index.js';
 import { setDb } from './config/database.js';
 
@@ -26,7 +26,6 @@ app.use(cors({
   credentials: true
 }));
 
-// eslint-disable-next-line no-undef
 if (typeof (PhusionPassenger) !== 'undefined') {
   // eslint-disable-next-line no-undef
   PhusionPassenger.configure({ autoInstall: false });
