@@ -6,6 +6,7 @@ import { getUserDisplayName } from '../utils/nameMatching.js';
 import { USER_DISPLAY } from '../utils/projections.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
+import { sendStatusCodeError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -17,9 +18,7 @@ router.get('/', async (req, res) => {
     const result = await getPodium(req.db, req.query);
     res.json({ success: true, ...result });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de la creation du podium:', error);
-    res.status(status).json({ success: false, message: error.message || 'Erreur serveur lors de la creation du podium' });
+    sendStatusCodeError(res, error, 'Erreur serveur lors de la creation du podium');
   }
 });
 
@@ -29,9 +28,7 @@ router.get('/full', async (req, res) => {
     const result = await getPodiumFull(req.db, req.query);
     res.json({ success: true, ...result });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de la creation du podium complet:', error);
-    res.status(status).json({ success: false, message: error.message || 'Erreur serveur lors de la creation du podium complet' });
+    sendStatusCodeError(res, error, 'Erreur serveur lors de la creation du podium complet');
   }
 });
 
@@ -41,9 +38,7 @@ router.get('/weekly', async (req, res) => {
     const result = await getPodiumWeekly(req.db, req.query);
     res.json({ success: true, ...result });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de la creation du podium hebdomadaire:', error);
-    res.status(status).json({ success: false, message: error.message || 'Erreur serveur lors de la creation du podium hebdomadaire' });
+    sendStatusCodeError(res, error, 'Erreur serveur lors de la creation du podium hebdomadaire');
   }
 });
 
@@ -53,9 +48,7 @@ router.get('/misses', async (req, res) => {
     const result = await getPodiumMisses(req.db, req.query);
     res.json({ success: true, ...result });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de la creation du podium des miss:', error);
-    res.status(status).json({ success: false, message: error.message || 'Erreur serveur lors de la creation du podium des miss' });
+    sendStatusCodeError(res, error, 'Erreur serveur lors de la creation du podium des miss');
   }
 });
 
@@ -85,9 +78,7 @@ router.get('/draft-proposal', requireAdmin, async (req, res) => {
       logger.error('[draft-proposal] Erreur sauvegarde historique (non bloquant):', historyErr.message);
     }
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de la génération de la proposition de draft:', error);
-    res.status(status).json({ success: false, message: error.message || 'Erreur serveur lors de la génération de la proposition de draft' });
+    sendStatusCodeError(res, error, 'Erreur serveur lors de la génération de la proposition de draft');
   }
 });
 
