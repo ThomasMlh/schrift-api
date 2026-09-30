@@ -1,0 +1,329 @@
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoClient, ObjectId } from 'mongodb';
+import {
+  getPodium,
+  getPodiumFull,
+  getPodiumWeekly,
+  getPodiumMisses,
+  getDraftProposal,
+} from '../../src/services/podiumService.js';
+
+// Tests d'intégration exerçant les vrais pipelines d'agrégation MongoDB (les
+// tests unitaires de podiumService.test.js ne couvrent que les fonctions pures
+// autour). mongodb-memory-server démarre un vrai mongod éphémère en local :
+// pas de mock d'aggregate() à maintenir, le comportement testé est le
+// comportement réel de Mongo sur ces pipelines.
+jest.setTimeout(60000);
+
+let mongod;
+let client;
+let db;
+
+beforeAll(async () => {
+  mongod = await MongoMemoryServer.create();
+  client = new MongoClient(mongod.getUri());
+  await client.connect();
+  db = client.db('schrift-test');
+});
+
+afterAll(async () => {
+  await client.close();
+  await mongod.stop();
+});
+
+afterEach(async () => {
+  const collections = await db.listCollections().toArray();
+  await Promise.all(collections.map(c => db.collection(c.name).deleteMany({})));
+});
+
+// --- Fixtures -----------------------------------------------------------
+
+const makeGuild = async (name) => {
+  const { insertedId } = await db.collection('guildes').insertOne({ name });
+  return insertedId.toString();
+};
+
+const makeUser = async ({ discordId, bbsAccounts = [], avatar = null, globalName = null }) => {
+  await db.collection('users').insertOne({
+    discord_id: discordId,
+    global_name: globalName,
+    avatar,
+    bbs_accounts: bbsAccounts,
+  });
+};
+
+const makeCycle = async ({ name, year = 2026, rotations }) => {
+  const { insertedId } = await db.collection('cycles').insertOne({ name, year, rotations, created_at: new Date() });
+  return { _id: insertedId, name, year, rotations };
+};
+
+const makeRotationMeta = (rotationId, position) => ({
+  rotation_id: rotationId,
+  position,
+  start_date: new Date(2026, 0, position),
+  end_date: new Date(2026, 0, position + 1),
+  period: `Semaine ${position}`,
+});
+
+const insertScore = (cycleId, { bbsId, bbsName, userId, guildId, rotationId, score, rawScore }) =>
+  db.collection('scores').insertOne({
+    cycle_id: cycleId,
+    rotation_id: rotationId,
+    bbs_id: bbsId,
+    bbs_name: bbsName,
+    user_id: userId,
+    guild_id: guildId,
+    score,
+    raw_score: rawScore ?? score,
+  });
+
+// --- getPodium ------------------------------------------------------------
+
+describe('getPodium (integration)', () => {
+  it('ranks players by average score, descending', async () => {
+    const guildId = await makeGuild('Guilde A');
+    const cycle = await makeCycle({ name: 'Cycle 1', rotations: [makeRotationMeta('r1', 1)] });
+    const cycleId = cycle._id.toString();
+
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId, rotationId: 'r1', score: 100 });
+    await insertScore(cycleId, { bbsId: 'bbs-2', bbsName: 'Bob', userId: 'u2', guildId, rotationId: 'r1', score: 300 });
+
+    const { podium } = await getPodium(db, { cycle_id: cycleId });
+
+    expect(podium.map(p => p.bbs_name)).toEqual(['Bob', 'Alice']);
+    expect(podium[0].rank).toBe(1);
+  });
+
+  it('excludes players below the configured min-scores-for-ranking threshold', async () => {
+    const cycle = await makeCycle({ name: 'Cycle 1', rotations: [makeRotationMeta('r1', 1), makeRotationMeta('r2', 2)] });
+    const cycleId = cycle._id.toString();
+    await db.collection('app_settings').insertOne({ _id: 'podium', min_scores_for_ranking: 2 });
+
+    // Alice : 1 seul score, très haut -> doit être exclue malgré son score
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId: 'r1', score: 999 });
+    // Bob : 2 scores -> passe le seuil
+    await insertScore(cycleId, { bbsId: 'bbs-2', bbsName: 'Bob', userId: 'u2', guildId: null, rotationId: 'r1', score: 50 });
+    await insertScore(cycleId, { bbsId: 'bbs-2', bbsName: 'Bob', userId: 'u2', guildId: null, rotationId: 'r2', score: 60 });
+
+    const { podium, meta } = await getPodium(db, { cycle_id: cycleId });
+
+    expect(podium.map(p => p.bbs_name)).toEqual(['Bob']);
+    expect(meta.minScoresRequired).toBe(2);
+  });
+
+  it('scopes results to the current guild roster via guild_id, not the score snapshot', async () => {
+    const guildA = await makeGuild('Guilde A');
+    const guildB = await makeGuild('Guilde B');
+    await makeUser({ discordId: 'd1', bbsAccounts: [{ bbs_id: 'bbs-1', guilde_id: guildA }] });
+    await makeUser({ discordId: 'd2', bbsAccounts: [{ bbs_id: 'bbs-2', guilde_id: guildB }] });
+
+    const cycle = await makeCycle({ name: 'Cycle 1', rotations: [makeRotationMeta('r1', 1)] });
+    const cycleId = cycle._id.toString();
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'd1', guildId: guildA, rotationId: 'r1', score: 100 });
+    await insertScore(cycleId, { bbsId: 'bbs-2', bbsName: 'Bob', userId: 'd2', guildId: guildB, rotationId: 'r1', score: 900 });
+
+    const { podium } = await getPodium(db, { cycle_id: cycleId, guild_id: guildA });
+
+    expect(podium).toHaveLength(1);
+    expect(podium[0].bbs_name).toBe('Alice');
+  });
+
+  it('throws a 400 error when cycle_id is missing', async () => {
+    await expect(getPodium(db, {})).rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
+// --- getPodiumFull ----------------------------------------------------------
+
+describe('getPodiumFull (integration)', () => {
+  it('resolves the cycle by name and ranks by average by default', async () => {
+    const cycle = await makeCycle({ name: 'Cycle Full', rotations: [makeRotationMeta('r1', 1)] });
+    const cycleId = cycle._id.toString();
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId: 'r1', score: 100 });
+    await insertScore(cycleId, { bbsId: 'bbs-2', bbsName: 'Bob', userId: 'u2', guildId: null, rotationId: 'r1', score: 200 });
+
+    const result = await getPodiumFull(db, { cycle_name: 'Cycle Full' });
+
+    expect(result.data.map(p => p.bbs_name)).toEqual(['Bob', 'Alice']);
+    expect(result.meta.podiumType).toBe('average_scores');
+  });
+
+  it('does not apply the min-scores threshold to max ranking', async () => {
+    const cycle = await makeCycle({ name: 'Cycle Max', rotations: [makeRotationMeta('r1', 1), makeRotationMeta('r2', 2)] });
+    const cycleId = cycle._id.toString();
+    await db.collection('app_settings').insertOne({ _id: 'podium', min_scores_for_ranking: 5 });
+
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId: 'r1', score: 100 });
+
+    const result = await getPodiumFull(db, { cycle_name: 'Cycle Max', ranking_type: 'max' });
+
+    // Un seul score, très en dessous du seuil de 5 : exclue en 'average', présente en 'max'.
+    expect(result.data.map(p => p.bbs_name)).toEqual(['Alice']);
+    expect(result.meta.minScoresRequired).toBeUndefined();
+  });
+
+  it('returns individual scores (no grouping) when rotation_id is given', async () => {
+    // getPodiumFull résout rotation_id via new ObjectId(...) sur la collection 'rotations' :
+    // il faut un vrai ObjectId, pas un id arbitraire comme dans les autres tests de ce fichier.
+    const rotationId = new ObjectId().toString();
+    await db.collection('rotations').insertOne({ _id: new ObjectId(rotationId), killer: 'Killer A', attack: 'Rouge' });
+    const cycle = await makeCycle({ name: 'Cycle Rot', rotations: [makeRotationMeta(rotationId, 1)] });
+    const cycleId = cycle._id.toString();
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId, score: 100 });
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId, score: 999 });
+
+    const result = await getPodiumFull(db, { cycle_name: 'Cycle Rot', rotation_id: rotationId });
+
+    // Pas de $group par rotation_id : les deux scores du même joueur remontent séparément.
+    expect(result.data).toHaveLength(2);
+    expect(result.meta.podiumType).toBe('individual_scores');
+  });
+
+  it('throws a 404 when the cycle name does not exist', async () => {
+    await expect(getPodiumFull(db, { cycle_name: 'Nope' })).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('throws a 400 for an invalid ranking_type', async () => {
+    await makeCycle({ name: 'Cycle X', rotations: [] });
+    await expect(getPodiumFull(db, { cycle_name: 'Cycle X', ranking_type: 'banana' }))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+
+// --- getPodiumWeekly --------------------------------------------------------
+
+describe('getPodiumWeekly (integration)', () => {
+  it('sums the two rotations of the requested week', async () => {
+    const rotation1Id = new ObjectId().toString();
+    const rotation2Id = new ObjectId().toString();
+    await db.collection('rotations').insertMany([
+      { _id: new ObjectId(rotation1Id), killer: 'Killer A', attack: 'Rouge' },
+      { _id: new ObjectId(rotation2Id), killer: 'Killer B', attack: 'Bleue' },
+    ]);
+    const cycle = await makeCycle({
+      name: 'Cycle Week',
+      rotations: [makeRotationMeta(rotation1Id, 1), makeRotationMeta(rotation2Id, 2)],
+    });
+    const cycleId = cycle._id.toString();
+
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId: rotation1Id, score: 100 });
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId: rotation2Id, score: 50 });
+
+    const result = await getPodiumWeekly(db, { cycle_name: 'Cycle Week', week_number: '1' });
+
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].week_total_score).toBe(150);
+    expect(result.data[0].rotation1_score).toBe(100);
+    expect(result.data[0].rotation2_score).toBe(50);
+  });
+
+  it('rejects a cycle with an odd number of rotations', async () => {
+    await makeCycle({ name: 'Cycle Odd', rotations: [makeRotationMeta('r1', 1)] });
+    await expect(getPodiumWeekly(db, { cycle_name: 'Cycle Odd', week_number: '1' }))
+      .rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('rejects a week number beyond the cycle length', async () => {
+    await makeCycle({ name: 'Cycle Short', rotations: [makeRotationMeta('r1', 1), makeRotationMeta('r2', 2)] });
+    await expect(getPodiumWeekly(db, { cycle_name: 'Cycle Short', week_number: '5' }))
+      .rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+// --- getPodiumMisses ---------------------------------------------------------
+
+describe('getPodiumMisses (integration)', () => {
+  it('only counts scores <= 0 and ranks by most misses first', async () => {
+    const cycle = await makeCycle({ name: 'Cycle Misses', rotations: [makeRotationMeta('r1', 1), makeRotationMeta('r2', 2)] });
+    const cycleId = cycle._id.toString();
+
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId: 'r1', score: 0 });
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId: 'r2', score: -5 });
+    await insertScore(cycleId, { bbsId: 'bbs-2', bbsName: 'Bob', userId: 'u2', guildId: null, rotationId: 'r1', score: 100 });
+
+    const result = await getPodiumMisses(db, { cycle_name: 'Cycle Misses' });
+
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].bbs_name).toBe('Alice');
+    expect(result.data[0].total_misses).toBe(2);
+    expect(result.meta.totalMissesInCycle).toBe(2);
+  });
+});
+
+// --- getDraftProposal --------------------------------------------------------
+
+describe('getDraftProposal (integration)', () => {
+  it('splits ranked candidates into chunks of 20 across the requested guild order', async () => {
+    const guildA = await makeGuild('A');
+    const guildB = await makeGuild('B');
+    const cycle = await makeCycle({ name: 'Cycle Draft', rotations: [makeRotationMeta('r1', 1)] });
+    const cycleId = cycle._id.toString();
+
+    // 25 joueurs classés par score décroissant, tous actuellement dans Guilde A.
+    const users = [];
+    for (let i = 0; i < 25; i++) {
+      const bbsId = `bbs-${i}`;
+      users.push({ discord_id: `d${i}`, bbs_accounts: [{ bbs_id: bbsId, guilde_id: guildA }] });
+      await insertScore(cycleId, { bbsId, bbsName: `Player${i}`, userId: `d${i}`, guildId: guildA, rotationId: 'r1', score: 1000 - i });
+    }
+    await db.collection('users').insertMany(users);
+
+    const result = await getDraftProposal(db, { cycle_name: 'Cycle Draft', guild_names: 'A,B' });
+
+    expect(result.guilds[0].guild_name).toBe('A');
+    expect(result.guilds[0].players).toHaveLength(20);
+    expect(result.guilds[1].guild_name).toBe('B');
+    expect(result.guilds[1].players).toHaveLength(5);
+    expect(result.leftover).toHaveLength(0);
+    // Le meilleur score (Player0) doit être en tête de la première guilde.
+    expect(result.guilds[0].players[0].bbs_name).toBe('Player0');
+  });
+
+  it('keeps a pinned player in their current guild regardless of score', async () => {
+    const guildA = await makeGuild('A');
+    const guildB = await makeGuild('B');
+    const cycle = await makeCycle({ name: 'Cycle Pin', rotations: [makeRotationMeta('r1', 1)] });
+    const cycleId = cycle._id.toString();
+
+    await db.collection('users').insertMany([
+      { discord_id: 'd1', bbs_accounts: [{ bbs_id: 'bbs-low', guilde_id: guildA }] },
+      { discord_id: 'd2', bbs_accounts: [{ bbs_id: 'bbs-high', guilde_id: guildB }] },
+    ]);
+    // bbs-low a un score très faible mais est épinglé sur Guilde A.
+    await insertScore(cycleId, { bbsId: 'bbs-low', bbsName: 'Low', userId: 'd1', guildId: guildA, rotationId: 'r1', score: 1 });
+    await insertScore(cycleId, { bbsId: 'bbs-high', bbsName: 'High', userId: 'd2', guildId: guildB, rotationId: 'r1', score: 999 });
+
+    const result = await getDraftProposal(db, {
+      cycle_name: 'Cycle Pin',
+      guild_names: 'A,B',
+      pinned_bbs_ids: 'bbs-low',
+    });
+
+    const guildAPlayers = result.guilds.find(g => g.guild_name === 'A').players.map(p => p.bbs_name);
+    expect(guildAPlayers).toContain('Low');
+  });
+
+  it('excludes a player from the simulation entirely when excluded_bbs_ids is given', async () => {
+    const guildA = await makeGuild('A');
+    const cycle = await makeCycle({ name: 'Cycle Excl', rotations: [makeRotationMeta('r1', 1)] });
+    const cycleId = cycle._id.toString();
+
+    await db.collection('users').insertOne({ discord_id: 'd1', bbs_accounts: [{ bbs_id: 'bbs-1', guilde_id: guildA }] });
+    await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'd1', guildId: guildA, rotationId: 'r1', score: 100 });
+
+    const result = await getDraftProposal(db, {
+      cycle_name: 'Cycle Excl',
+      guild_names: 'A',
+      excluded_bbs_ids: 'bbs-1',
+    });
+
+    expect(result.meta.totalCandidates).toBe(0);
+    expect(result.guilds[0].players).toHaveLength(0);
+  });
+
+  it('throws a 404 when a requested guild name does not exist', async () => {
+    await makeCycle({ name: 'Cycle NoGuild', rotations: [] });
+    await expect(getDraftProposal(db, { cycle_name: 'Cycle NoGuild', guild_names: 'Ghost' }))
+      .rejects.toMatchObject({ statusCode: 404 });
+  });
+});
