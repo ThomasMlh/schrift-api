@@ -14,6 +14,7 @@ import {
 } from '../utils/bbsAccounts.js';
 import players from '../assets/joueurs.json' with { type: "json" };
 import { logger } from '../utils/logger.js';
+import { sendHiddenServiceError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -196,9 +197,7 @@ router.post('/manual', requireAdmin, async (req, res) => {
 
     res.status(201).json({ success: true, message: 'Joueur créé avec succès', user: savedUser });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de la création manuelle du joueur:', error);
-    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+    sendHiddenServiceError(res, error, 'Erreur lors de la création manuelle du joueur:');
   }
 });
 
@@ -411,9 +410,7 @@ router.patch('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateu
 
     res.json({ success: true, message: `${getUserDisplayName(updatedUser)} mis à jour avec succès` });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de la mise à jour de l\'utilisateur:', error);
-    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+    sendHiddenServiceError(res, error, 'Erreur lors de la mise à jour de l\'utilisateur:');
   }
 });
 
@@ -498,9 +495,7 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
 
     res.json({ success: true, message: `Rôle mis à jour vers ${role}` });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de la mise à jour du rôle:', error);
-    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+    sendHiddenServiceError(res, error, 'Erreur lors de la mise à jour du rôle:');
   }
 });
 
@@ -554,9 +549,7 @@ router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Form
 
     res.json({ success: true, message: `${getUserDisplayName(user, 'Utilisateur')} déplacé vers la nouvelle guilde` });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors du changement de guilde:', error);
-    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+    sendHiddenServiceError(res, error, 'Erreur lors du changement de guilde:');
   }
 });
 
@@ -604,9 +597,7 @@ router.post('/:userId/accounts', requireAdmin, validateObjectIdParam('userId', "
 
     res.status(201).json({ success: true, message: 'Compte bbs ajouté avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de l\'ajout du compte bbs:', error);
-    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+    sendHiddenServiceError(res, error, 'Erreur lors de l\'ajout du compte bbs:');
   }
 });
 
@@ -676,9 +667,7 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
 
     res.json({ success: true, message: 'Compte bbs mis à jour avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de la mise à jour du compte bbs:', error);
-    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+    sendHiddenServiceError(res, error, 'Erreur lors de la mise à jour du compte bbs:');
   }
 });
 
@@ -715,9 +704,7 @@ router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('u
 
     res.json({ success: true, message: 'Compte bbs retiré avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors du retrait du compte bbs:', error);
-    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+    sendHiddenServiceError(res, error, 'Erreur lors du retrait du compte bbs:');
   }
 });
 
@@ -740,9 +727,7 @@ router.put('/:userId/accounts/:bbsId/primary', requireAdmin, validateObjectIdPar
 
     res.json({ success: true, message: 'Compte principal mis à jour avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors du changement de compte principal:', error);
-    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+    sendHiddenServiceError(res, error, 'Erreur lors du changement de compte principal:');
   }
 });
 
@@ -813,9 +798,7 @@ router.post('/:userId/accounts/:bbsId/transfer', requireAdmin, validateObjectIdP
       target: { bbs_accounts: targetAccounts }
     });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors du transfert de compte:', error);
-    res.status(status).json({ success: false, message: status !== 500 ? error.message : 'Erreur serveur' });
+    sendHiddenServiceError(res, error, 'Erreur lors du transfert de compte:');
   }
 });
 
@@ -826,10 +809,7 @@ router.get('/:user_id/stats', async (req, res) => {
     return res.json({ success: true, data });
 
   } catch (error) {
-    const status = error.statusCode || 500;
-    const message = status !== 500 ? error.message : 'Erreur serveur lors de la récupération des statistiques';
-    if (status === 500) logger.error('Erreur lors de la récupération des statistiques du joueur:', error);
-    return res.status(status).json({ success: false, message });
+    return sendHiddenServiceError(res, error, 'Erreur lors de la récupération des statistiques du joueur:', 'Erreur serveur lors de la récupération des statistiques');
   }
 });
 

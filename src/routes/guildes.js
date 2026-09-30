@@ -10,7 +10,7 @@ import {
   upsertPrimaryAccount, updateAccount, deriveMirrorFields
 } from '../utils/bbsAccounts.js';
 import { logger } from '../utils/logger.js';
-import { sendServerError, sendServerErrorWithFlag } from '../utils/httpErrors.js';
+import { sendServerError, sendServerErrorWithFlag, sendStatusCodeError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -758,9 +758,7 @@ router.post('/:id/membres', async (req, res) => {
 
     res.status(201).json({ success: true, message: `${mirror.bbs_name || 'Membre'} ajouté avec succès` });
   } catch (err) {
-    const status = err.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de l\'ajout du membre:', err);
-    res.status(status).json({ success: false, message: err.message || 'Erreur serveur' });
+    sendStatusCodeError(res, err, 'Erreur serveur', 'Erreur lors de l\'ajout du membre:');
   }
 });
 
@@ -985,9 +983,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
       results
     });
   } catch (err) {
-    const status = err.statusCode || 500;
-    if (status === 500) logger.error('Erreur lors de l\'exécution du draft:', err);
-    res.status(status).json({ success: false, message: err.message || 'Erreur serveur lors du draft' });
+    sendStatusCodeError(res, err, 'Erreur serveur lors du draft', 'Erreur lors de l\'exécution du draft:');
   }
 });
 

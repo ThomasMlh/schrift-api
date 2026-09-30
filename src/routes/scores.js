@@ -10,7 +10,7 @@ import { USER_DISPLAY, USER_DISPLAY_WITH_ID, USER_SCORES_LOOKUP } from "../utils
 import { resolveScoreAccounts, findAccount } from "../utils/bbsAccounts.js";
 import { escapeRegex } from "../utils/regexUtils.js";
 import { logger } from '../utils/logger.js';
-import { sendServerError } from '../utils/httpErrors.js';
+import { sendServerError, sendStatusCodeError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -868,9 +868,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       }
     });
   } catch (err) {
-    const status = err.statusCode || 500;
-    if (status === 500) logger.error("Erreur lors de la saisie groupée:", err);
-    res.status(status).json({ success: false, message: err.message });
+    sendStatusCodeError(res, err, 'Erreur serveur lors de la saisie groupée', "Erreur lors de la saisie groupée:");
   }
 });
 
@@ -1008,9 +1006,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
       }
     });
   } catch (err) {
-    const status = err.statusCode || 500;
-    if (status === 500) logger.error("Erreur lors de la création du score:", err);
-    res.status(status).json({ success: false, message: err.message });
+    sendStatusCodeError(res, err, 'Erreur serveur lors de la création du score', "Erreur lors de la création du score:");
   }
 });
 
@@ -1237,9 +1233,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
           : { recalculatedCount: recalculatedCount }
     });
   } catch (err) {
-    const status = err.statusCode || 500;
-    if (status === 500) logger.error("Erreur lors de la mise à jour du score:", err);
-    res.status(status).json({ success: false, message: err.message });
+    sendStatusCodeError(res, err, 'Erreur serveur lors de la mise à jour du score', "Erreur lors de la mise à jour du score:");
   }
 });
 
@@ -1352,9 +1346,7 @@ router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
       details: { rawScore: calculatedRawScore, isDifferential, recalculatedCount }
     });
   } catch (err) {
-    const status = err.statusCode || 500;
-    if (status === 500) logger.error("Erreur lors du transfert de score:", err);
-    res.status(status).json({ success: false, message: err.message });
+    sendStatusCodeError(res, err, 'Erreur serveur lors du transfert de score', "Erreur lors du transfert de score:");
   }
 });
 

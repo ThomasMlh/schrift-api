@@ -6,6 +6,7 @@ import { syncCharactersFromSFTP, uploadImagesBatch } from "../services/character
 import { convertDateToFormat, reorderCharactersByReleaseDate } from "../utils/characterHelpers.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 import { logger } from '../utils/logger.js';
+import { sendStatusCodeError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -464,9 +465,7 @@ router.post("/update", requireAdmin, async (req, res) => {
     const result = await syncCharactersFromSFTP(req.db, { uploadImages: req.body?.uploadImages === true });
     res.json({ success: true, ...result });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error("❌ Erreur lors de la mise à jour via SFTP:", error);
-    res.status(status).json({ success: false, message: error.message || "Erreur serveur lors de la synchronisation", ...(error.details && { details: error.details }) });
+    sendStatusCodeError(res, error, "Erreur serveur lors de la synchronisation", "❌ Erreur lors de la mise à jour via SFTP:");
   }
 });
 
@@ -478,9 +477,7 @@ router.post("/update/images", requireAdmin, async (req, res) => {
     const result = await uploadImagesBatch(req.db, req.body?.batchSize);
     res.json({ success: true, ...result });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) logger.error("❌ Erreur upload images batch:", error);
-    res.status(status).json({ success: false, message: error.message || "Erreur serveur lors de l'upload des images" });
+    sendStatusCodeError(res, error, "Erreur serveur lors de l'upload des images", "❌ Erreur upload images batch:");
   }
 });
 
