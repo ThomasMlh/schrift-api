@@ -7,7 +7,7 @@ import cyclesRouter from './cycles.js';
 import scoresRouter from './scores/index.js';
 import adminRouter from './admin.js';
 import authRouter from './auth.js';
-import usersRouter from './users.js';
+import usersRouter from './users/index.js';
 import guidesRouter from './guides.js';
 import buildsRouter from './builds.js';
 import skillsRouter from './skills.js';
