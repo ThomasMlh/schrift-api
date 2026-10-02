@@ -1,6 +1,6 @@
 import express from 'express';
 import charactersRouter from './characters.js';
-import guildesRouter from './guildes.js';
+import guildesRouter from './guildes/index.js';
 import membresRouter from './membres.js';
 import rotationsRouter from './rotations.js';
 import cyclesRouter from './cycles.js';
