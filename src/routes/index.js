@@ -21,6 +21,7 @@ import statsRouter from './stats.js';
 import webviewRouter from './webview.js';
 import settingsRouter from './settings.js';
 import activityRouter from './activity.js';
+import discordRouter from './discord.js';
 
 const router = express.Router();
 
@@ -46,5 +47,6 @@ router.use('/stats', statsRouter);
 router.use('/webview', webviewRouter);
 router.use('/settings', settingsRouter);
 router.use('/activity', activityRouter);
+router.use('/discord', discordRouter);
 
 export default router;
