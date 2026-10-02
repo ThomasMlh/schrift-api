@@ -3,6 +3,7 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import { cleanPlayerNameOCR, parseScore } from './nameMatching.js';
+import { logger } from './logger.js';
 
 // Dossier debug pour sauvegarder les crops (créé à la volée)
 const DEBUG_DIR = path.join(process.cwd(), 'debug_ocr');
@@ -65,9 +66,9 @@ const saveDebug = async (name, buffer) => {
     if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR, { recursive: true });
     const filePath = path.join(DEBUG_DIR, `${name}.png`);
     await fs.promises.writeFile(filePath, buffer);
-    console.log(`  💾 Debug image : ${filePath}`);
+    logger.info(`  💾 Debug image : ${filePath}`);
   } catch (e) {
-    console.warn(`  ⚠️  Impossible de sauvegarder debug : ${e.message}`);
+    logger.warn(`  ⚠️  Impossible de sauvegarder debug : ${e.message}`);
   }
 }
 
@@ -98,12 +99,12 @@ const IGNORED_WORDS = new Set([
  */
 export const processGuildRankingScreenshotAuto = async (base64Image) => {
   try {
-    console.log('🔍 Début du traitement OCR automatique (2 passes)...');
+    logger.info('🔍 Début du traitement OCR automatique (2 passes)...');
 
     const imageBuffer = base64ToBuffer(base64Image);
     const originalMeta = await sharp(imageBuffer).metadata();
     const { width: origW, height: origH } = originalMeta;
-    console.log(`📐 Image originale : ${origW}×${origH}`);
+    logger.info(`📐 Image originale : ${origW}×${origH}`);
 
     // ── Pass 1 : Localiser les scores ─────────────────────────────────────
 
@@ -114,32 +115,32 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
     const scaleX = origW / processedMeta.width;
     const scaleY = origH / processedMeta.height;
 
-    console.log('🔎 Pass 1 : Détection des scores (OCR global eng)...');
+    logger.info('🔎 Pass 1 : Détection des scores (OCR global eng)...');
     const { data } = await Tesseract.recognize(processedBuffer, 'eng', {
       logger: m => {
         if (m.status === 'recognizing text') {
-          console.log(`  OCR global : ${Math.round(m.progress * 100)}%`);
+          logger.info(`  OCR global : ${Math.round(m.progress * 100)}%`);
         }
       },
       tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
       tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
     });
 
-    console.log('📄 Texte brut pass 1 :\n' + (data.text || '(vide)') + '\n---');
+    logger.info('📄 Texte brut pass 1 :\n' + (data.text || '(vide)') + '\n---');
 
     // Extraire les lignes de score avec leurs bounding boxes
     const scoreEntries = findScoreLines(data);
 
     if (scoreEntries.length === 0) {
-      console.log('⚠️  Aucun score trouvé via data.lines. Fallback texte brut...');
+      logger.info('⚠️  Aucun score trouvé via data.lines. Fallback texte brut...');
       return fallbackParseText(data.text).slice(0, 5);
     }
 
-    console.log(`  → ${scoreEntries.length} scores localisés\n`);
+    logger.info(`  → ${scoreEntries.length} scores localisés\n`);
 
     // ── Pass 2 : Recadrer et OCR chaque pseudo ───────────────────────────
 
-    console.log('🔎 Pass 2 : Détection des pseudos (crops individuels)...');
+    logger.info('🔎 Pass 2 : Détection des pseudos (crops individuels)...');
 
     const players = [];
 
@@ -174,12 +175,12 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
       crop.height = Math.min(crop.height, origH - crop.top);
 
       if (crop.width < 20 || crop.height < 10) {
-        console.log(`  ⚠️  Crop trop petit pour score ${score.toLocaleString('fr-FR')}`);
+        logger.info(`  ⚠️  Crop trop petit pour score ${score.toLocaleString('fr-FR')}`);
         players.push(makePlayer(players.length + 1, '', score, 50));
         continue;
       }
 
-      console.log(`  🖼️  Score ${score.toLocaleString('fr-FR')} → crop name : left=${crop.left} top=${crop.top} w=${crop.width} h=${crop.height}`);
+      logger.info(`  🖼️  Score ${score.toLocaleString('fr-FR')} → crop name : left=${crop.left} top=${crop.top} w=${crop.width} h=${crop.height}`);
 
       try {
         // Recadrer depuis l'image ORIGINALE (meilleure qualité)
@@ -200,16 +201,16 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
         });
 
         const rawNameText = (nameData.text || '').trim();
-        console.log(`  📝 OCR pseudo brut : "${rawNameText}"`);
+        logger.info(`  📝 OCR pseudo brut : "${rawNameText}"`);
 
         const name = extractPlayerName(rawNameText);
         const cleanedName = name ? cleanPlayerNameOCR(name) : '';
 
-        console.log(`  ✅ Joueur ${players.length + 1} : "${cleanedName || '???'}" → ${score.toLocaleString('fr-FR')}`);
+        logger.info(`  ✅ Joueur ${players.length + 1} : "${cleanedName || '???'}" → ${score.toLocaleString('fr-FR')}`);
 
         players.push(makePlayer(players.length + 1, cleanedName, score, cleanedName ? 85 : 50));
       } catch (err) {
-        console.error(`  ❌ Erreur crop pseudo :`, err.message);
+        logger.error(`  ❌ Erreur crop pseudo :`, err.message);
         players.push(makePlayer(players.length + 1, '', score, 50));
       }
     }
@@ -217,14 +218,14 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
     // Max 5 joueurs par screenshot
     const result = players.slice(0, 5);
 
-    console.log(`\n🎯 Résultat final : ${result.length} joueurs`);
+    logger.info(`\n🎯 Résultat final : ${result.length} joueurs`);
     result.forEach((p, i) =>
-      console.log(`  ${i + 1}. "${p.detectedName}" → ${p.score.toLocaleString('fr-FR')}`)
+      logger.info(`  ${i + 1}. "${p.detectedName}" → ${p.score.toLocaleString('fr-FR')}`)
     );
 
     return result;
   } catch (error) {
-    console.error('❌ Erreur OCR auto :', error);
+    logger.error('❌ Erreur OCR auto :', error);
     throw error;
   }
 }
@@ -243,7 +244,7 @@ const findScoreLines = (data) => {
     /[Ss]c[o0]re\s*(?:personnel|personnet|personne[l!i])\s*(?:hebdomadaire|hebdomadalre|hebdomadatre|hebdomataire)\s*[:;]?\s*([\d][,.\d\s]*[\d])/;
 
   const lines = data.lines || [];
-  console.log(`  findScoreLines : ${lines.length} lignes trouvées par Tesseract`);
+  logger.info(`  findScoreLines : ${lines.length} lignes trouvées par Tesseract`);
 
   for (const line of lines) {
     if (!line.text || !line.bbox) continue;
@@ -255,7 +256,7 @@ const findScoreLines = (data) => {
     const scoreResult = parseScore(rawScore);
 
     if (scoreResult?.value > 0) {
-      console.log(`  ✓ Score trouvé : ${scoreResult.value.toLocaleString('fr-FR')} (bbox y0=${line.bbox.y0})`);
+      logger.info(`  ✓ Score trouvé : ${scoreResult.value.toLocaleString('fr-FR')} (bbox y0=${line.bbox.y0})`);
       results.push({
         score: scoreResult.value,
         bboxProcessed: line.bbox,
@@ -265,7 +266,7 @@ const findScoreLines = (data) => {
 
   // Si data.lines n'a pas tout trouvé, essayer via data.words
   if (results.length < 5 && data.words && data.words.length > 0) {
-    console.log(`  ⚠️  Seulement ${results.length} scores via lines, tentative via words...`);
+    logger.info(`  ⚠️  Seulement ${results.length} scores via lines, tentative via words...`);
     const existingScores = new Set(results.map(r => r.score));
 
     // Reconstruire le texte à partir des mots consécutifs et chercher le pattern
@@ -295,7 +296,7 @@ const findScoreLines = (data) => {
       const scoreResult = parseScore(rawScore);
 
       if (scoreResult?.value > 0 && !existingScores.has(scoreResult.value)) {
-        console.log(`  ✓ Score trouvé via words : ${scoreResult.value.toLocaleString('fr-FR')} (bbox y0=${w.bbox.y0})`);
+        logger.info(`  ✓ Score trouvé via words : ${scoreResult.value.toLocaleString('fr-FR')} (bbox y0=${w.bbox.y0})`);
         // Utiliser la bbox qui couvre toute la ligne (du premier au dernier mot)
         results.push({
           score: scoreResult.value,
@@ -314,7 +315,7 @@ const findScoreLines = (data) => {
   // Trier par Y (du haut vers le bas de l'image)
   results.sort((a, b) => a.bboxProcessed.y0 - b.bboxProcessed.y0);
 
-  console.log(`  → Total : ${results.length} scores trouvés`);
+  logger.info(`  → Total : ${results.length} scores trouvés`);
   return results;
 }
 
@@ -360,7 +361,7 @@ const extractPlayerName = (text) => {
 
   if (candidates.length === 0) return null;
 
-  console.log(`    candidats pseudo : [${candidates.join(', ')}]`);
+  logger.info(`    candidats pseudo : [${candidates.join(', ')}]`);
 
   // Heuristique : le pseudo est le meilleur candidat
   //   1. Priorité à la casse mixte (AeRo, MrMousse…) → typique pseudo gamer
@@ -446,23 +447,23 @@ const makePlayer = (lineNumber, name, score, confidence) => {
  * Traite plusieurs screenshots (séquentiellement pour éviter la surcharge mémoire).
  */
 export const processBatchScreenshotsAuto = async (screenshots) => {
-  console.log(`\n🎯 Traitement batch de ${screenshots.length} screenshots (mode auto, 2 passes)`);
+  logger.info(`\n🎯 Traitement batch de ${screenshots.length} screenshots (mode auto, 2 passes)`);
 
   const results = [];
 
   for (let index = 0; index < screenshots.length; index++) {
     const screenshot = screenshots[index];
     try {
-      console.log(`\n📸 Screenshot ${index + 1}/${screenshots.length} : ${screenshot.filename}`);
+      logger.info(`\n📸 Screenshot ${index + 1}/${screenshots.length} : ${screenshot.filename}`);
       const players = await processGuildRankingScreenshotAuto(screenshot.data);
       results.push({ index, filename: screenshot.filename, success: true, players });
     } catch (error) {
-      console.error(`❌ Erreur screenshot ${index + 1} :`, error);
+      logger.error(`❌ Erreur screenshot ${index + 1} :`, error);
       results.push({ index, filename: screenshot.filename, success: false, error: error.message, players: [] });
     }
   }
 
   const ok = results.filter(r => r.success).length;
-  console.log(`\n✅ ${ok}/${screenshots.length} screenshots traités avec succès`);
+  logger.info(`\n✅ ${ok}/${screenshots.length} screenshots traités avec succès`);
   return results;
 }

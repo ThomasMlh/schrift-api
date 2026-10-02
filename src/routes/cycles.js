@@ -4,6 +4,8 @@ import { requireDb } from '../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 import { USER_SCORES_LOOKUP } from '../utils/projections.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
+import { logger } from '../utils/logger.js';
+import { sendServerError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -45,7 +47,7 @@ router.get('/', async (req, res) => {
       pagination: buildPaginationMeta(page, limit, totalCount, paginatedCycles.length)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -62,7 +64,7 @@ router.get('/:cycleId', async (req, res) => {
     
     res.json({ success: true, cycle });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -140,7 +142,7 @@ router.post('/', async (req, res) => {
         rotation_count: cycle.rotations.length
       });
     } catch (notifErr) {
-      console.error('[cycles/create] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[cycles/create] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.status(201).json({
@@ -149,7 +151,7 @@ router.post('/', async (req, res) => {
       message: 'Cycle créé avec succès'
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -243,12 +245,12 @@ router.put('/:cycleId', async (req, res) => {
         rotation_count: (updateData.rotations || currentCycle.rotations).length
       });
     } catch (notifErr) {
-      console.error('[cycles/update] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[cycles/update] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({ success: true, message: 'Cycle mis à jour avec succès' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -274,12 +276,12 @@ router.delete('/:cycleId', async (req, res) => {
         rotation_count: (cycleToDelete.rotations || []).length
       });
     } catch (notifErr) {
-      console.error('[cycles/delete] Erreur notification Discord (non bloquant):', notifErr.message);
+      logger.error('[cycles/delete] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
     res.json({ success: true, message: 'Cycle supprimé avec succès' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -343,41 +345,6 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       matchStage.guild_id = guildId;
     }
 
-    // Vérifier qu'il y a des scores pour cette rotation
-    const scoresCheck = await req.db.collection('scores')
-      .countDocuments(matchStage);
-
-    // Récupérer les scores avec pagination, tri par score décroissant et join avec les utilisateurs
-    let pipeline = [
-      { $match: matchStage },
-      {
-        $lookup: {
-          from: 'users',
-          let: { userId: "$user_id" }, // Pas de conversion ObjectId ici
-          pipeline: [
-            { 
-              $match: { 
-                $expr: { 
-                  $or: [
-                    { $eq: ["$discord_id", "$$userId"] }, // Si user_id est un discord_id
-                    { $eq: [{ $toString: "$_id" }, "$$userId"] } // Si user_id est un ObjectId en string
-                  ]
-                }
-              }
-            },
-            { $project: USER_SCORES_LOOKUP }
-          ],
-          as: 'user'
-        }
-      },
-      {
-        $unwind: {
-          path: '$user',
-          preserveNullAndEmptyArrays: true // Garder les scores même si l'utilisateur n'est pas trouvé
-        }
-      }
-    ];
-
     // Pipeline pour récupérer tous les scores (sans pagination d'abord pour calculer les ranks)
     let pipelineForRanking = [
       { $match: matchStage },
@@ -421,7 +388,6 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
     // Calculer les ranks en tenant compte des égalités
     let currentRank = 1;
     let previousScore = null;
-    let playersWithSameScore = 0;
 
     const scoresWithRank = allScores.map((scoreDoc, index) => {
       if (previousScore !== null && scoreDoc.score !== previousScore) {
@@ -452,7 +418,7 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       pagination: buildPaginationMeta(page, limit, totalCount, scores.length)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

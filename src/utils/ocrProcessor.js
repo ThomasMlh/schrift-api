@@ -1,6 +1,7 @@
 import Tesseract from 'tesseract.js';
 import sharp from 'sharp';
 import { cleanPlayerNameOCR, parseScore } from './nameMatching.js';
+import { logger } from './logger.js';
 
 /**
  * Zones prédéfinies par défaut (résolution de référence 1371x771)
@@ -147,7 +148,7 @@ export const SCREENSHOTTER_CONFIGS = {
 export const getScreenshotterConfig = (screenshotterId) => {
   const config = SCREENSHOTTER_CONFIGS[screenshotterId];
   if (!config) {
-    console.warn(`⚠️ Screenshotter inconnu: "${screenshotterId}", utilisation config par défaut`);
+    logger.warn(`⚠️ Screenshotter inconnu: "${screenshotterId}", utilisation config par défaut`);
     return { label: 'Défaut', rows: DEFAULT_ROWS };
   }
   return config;
@@ -189,7 +190,7 @@ const preprocessRegion = async (imageBuffer, region, imageWidth, imageHeight) =>
     
     return processedBuffer;
   } catch (error) {
-    console.error('Erreur prétraitement région:', error);
+    logger.error('Erreur prétraitement région:', error);
     throw error;
   }
 }
@@ -202,7 +203,7 @@ const performOCR = async (imageBuffer, lang = 'eng', config = {}) => {
     const { data: { text } } = await Tesseract.recognize(imageBuffer, lang, {
       logger: m => {
         if (m.status === 'recognizing text') {
-          console.log(`OCR progress: ${Math.round(m.progress * 100)}%`);
+          logger.info(`OCR progress: ${Math.round(m.progress * 100)}%`);
         }
       },
       tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Une seule ligne de texte
@@ -212,7 +213,7 @@ const performOCR = async (imageBuffer, lang = 'eng', config = {}) => {
     
     return text.trim();
   } catch (error) {
-    console.error('Erreur OCR:', error);
+    logger.error('Erreur OCR:', error);
     return null;
   }
 }
@@ -246,7 +247,7 @@ export const processGuildRankingScreenshot = async (base64Image, screenshotterId
     const config = getScreenshotterConfig(screenshotterId);
     const playerRows = config.rows;
     
-    console.log(`🔍 Début du traitement OCR (profil: ${config.label})...`);
+    logger.info(`🔍 Début du traitement OCR (profil: ${config.label})...`);
     
     // Convertir base64 en buffer
     const imageBuffer = base64ToBuffer(base64Image);
@@ -255,7 +256,7 @@ export const processGuildRankingScreenshot = async (base64Image, screenshotterId
     const metadata = await sharp(imageBuffer).metadata();
     const { width, height } = metadata;
     
-    console.log(`📐 Dimensions image: ${width}x${height}`);
+    logger.info(`📐 Dimensions image: ${width}x${height}`);
     
     const results = [];
     
@@ -263,13 +264,13 @@ export const processGuildRankingScreenshot = async (base64Image, screenshotterId
     for (let i = 0; i < playerRows.length; i++) {
       const row = playerRows[i];
       
-      console.log(`\n🔎 Traitement ligne ${i + 1}...`);
+      logger.info(`\n🔎 Traitement ligne ${i + 1}...`);
       
       // Vérifier si la ligne contient du texte
       const hasContent = await hasVisibleText(imageBuffer, row.name, width, height);
       
       if (!hasContent) {
-        console.log(`⏭️  Ligne ${i + 1} vide, arrêt du traitement`);
+        logger.info(`⏭️  Ligne ${i + 1} vide, arrêt du traitement`);
         break; // Arrêter si ligne vide (fin du classement)
       }
       
@@ -283,15 +284,15 @@ export const processGuildRankingScreenshot = async (base64Image, screenshotterId
         tessedit_char_whitelist: '0123456789,'
       });
       
-      console.log(`  👤 Nom détecté: "${nameText}"`);
-      console.log(`  🎯 Score brut: "${scoreText}"`);
+      logger.info(`  👤 Nom détecté: "${nameText}"`);
+      logger.info(`  🎯 Score brut: "${scoreText}"`);
       
       // Nettoyer et parser
       const cleanedName = cleanPlayerNameOCR(nameText);
       const parsedScore = parseScore(scoreText);
       
-      console.log(`  ✨ Nom nettoyé: "${cleanedName}"`);
-      console.log(`  💯 Score parsé: ${parsedScore.value || 'ERREUR'}`);
+      logger.info(`  ✨ Nom nettoyé: "${cleanedName}"`);
+      logger.info(`  💯 Score parsé: ${parsedScore.value || 'ERREUR'}`);
       
       results.push({
         lineNumber: i + 1,
@@ -305,11 +306,11 @@ export const processGuildRankingScreenshot = async (base64Image, screenshotterId
       });
     }
     
-    console.log(`\n✅ Traitement terminé: ${results.length} ligne(s) détectée(s)`);
+    logger.info(`\n✅ Traitement terminé: ${results.length} ligne(s) détectée(s)`);
     
     return results;
   } catch (error) {
-    console.error('❌ Erreur lors du traitement OCR:', error);
+    logger.error('❌ Erreur lors du traitement OCR:', error);
     throw new Error(`Erreur OCR: ${error.message}`);
   }
 }
@@ -323,7 +324,7 @@ export const processBatchScreenshots = async (screenshots, screenshotterId) => {
   const results = await Promise.all(
     screenshots.map(async (screenshot, index) => {
       try {
-        console.log(`\n📸 Screenshot ${index + 1}/${screenshots.length}`);
+        logger.info(`\n📸 Screenshot ${index + 1}/${screenshots.length}`);
         const playerResults = await processGuildRankingScreenshot(screenshot.data, screenshotterId);
         
         return {
@@ -334,7 +335,7 @@ export const processBatchScreenshots = async (screenshots, screenshotterId) => {
           error: null
         };
       } catch (error) {
-        console.error(`❌ Erreur screenshot ${index + 1}:`, error);
+        logger.error(`❌ Erreur screenshot ${index + 1}:`, error);
         return {
           index,
           filename: screenshot.filename,

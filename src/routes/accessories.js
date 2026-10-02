@@ -2,6 +2,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
 import { FTPUploader } from '../utils/ftp.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ router.get('/codes', requireAdmin, async (req, res) => {
     const codes = await ftp.listSubdirectories('/bucket.bbs-schrift.fr/accessories');
     res.json({ success: true, codes });
   } catch (error) {
-    console.error('Erreur liste FTP accessories:', error);
+    logger.error('Erreur liste FTP accessories:', error);
     res.status(500).json({ success: false, message: 'Impossible de lister les codes', error: error.message });
   } finally {
     ftp.disconnect();
@@ -35,7 +36,7 @@ router.post('/', requireAdmin, async (req, res) => {
     const created = await req.db.collection('accessories').findOne({ _id: result.insertedId });
     res.status(201).json({ success: true, message: 'Accessoire créé avec succès', data: created });
   } catch (error) {
-    console.error('Erreur lors de la création de l\'accessory:', error);
+    logger.error('Erreur lors de la création de l\'accessory:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur lors de la création de l\'accessory' });
   }
 });
@@ -64,7 +65,7 @@ router.get('/', async (req, res) => {
       count: accessories.length
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des accessories:', error);
+    logger.error('Erreur lors de la récupération des accessories:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération des accessories'
@@ -91,7 +92,7 @@ router.get('/:id', async (req, res) => {
       data: accessory
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération de l\'accessory:', error);
+    logger.error('Erreur lors de la récupération de l\'accessory:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération de l\'accessory'
@@ -149,7 +150,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
       data: updatedAccessory
     });
   } catch (error) {
-    console.error('Erreur lors de la mise à jour de l\'accessory:', error);
+    logger.error('Erreur lors de la mise à jour de l\'accessory:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la mise à jour de l\'accessory'
@@ -176,7 +177,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       message: 'Accessory supprimé avec succès'
     });
   } catch (error) {
-    console.error('Erreur lors de la suppression de l\'accessory:', error);
+    logger.error('Erreur lors de la suppression de l\'accessory:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la suppression de l\'accessory'

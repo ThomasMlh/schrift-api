@@ -2,6 +2,7 @@ import express from 'express';
 import { requireDb, requireScoresAccess } from '../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 import { isValidNotificationType } from '../utils/notificationTypes.js';
+import { sendServerErrorWithFlag } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -48,7 +49,7 @@ router.get('/', requireScoresAccess, async (req, res) => {
       pagination: buildPaginationMeta(page, limit, totalCount, activity.length),
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    sendServerErrorWithFlag(res, err);
   }
 });
 

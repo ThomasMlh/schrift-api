@@ -2,12 +2,12 @@
  * Logique de synchronisation des personnages depuis SFTP et d'upload des images FTP.
  * Extrait de characters.js pour réduire la taille du fichier de routes.
  */
-import { ObjectId } from 'mongodb';
 import { cleanObject } from '../utils/cleaners.js';
 import { SFTPClient } from '../utils/database.js';
 import { FTPUploader } from '../utils/ftp.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { convertDateToFormat, parseCSV, reorderCharactersByReleaseDate } from '../utils/characterHelpers.js';
+import { logger } from '../utils/logger.js';
 
 const CANCEL_RESISTANCE_MAP = {
   'Annul. Res. Bleue': 'B',
@@ -66,7 +66,7 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
       const exists = await sftpClient.client.exists('/modules/database.json');
       if (!exists) throw new Error('Le fichier /modules/database.json n\'existe pas sur le serveur SFTP');
     } catch (existsErr) {
-      console.warn('⚠️ Impossible de vérifier l\'existence du fichier:', existsErr.message);
+      logger.warn('⚠️ Impossible de vérifier l\'existence du fichier:', existsErr.message);
     }
     const buffer = await sftpClient.client.get('/modules/database.json');
     fileContent = buffer.toString('utf8');
@@ -108,7 +108,7 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
       ftpUploader = new FTPUploader();
       await ftpUploader.connect();
     } catch (ftpErr) {
-      console.warn('⚠️ Impossible de se connecter au FTP images:', ftpErr.message);
+      logger.warn('⚠️ Impossible de se connecter au FTP images:', ftpErr.message);
     }
   }
 
@@ -209,7 +209,7 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
   try {
     reorderStats = await reorderCharactersByReleaseDate(db);
   } catch (reorderErr) {
-    console.error('⚠️ Erreur lors du tri automatique (non bloquant):', reorderErr);
+    logger.error('⚠️ Erreur lors du tri automatique (non bloquant):', reorderErr);
   }
 
   const message = `Synchronisation terminée: ${insertedCount} personnages créés, ${updatedCount} mis à jour, ${bannersCreated} bannières créées, ${imagesUploaded} images uploadées${reorderStats ? ` - Tri automatique: ${reorderStats.updated} personnages réorganisés` : ''}`;
@@ -306,7 +306,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
       }
       try { await bannerFtp.disconnect(); } catch { /* ignore */ }
     } catch (bannerErr) {
-      console.warn('⚠️ Erreur upload bannières:', bannerErr.message);
+      logger.warn('⚠️ Erreur upload bannières:', bannerErr.message);
     }
   }
 

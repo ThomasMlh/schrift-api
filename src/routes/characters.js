@@ -5,6 +5,8 @@ import { requireAdmin, requireDb } from "../middleware/auth.js";
 import { syncCharactersFromSFTP, uploadImagesBatch } from "../services/characterSync.js";
 import { convertDateToFormat, reorderCharactersByReleaseDate } from "../utils/characterHelpers.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
+import { logger } from '../utils/logger.js';
+import { sendStatusCodeError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -184,7 +186,7 @@ router.post("/", requireAdmin, async (req, res) => {
       message: `${result.insertedCount} personnages ajoutés avec succès`
     });
   } catch (error) {
-    console.error("Erreur lors de l'insertion des personnages:", error);
+    logger.error("Erreur lors de l'insertion des personnages:", error);
     res.status(500).json({
       success: false,
       message: "Erreur serveur",
@@ -300,7 +302,7 @@ router.get("/meta", async (req, res) => {
       affinities: affinities.filter(Boolean).sort(),
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des métadonnées:', error);
+    logger.error('Erreur lors de la récupération des métadonnées:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur', error: error.message });
   }
 });
@@ -463,9 +465,7 @@ router.post("/update", requireAdmin, async (req, res) => {
     const result = await syncCharactersFromSFTP(req.db, { uploadImages: req.body?.uploadImages === true });
     res.json({ success: true, ...result });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) console.error("❌ Erreur lors de la mise à jour via SFTP:", error);
-    res.status(status).json({ success: false, message: error.message || "Erreur serveur lors de la synchronisation", ...(error.details && { details: error.details }) });
+    sendStatusCodeError(res, error, "Erreur serveur lors de la synchronisation", "❌ Erreur lors de la mise à jour via SFTP:");
   }
 });
 
@@ -477,9 +477,7 @@ router.post("/update/images", requireAdmin, async (req, res) => {
     const result = await uploadImagesBatch(req.db, req.body?.batchSize);
     res.json({ success: true, ...result });
   } catch (error) {
-    const status = error.statusCode || 500;
-    if (status === 500) console.error("❌ Erreur upload images batch:", error);
-    res.status(status).json({ success: false, message: error.message || "Erreur serveur lors de l'upload des images" });
+    sendStatusCodeError(res, error, "Erreur serveur lors de l'upload des images", "❌ Erreur upload images batch:");
   }
 });
 
@@ -494,7 +492,7 @@ router.post("/admin/reorder-by-date", requireAdmin, async (req, res) => {
       statistics: reorderStats
     });
   } catch (error) {
-    console.error("❌ Erreur lors de la réorganisation manuelle:", error);
+    logger.error("❌ Erreur lors de la réorganisation manuelle:", error);
     res.status(500).json({
       success: false,
       message: "Erreur lors de la réorganisation des personnages",

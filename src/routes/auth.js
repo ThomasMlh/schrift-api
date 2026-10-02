@@ -1,8 +1,10 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { requireDb } from '../middleware/auth.js';
+import { authLimiter } from '../middleware/rateLimit.js';
 import { upsertPrimaryAccount, deriveMirrorFields, buildGuildRoles } from '../utils/bbsAccounts.js';
 import players from '../assets/joueurs.json' with { type: "json" };
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -68,9 +70,9 @@ const exchangeCodeForToken = async ({ code, redirectUri }) => {
 
     if (!tokenResponse.ok) {
         const errorData = await tokenResponse.text();
-        console.error('❌ Erreur Discord API:', errorData);
-        console.error('❌ Status:', tokenResponse.status);
-        console.error('❌ Headers:', Object.fromEntries(tokenResponse.headers.entries()));
+        logger.error('❌ Erreur Discord API:', errorData);
+        logger.error('❌ Status:', tokenResponse.status);
+        logger.error('❌ Headers:', Object.fromEntries(tokenResponse.headers.entries()));
         return {
             ok: false,
             status: 400,
@@ -102,7 +104,7 @@ const completeDiscordLogin = async (req, tokenData) => {
 
         if (!userResponse.ok) {
             const errorData = await userResponse.text();
-            console.error('❌ Erreur récupération utilisateur:', errorData);
+            logger.error('❌ Erreur récupération utilisateur:', errorData);
             return {
                 ok: false,
                 status: 400,
@@ -123,7 +125,7 @@ const completeDiscordLogin = async (req, tokenData) => {
             expires_at: Date.now() + (tokenData.expires_in * 1000),
             discord_id: userData.id
         });
-        console.log('💾 Token Discord mis en cache pour', userData.username);
+        logger.info('💾 Token Discord mis en cache pour', userData.username);
 
         // Utiliser le token pour les appels API subséquents
         const activeToken = tokenData.access_token;
@@ -137,7 +139,7 @@ const completeDiscordLogin = async (req, tokenData) => {
         
         if (cachedUserData && (cachedUserData.cached_at + (5 * 60 * 1000)) > now) {
             // Utiliser les données en cache si elles ont moins de 5 minutes
-            console.log('🔄 Utilisation des données utilisateur en cache pour', userData.username);
+            logger.info('🔄 Utilisation des données utilisateur en cache pour', userData.username);
             connections = cachedUserData.connections;
             guilds = cachedUserData.guilds;
         } else {
@@ -152,7 +154,7 @@ const completeDiscordLogin = async (req, tokenData) => {
                     connections = await connectionsResponse.json();
                 }
             } catch (error) {
-                console.warn('⚠️ Impossible de récupérer les connexions utilisateur:', error);
+                logger.warn('⚠️ Impossible de récupérer les connexions utilisateur:', error);
             }
 
             const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
@@ -171,7 +173,7 @@ const completeDiscordLogin = async (req, tokenData) => {
                 guilds,
                 cached_at: now
             });
-            console.log('💾 Données utilisateur mises en cache pour', userData.username);
+            logger.info('💾 Données utilisateur mises en cache pour', userData.username);
         }
 
         // Vérifier si l'utilisateur est administrateur
@@ -181,7 +183,7 @@ const completeDiscordLogin = async (req, tokenData) => {
 
         // 1. Vérifier si l'utilisateur est banni
         if (existingUser?.is_banned) {
-            console.warn('⛔ Utilisateur banni:', userData.username);
+            logger.warn('⛔ Utilisateur banni:', userData.username);
             return {
                 ok: false,
                 status: 403,
@@ -199,7 +201,7 @@ const completeDiscordLogin = async (req, tokenData) => {
             : true;
 
         if (!isAuthorized) {
-            console.warn('⛔ Utilisateur non autorisé (guild manquante):', userData.username);
+            logger.warn('⛔ Utilisateur non autorisé (guild manquante):', userData.username);
             return {
                 ok: false,
                 status: 403,
@@ -267,7 +269,7 @@ const completeDiscordLogin = async (req, tokenData) => {
         };
 
         // Upsert utilisateur
-        const updateResult = await req.db.collection('users').updateOne(
+        await req.db.collection('users').updateOne(
             { discord_id: userData.id },
             { $set: user },
             { upsert: true }
@@ -311,7 +313,7 @@ const completeDiscordLogin = async (req, tokenData) => {
         };
 
     } catch (error) {
-        console.error('❌ Erreur lors de l\'authentification Discord:', error);
+        logger.error('❌ Erreur lors de l\'authentification Discord:', error);
         return {
             ok: false,
             status: 500,
@@ -321,7 +323,7 @@ const completeDiscordLogin = async (req, tokenData) => {
 };
 
 // Route pour échanger le code d'autorisation contre un token (flow web classique, redirection navigateur)
-router.post('/discord/callback', async (req, res) => {
+router.post('/discord/callback', authLimiter, async (req, res) => {
     const { code } = req.body;
     const { DISCORD_REDIRECT_URI } = getDiscordConfig();
 
@@ -341,7 +343,7 @@ router.post('/discord/callback', async (req, res) => {
 
 // Route pour échanger le code d'autorisation contre un token (flow Discord Activity, SDK embedded).
 // Pas de redirect_uri : le code vient de discordSdk.commands.authorize(), pas d'une redirection navigateur.
-router.post('/discord/activity-callback', async (req, res) => {
+router.post('/discord/activity-callback', authLimiter, async (req, res) => {
     const { code } = req.body;
 
     if (!code) {
@@ -366,7 +368,7 @@ router.post('/discord/activity-callback', async (req, res) => {
 });
 
 // Route pour rafraîchir le JWT via refresh token
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', authLimiter, async (req, res) => {
     try {
         const { refreshToken } = req.body;
         const { JWT_SECRET } = getDiscordConfig();
@@ -407,7 +409,7 @@ router.post('/refresh', async (req, res) => {
 
         res.json({ success: true, token: newToken });
     } catch (error) {
-        console.error('❌ Erreur refresh token:', error);
+        logger.error('❌ Erreur refresh token:', error);
         res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
 });
@@ -456,7 +458,7 @@ router.get('/me', async (req, res) => {
         if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
             return res.status(401).json({ success: false, message: 'Token invalide ou expiré' });
         }
-        console.error('Erreur lors de la récupération des infos utilisateur:', error);
+        logger.error('Erreur lors de la récupération des infos utilisateur:', error);
         res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
 });
@@ -527,7 +529,7 @@ if (process.env.NODE_ENV !== 'production') {
             });
 
         } catch (error) {
-            console.error('Erreur lors du debug du token:', error);
+            logger.error('Erreur lors du debug du token:', error);
             res.status(500).json({ success: false, message: 'Erreur serveur' });
         }
     });
@@ -546,7 +548,7 @@ if (process.env.NODE_ENV !== 'production') {
                 }
             });
         } catch (error) {
-            console.error('Erreur lors du debug de la config Discord:', error);
+            logger.error('Erreur lors du debug de la config Discord:', error);
             res.status(500).json({ success: false, message: 'Erreur serveur' });
         }
     });

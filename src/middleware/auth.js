@@ -1,35 +1,18 @@
 import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
 
-// Middleware pour vérifier le JWT
-export const requireAdmin = (req, res, next) => {
+// Extrait le Bearer token du header Authorization
+const getBearerToken = (req) => {
   const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  return authHeader && authHeader.split(' ')[1];
+};
 
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'Token d\'authentification requis' });
-  }
-
-  try {
-    const jwtSecret = process.env.JWT_SECRET;
-    const decoded = jwt.verify(token, jwtSecret);
-
-    // Vérifier que c'est bien un token admin
-    if (!decoded.is_admin) {
-      return res.status(403).json({ success: false, message: 'Droits administrateur requis' });
-    }
-
-    req.user = decoded; // Ajouter les infos du token à la requête
-    next();
-  } catch (err) {
-    return res.status(403).json({ success: false, message: 'Token invalide ou expiré' });
-  }
-}
-
-// Middleware pour les scores - Admin ou Chef/Sous-Chef de guilde
-export const requireScoresAccess = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+// Factory partagée par les middlewares "requireXxx" : gère l'extraction du
+// token, le 401 si absent, la vérification JWT et le 403 si invalide/expiré.
+// `handler(decoded, req, res, next)` ne porte que la logique d'autorisation
+// propre à chaque middleware.
+const withVerifiedToken = (handler) => (req, res, next) => {
+  const token = getBearerToken(req);
 
   if (!token) {
     return res.status(401).json({ success: false, message: 'Token d\'authentification requis' });
@@ -37,41 +20,55 @@ export const requireScoresAccess = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    req.user = decoded;
-
-    // Si c'est un admin, accès total
-    if (decoded.is_admin) {
-      req.user.hasFullAccess = true;
-      return next();
-    }
-
-    // Sinon, vérifier si un des comptes bbs du user est chef ou sous-chef d'une guilde.
-    // guild_roles est un tableau (un grant par compte chef/sous-chef) : un chef sur un alt
-    // n'obtient un accès que sur la/les guilde(s) de CE compte, jamais sur toutes les guildes.
-    const guildRoles = Array.isArray(decoded.guild_roles) ? decoded.guild_roles : [];
-    if (guildRoles.length > 0) {
-      req.user.hasFullAccess = false;
-      req.user.allowedGuildIds = [...new Set(guildRoles.map(g => g.guilde_id).filter(Boolean))];
-      if (req.user.allowedGuildIds.length === 0) {
-        return res.status(403).json({
-          success: false,
-          message: 'Chef/Sous-chef doit être assigné à une guilde'
-        });
-      }
-      return next();
-    }
-
-    // Ni admin, ni chef, ni sous-chef
-    return res.status(403).json({
-      success: false,
-      message: 'Droits insuffisants. Seuls les admins, chefs et sous-chefs peuvent effectuer cette opération'
-    });
-
+    return handler(decoded, req, res, next);
   } catch (err) {
     return res.status(403).json({ success: false, message: 'Token invalide ou expiré' });
   }
-}
+};
+
+// Middleware pour vérifier le JWT
+export const requireAdmin = withVerifiedToken((decoded, req, res, next) => {
+  // Vérifier que c'est bien un token admin
+  if (!decoded.is_admin) {
+    return res.status(403).json({ success: false, message: 'Droits administrateur requis' });
+  }
+
+  req.user = decoded; // Ajouter les infos du token à la requête
+  next();
+});
+
+// Middleware pour les scores - Admin ou Chef/Sous-Chef de guilde
+export const requireScoresAccess = withVerifiedToken((decoded, req, res, next) => {
+  req.user = decoded;
+
+  // Si c'est un admin, accès total
+  if (decoded.is_admin) {
+    req.user.hasFullAccess = true;
+    return next();
+  }
+
+  // Sinon, vérifier si un des comptes bbs du user est chef ou sous-chef d'une guilde.
+  // guild_roles est un tableau (un grant par compte chef/sous-chef) : un chef sur un alt
+  // n'obtient un accès que sur la/les guilde(s) de CE compte, jamais sur toutes les guildes.
+  const guildRoles = Array.isArray(decoded.guild_roles) ? decoded.guild_roles : [];
+  if (guildRoles.length > 0) {
+    req.user.hasFullAccess = false;
+    req.user.allowedGuildIds = [...new Set(guildRoles.map(g => g.guilde_id).filter(Boolean))];
+    if (req.user.allowedGuildIds.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Chef/Sous-chef doit être assigné à une guilde'
+      });
+    }
+    return next();
+  }
+
+  // Ni admin, ni chef, ni sous-chef
+  return res.status(403).json({
+    success: false,
+    message: 'Droits insuffisants. Seuls les admins, chefs et sous-chefs peuvent effectuer cette opération'
+  });
+});
 
 // Auth optionnel — peuple req.user si le token est présent, continue sans erreur sinon
 export const optionalAuth = (req, res, next) => {

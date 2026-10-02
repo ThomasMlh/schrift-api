@@ -1,6 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -31,7 +32,7 @@ router.get('/', async (req, res) => {
       count: skills.length
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des skills:', error);
+    logger.error('Erreur lors de la récupération des skills:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération des skills'
@@ -58,7 +59,7 @@ router.get('/:id', async (req, res) => {
       data: skill
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération du skill:', error);
+    logger.error('Erreur lors de la récupération du skill:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération du skill'
@@ -115,7 +116,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
       data: updatedSkill
     });
   } catch (error) {
-    console.error('Erreur lors de la mise à jour du skill:', error);
+    logger.error('Erreur lors de la mise à jour du skill:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la mise à jour du skill'
@@ -142,7 +143,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
       message: 'Skill supprimé avec succès'
     });
   } catch (error) {
-    console.error('Erreur lors de la suppression du skill:', error);
+    logger.error('Erreur lors de la suppression du skill:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la suppression du skill'

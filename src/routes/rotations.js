@@ -1,6 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
+import { sendServerError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -13,7 +14,7 @@ router.get('/', async (req, res) => {
     const rotations = await req.db.collection('rotations').find().toArray();
     res.json(rotations);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -26,7 +27,7 @@ router.get('/:id', async (req, res) => {
     }
     res.json(rotation);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -40,7 +41,7 @@ router.post('/', requireAdmin, async (req, res) => {
       message: 'Rotation ajoutée avec succès'
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -60,7 +61,7 @@ router.post('/bulk', requireAdmin, async (req, res) => {
       message: `${result.insertedCount} rotations ajoutées avec succès`
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -80,7 +81,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
 
     res.json({ success: true, message: 'Rotation mise à jour avec succès' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -95,7 +96,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
 
     res.json({ success: true, message: 'Rotation supprimée avec succès' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

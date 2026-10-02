@@ -2,6 +2,7 @@ import express from 'express';
 import sharp from 'sharp';
 import { requireScoresAccess, requireDb } from '../middleware/auth.js';
 import { processGuildRankingScreenshot, getScreenshotterConfig } from '../utils/ocrProcessor.js';
+import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ router.post('/visualize-zones', async (req, res) => {
     const config = getScreenshotterConfig(screenshotter_id);
     const playerRows = config.rows;
 
-    console.log(`🔍 Début traitement OCR debug (profil: ${config.label})...`);
+    logger.info(`🔍 Début traitement OCR debug (profil: ${config.label})...`);
 
     // Convertir base64 en buffer
     const base64Data = screenshot.data.replace(/^data:image\/\w+;base64,/, '');
@@ -38,12 +39,12 @@ router.post('/visualize-zones', async (req, res) => {
     const metadata = await sharp(imageBuffer).metadata();
     const { width, height } = metadata;
 
-    console.log(`📐 Image: ${width}x${height}`);
+    logger.info(`📐 Image: ${width}x${height}`);
 
     // Exécuter l'OCR avec zones prédéfinies
     const players = await processGuildRankingScreenshot(screenshot.data, screenshotter_id);
     
-    console.log(`✅ ${players.length} joueurs détectés`);
+    logger.info(`✅ ${players.length} joueurs détectés`);
 
     // Créer une image avec les zones prédéfinies marquées
     const svgElements = [];
@@ -169,7 +170,7 @@ router.post('/visualize-zones', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Erreur debug OCR:', error);
+    logger.error('❌ Erreur debug OCR:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Erreur lors du traitement OCR',
