@@ -6,7 +6,7 @@ import {
   getMinScoresForRanking,
   getCurrentGuildBbsIds,
   getUnguildedBbsIds,
-} from '../../src/services/podiumService.js';
+} from '../../src/services/podiumService/index.js';
 
 describe('applyRanks', () => {
   it('assigns increasing ranks when every score is distinct', () => {

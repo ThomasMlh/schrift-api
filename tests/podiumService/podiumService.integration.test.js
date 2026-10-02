@@ -6,7 +6,7 @@ import {
   getPodiumWeekly,
   getPodiumMisses,
   getDraftProposal,
-} from '../../src/services/podiumService.js';
+} from '../../src/services/podiumService/index.js';
 
 // Tests d'intégration exerçant les vrais pipelines d'agrégation MongoDB (les
 // tests unitaires de podiumService.test.js ne couvrent que les fonctions pures
