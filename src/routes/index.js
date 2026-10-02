@@ -4,7 +4,7 @@ import guildesRouter from './guildes.js';
 import membresRouter from './membres.js';
 import rotationsRouter from './rotations.js';
 import cyclesRouter from './cycles.js';
-import scoresRouter from './scores.js';
+import scoresRouter from './scores/index.js';
 import adminRouter from './admin.js';
 import authRouter from './auth.js';
 import usersRouter from './users.js';
