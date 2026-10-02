@@ -352,6 +352,7 @@ router.post('/submit-batch', async (req, res) => {
       const guild = await req.db.collection('guildes').findOne({ _id: new ObjectId(guild_id) });
       const guildName = guild?.name || '';
       const guildChannelId = guild?.discord_channel_id || '';
+      const guildGeneralChannelId = guild?.discord_general_channel_id || '';
 
       const rotation = cycle.rotations[rotationIndex];
       const killer = rotation?.killer || '';
@@ -383,6 +384,23 @@ router.post('/submit-batch', async (req, res) => {
         summary: `${insertedScores.length} scores via OCR (${errors.length} erreurs)`,
         source: 'ocr'
       }, guildChannelId);
+
+      // Capture automatique du podium (image) vers le salon membres de la guilde, en plus du
+      // récapitulatif texte envoyé au salon chefs ci-dessus — même déclenchement que la saisie
+      // manuelle groupée (scores/bulk.js), qui en manquait jusqu'ici pour la saisie OCR.
+      if (process.env.FRONTEND_URL && guildName && rotation?.position !== undefined) {
+        const cycleSlug = `${(cycle.name || '').toLowerCase().replace(/\s+/g, '-')}-${cycle.year}`;
+        const captureUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}/podium?capture=1&mode=rotation`
+          + `&cycle_name=${encodeURIComponent(cycleSlug)}&rotation=${rotation.position}&guild_name=${encodeURIComponent(guildName)}`;
+
+        await notifyDiscord('podium_snapshot', {
+          guild_name: guildName,
+          cycle_name: cycle.name || '',
+          killer,
+          attack,
+          podium_url: captureUrl,
+        }, guildGeneralChannelId || guildChannelId);
+      }
     } catch (notifErr) {
       logger.error('[ocr/submit-batch] Erreur notification Discord (non bloquant):', notifErr.message);
     }
