@@ -9,7 +9,7 @@ import adminRouter from './admin.js';
 import authRouter from './auth.js';
 import usersRouter from './users/index.js';
 import guidesRouter from './guides.js';
-import buildsRouter from './builds.js';
+import buildsRouter from './builds/index.js';
 import skillsRouter from './skills.js';
 import accessoriesRouter from './accessories.js';
 import accessoriesSubeffectRouter from './accessories_subeffect.js';
