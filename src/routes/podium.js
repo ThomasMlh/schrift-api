@@ -4,7 +4,7 @@ import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMisses, getDraftProposal } from '../services/podiumService/index.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { USER_DISPLAY } from '../utils/projections.js';
-import { notifyDiscord } from '../utils/notifyDiscord.js';
+import { publishCycleRecap, getCycleRecap } from '../services/cycleRecap.js';
 import { logger } from '../utils/logger.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 
@@ -121,18 +121,20 @@ router.delete('/draft-proposal/history/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// POST publication manuelle d'un récap de podium de fin de cycle (capture d'écran), envoyé au
-// salon général de la/les guilde(s) concernée(s). Réutilise l'infra podium_snapshot déjà en
-// place pour les rotations (même type de notification côté bot), déclenché ici à la main par
-// un admin plutôt qu'automatiquement après une saisie de scores.
+// POST publication manuelle du récap de fin de cycle, envoyé au salon général de la/les guilde(s)
+// concernée(s) : capture du podium (même notification podium_snapshot que pour les rotations)
+// et/ou bilan écrit (top 3, records battus, plus forte progression, moyenne de la guilde).
 router.post('/publish-cycle-recap', requireAdmin, async (req, res) => {
   try {
-    const { cycle_name, year, ranking_type = 'average', guild_name } = req.body;
+    const { cycle_name, year, ranking_type = 'average', guild_name, include_snapshot = true, include_summary = true } = req.body;
 
     if (!cycle_name) {
       return res.status(400).json({ success: false, message: 'cycle_name requis' });
     }
-    if (!process.env.FRONTEND_URL) {
+    if (!include_snapshot && !include_summary) {
+      return res.status(400).json({ success: false, message: 'Rien à publier : capture et bilan désactivés' });
+    }
+    if (include_snapshot && !process.env.FRONTEND_URL) {
       return res.status(500).json({ success: false, message: 'FRONTEND_URL non configuré côté serveur' });
     }
 
@@ -149,32 +151,36 @@ router.post('/publish-cycle-recap', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Aucune guilde correspondante' });
     }
 
-    const cycleSlug = `${(cycle.name || '').toLowerCase().replace(/\s+/g, '-')}-${cycle.year}`;
-    // Attendues avant la réponse (Promise.all) : sur Vercel (serverless), l'exécution peut être
-    // coupée dès la réponse envoyée, donc des appels non attendus ne sont pas garantis d'aboutir.
-    const results = await Promise.all(targetGuilds.map(async guild => {
-      const channelId = guild.discord_general_channel_id || guild.discord_channel_id;
-      if (!channelId) {
-        return { guild: guild.name, status: 'skipped', reason: 'Aucun salon Discord configuré' };
-      }
-
-      const captureUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}/podium?capture=1&mode=cycle`
-        + `&ranking_type=${encodeURIComponent(ranking_type)}&cycle_name=${encodeURIComponent(cycleSlug)}`
-        + `&guild_name=${encodeURIComponent(guild.name)}`;
-
-      await notifyDiscord('podium_snapshot', {
-        guild_name: guild.name,
-        cycle_name: cycle.name,
-        podium_url: captureUrl,
-      }, channelId);
-
-      return { guild: guild.name, status: 'requested' };
-    }));
-
+    const results = await publishCycleRecap(req.db, cycle, targetGuilds, {
+      rankingType: ranking_type,
+      includeSnapshot: !!include_snapshot,
+      includeSummary: !!include_summary,
+    });
     res.json({ success: true, results });
   } catch (err) {
     logger.error('Erreur publication récap de cycle:', err);
     res.status(500).json({ success: false, message: 'Erreur serveur lors de la publication du récap' });
+  }
+});
+
+// GET aperçu du bilan de fin de cycle d'une guilde (sans rien envoyer)
+router.get('/cycle-recap', requireAdmin, async (req, res) => {
+  try {
+    const { cycle_id, guild_id } = req.query;
+    if (!ObjectId.isValid(cycle_id) || !ObjectId.isValid(guild_id)) {
+      return res.status(400).json({ success: false, message: 'cycle_id et guild_id valides requis' });
+    }
+    const [cycle, guild] = await Promise.all([
+      req.db.collection('cycles').findOne({ _id: new ObjectId(cycle_id) }),
+      req.db.collection('guildes').findOne({ _id: new ObjectId(guild_id) }),
+    ]);
+    if (!cycle || !guild) {
+      return res.status(404).json({ success: false, message: 'Cycle ou guilde introuvable' });
+    }
+    res.json({ success: true, recap: await getCycleRecap(req.db, cycle, guild) });
+  } catch (err) {
+    logger.error('Erreur aperçu récap de cycle:', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur lors du calcul du récap' });
   }
 });
 

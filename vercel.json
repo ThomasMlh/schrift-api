@@ -16,6 +16,9 @@
       }
     }
   ],
+  "crons": [
+    { "path": "/api/cron/cycle-recap", "schedule": "0 8 * * *" }
+  ],
   "routes": [
     {
       "src": "/(.*)",
