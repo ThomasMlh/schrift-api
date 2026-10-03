@@ -74,7 +74,7 @@ describe('GET /api/podium/full', () => {
     await db.collection('cycles').insertOne({ name: 'Cycle', year: 2026, rotations: [] });
     const res = await request(app).get('/api/podium/full').query({ cycle_name: 'Cycle', ranking_type: 'banana' });
     expect(res.status).toBe(400);
-    expect(res.body.message).toBe('ranking_type doit être "average" ou "max"');
+    expect(res.body.message).toBe('ranking_type doit être "average", "max" ou "progression"');
   });
 });
 
