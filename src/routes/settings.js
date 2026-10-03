@@ -41,38 +41,27 @@ router.get('/podium', requireAdmin, async (req, res) => {
     res.json({
       success: true,
       min_scores_for_ranking: typeof settings?.min_scores_for_ranking === 'number' ? settings.min_scores_for_ranking : 0,
-      auto_cycle_recap: settings?.auto_cycle_recap === true,
     });
   } catch (err) {
     sendServerErrorWithFlag(res, err);
   }
 });
 
-// Mettre à jour les réglages du podium (champs optionnels) : seuil minimum de scores
-// (0 = désactivé) et envoi automatique du récap de fin de cycle
+// Mettre à jour le seuil (0 = désactivé)
 router.put('/podium', requireAdmin, async (req, res) => {
   try {
-    const update = {};
-    if (req.body.min_scores_for_ranking !== undefined) {
-      const value = parseInt(req.body.min_scores_for_ranking, 10);
-      if (isNaN(value) || value < 0) {
-        return res.status(400).json({ success: false, message: 'min_scores_for_ranking doit être un entier positif ou nul' });
-      }
-      update.min_scores_for_ranking = value;
-    }
-    if (req.body.auto_cycle_recap !== undefined) {
-      if (typeof req.body.auto_cycle_recap !== 'boolean') {
-        return res.status(400).json({ success: false, message: 'auto_cycle_recap doit être un booléen' });
-      }
-      update.auto_cycle_recap = req.body.auto_cycle_recap;
-    }
-    if (Object.keys(update).length === 0) {
-      return res.status(400).json({ success: false, message: 'Aucun réglage à mettre à jour' });
+    const value = parseInt(req.body.min_scores_for_ranking, 10);
+    if (isNaN(value) || value < 0) {
+      return res.status(400).json({ success: false, message: 'min_scores_for_ranking doit être un entier positif ou nul' });
     }
 
-    await req.db.collection('app_settings').updateOne({ _id: 'podium' }, { $set: update }, { upsert: true });
+    await req.db.collection('app_settings').updateOne(
+      { _id: 'podium' },
+      { $set: { min_scores_for_ranking: value } },
+      { upsert: true }
+    );
 
-    res.json({ success: true, message: 'Réglages du podium mis à jour', ...update });
+    res.json({ success: true, message: 'Seuil du podium mis à jour', min_scores_for_ranking: value });
   } catch (err) {
     sendServerErrorWithFlag(res, err);
   }

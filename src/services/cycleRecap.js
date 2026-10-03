@@ -1,15 +1,11 @@
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
-import { loadComparableScores, cycleTimestamp, parseDate, toObjectIds, average } from './killerRecords.js';
+import { loadComparableScores, cycleTimestamp, toObjectIds, average } from './killerRecords.js';
 import { getProgression, getPreviousCycle, getCyclesChronological } from './playerTrends.js';
 import { getPodiumFull, getCurrentGuildBbsIds, getMinScoresForRanking } from './podiumService/index.js';
 
 // Nombre maximum de records listés dans le message (le total est toujours indiqué).
 const MAX_LISTED_RECORDS = 8;
-// L'envoi automatique ne rattrape que les cycles terminés depuis peu, pour ne pas publier d'un
-// coup le récap de tous les anciens cycles le jour où l'option est activée.
-const AUTO_RECAP_MAX_AGE_DAYS = 7;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Records personnels battus pendant `cycle` par les comptes `bbsIds` : scores du cycle qui
@@ -99,13 +95,12 @@ const cycleSlugOf = (cycle) => `${(cycle.name || '').toLowerCase().replace(/\s+/
 /**
  * Publie le récap d'un cycle dans le salon général de chaque guilde (salon chefs à défaut) :
  * capture du podium et/ou bilan écrit. Les envois sont attendus (Promise.all) : sur Vercel,
- * l'exécution peut être coupée dès la réponse envoyée. Marque le cycle comme publié pour que
- * l'envoi automatique ne le republie pas.
+ * l'exécution peut être coupée dès la réponse envoyée.
  */
 export const publishCycleRecap = async (db, cycle, guilds, { rankingType = 'average', includeSnapshot = true, includeSummary = true } = {}) => {
   const frontendUrl = process.env.FRONTEND_URL?.replace(/\/$/, '');
 
-  const results = await Promise.all(guilds.map(async (guild) => {
+  return Promise.all(guilds.map(async (guild) => {
     const channelId = guild.discord_general_channel_id || guild.discord_channel_id;
     if (!channelId) return { guild: guild.name, status: 'skipped', reason: 'Aucun salon Discord configuré' };
 
@@ -125,35 +120,4 @@ export const publishCycleRecap = async (db, cycle, guilds, { rankingType = 'aver
       return { guild: guild.name, status: 'error', reason: err.message };
     }
   }));
-
-  await db.collection('cycles').updateOne({ _id: cycle._id }, { $set: { recap_published_at: new Date() } });
-  return results;
-};
-
-/** Date de fin d'un cycle (fin de sa dernière rotation), en ms. */
-const cycleEndTimestamp = (cycle) => parseDate(cycle.rotations?.at(-1)?.end_date);
-
-/**
- * Envoi automatique (cron quotidien) : publie le récap des cycles terminés depuis moins de
- * AUTO_RECAP_MAX_AGE_DAYS jours et pas encore publiés, si l'option est activée par un admin.
- */
-export const publishPendingCycleRecaps = async (db, now = Date.now()) => {
-  const settings = await db.collection('app_settings').findOne({ _id: 'podium' });
-  if (!settings?.auto_cycle_recap) return { enabled: false, published: [] };
-
-  const cycles = await db.collection('cycles').find({ recap_published_at: { $exists: false } }).toArray();
-  const ended = cycles.filter((c) => {
-    const end = cycleEndTimestamp(c);
-    // end_date est le dernier jour de la rotation : le cycle est terminé le lendemain
-    return end > 0 && end + DAY_MS <= now && now - end <= AUTO_RECAP_MAX_AGE_DAYS * DAY_MS;
-  });
-  if (ended.length === 0) return { enabled: true, published: [] };
-
-  const guilds = await db.collection('guildes').find({ disabled: { $ne: true } }).toArray();
-  const published = [];
-  for (const cycle of ended) {
-    const results = await publishCycleRecap(db, cycle, guilds);
-    published.push({ cycle: cycle.name, year: cycle.year, results });
-  }
-  return { enabled: true, published };
 };

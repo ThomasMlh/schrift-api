@@ -27,7 +27,6 @@ npm run dev             # nodemon, http://localhost:3000
 | `PASSWORD_SALT` | Salt used for hashing (local admin account) |
 | `FRONTEND_URL` | Extra CORS-allowed origin besides the front-end |
 | `PORT` | HTTP port (dev only, defaults to 3000) |
-| `CRON_SECRET` | Secret Vercel Cron sends as `Authorization: Bearer …` to `/api/cron/*`; those routes answer 503 until it is set |
 
 Locally, the connection points to the `schrift-test` database; in production (`NODE_ENV=production`), to `schrift` (see `src/server.js`).
 
@@ -79,7 +78,3 @@ Login via Discord OAuth (code exchange handled in `routes/auth.js`), then a JWT 
 
 - **Production**: Vercel, built via `api/index.js` (see `vercel.json`, 300s timeout for OCR).
 - **Alternative cPanel**: `npm run build` (Babel → `dist/`) then `npm start` (Passenger detected via the `PhusionPassenger` global).
-
-### Scheduled jobs
-
-`vercel.json` declares a daily Vercel Cron calling `GET /api/cron/cycle-recap` (08:00 UTC). When an admin enables the automatic end-of-cycle recap (`app_settings.podium.auto_cycle_recap`), it publishes the recap (podium snapshot + written summary) of every cycle that ended within the last 7 days and has not been published yet (`cycles.recap_published_at`). On the cPanel deployment, call this route from a system cron with the same `Authorization` header.

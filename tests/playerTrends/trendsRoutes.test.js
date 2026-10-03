@@ -5,12 +5,9 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient, ObjectId } from 'mongodb';
 import scoresRouter from '../../src/routes/scores/index.js';
 import podiumRouter from '../../src/routes/podium.js';
-import cronRouter from '../../src/routes/cron.js';
-import settingsRouter from '../../src/routes/settings.js';
 
 // Câblage HTTP des tendances : droits d'accès aux baisses de régime (admin / chef limité à sa
-// guilde), protection du cron par CRON_SECRET, réglage de l'envoi automatique du récap et aperçu
-// du récap. La logique de calcul est couverte par playerTrends.test.js.
+// guilde) et aperçu du récap de fin de cycle. La logique de calcul est couverte par playerTrends.test.js.
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';
@@ -32,8 +29,6 @@ beforeAll(async () => {
   app.locals.db = db;
   app.use('/api/scores', scoresRouter);
   app.use('/api/podium', podiumRouter);
-  app.use('/api/cron', cronRouter);
-  app.use('/api/settings', settingsRouter);
 });
 
 afterAll(async () => {
@@ -42,7 +37,6 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
-  delete process.env.CRON_SECRET;
   const collections = await db.listCollections().toArray();
   await Promise.all(collections.map((c) => db.collection(c.name).deleteMany({})));
 });
@@ -98,41 +92,6 @@ describe('GET /api/scores/decline-alerts', () => {
     const forbidden = await request(app).get('/api/scores/decline-alerts').query({ guild_id: other })
       .set('Authorization', `Bearer ${chefToken(own)}`);
     expect(forbidden.status).toBe(403);
-  });
-});
-
-describe('GET /api/cron/cycle-recap', () => {
-  it('fails closed when CRON_SECRET is not configured', async () => {
-    const res = await request(app).get('/api/cron/cycle-recap');
-    expect(res.status).toBe(503);
-  });
-
-  it('rejects a wrong secret and runs with the right one', async () => {
-    process.env.CRON_SECRET = 'cron-secret';
-    expect((await request(app).get('/api/cron/cycle-recap').set('Authorization', 'Bearer nope')).status).toBe(401);
-
-    const res = await request(app).get('/api/cron/cycle-recap').set('Authorization', 'Bearer cron-secret');
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ success: true, enabled: false, published: [] });
-  });
-});
-
-describe('PUT /api/settings/podium', () => {
-  it('toggles the automatic cycle recap without touching the score threshold', async () => {
-    await db.collection('app_settings').insertOne({ _id: 'podium', min_scores_for_ranking: 5 });
-
-    const res = await request(app).put('/api/settings/podium').set('Authorization', `Bearer ${adminToken()}`)
-      .send({ auto_cycle_recap: true });
-    expect(res.status).toBe(200);
-
-    const get = await request(app).get('/api/settings/podium').set('Authorization', `Bearer ${adminToken()}`);
-    expect(get.body).toMatchObject({ min_scores_for_ranking: 5, auto_cycle_recap: true });
-  });
-
-  it('rejects a non-boolean toggle and an empty update', async () => {
-    const auth = { Authorization: `Bearer ${adminToken()}` };
-    expect((await request(app).put('/api/settings/podium').set(auth).send({ auto_cycle_recap: 'yes' })).status).toBe(400);
-    expect((await request(app).put('/api/settings/podium').set(auth).send({})).status).toBe(400);
   });
 });
 

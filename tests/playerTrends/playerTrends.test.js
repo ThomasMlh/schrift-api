@@ -3,7 +3,7 @@ import { MongoClient } from 'mongodb';
 import { setDb } from '../../src/config/database.js';
 import { getProgression, getDeclineAlerts, getPreviousCycle } from '../../src/services/playerTrends.js';
 import { getPodiumFull } from '../../src/services/podiumService/index.js';
-import { getCycleRecap, publishPendingCycleRecaps } from '../../src/services/cycleRecap.js';
+import { getCycleRecap } from '../../src/services/cycleRecap.js';
 
 // Progression d'un cycle à l'autre, baisses de régime et récap de fin de cycle, contre un vrai
 // MongoDB en mémoire. Tous les scores sont ici non différentiels (donc tous comparables) : le
@@ -226,43 +226,5 @@ describe('getCycleRecap', () => {
     expect(recap.records.map((r) => [r.killer, r.previous_score, r.new_score]).sort()).toEqual([
       ['Arrancar', 100, 150], ['Espada', 200, 300],
     ]);
-  });
-});
-
-describe('publishPendingCycleRecaps', () => {
-  const now = new Date(2026, 4, 10).getTime(); // 10/05/2026
-
-  const seedEndedCycle = (name, endDate, extra = {}) => db.collection('cycles').insertOne({
-    name, year: 2026, created_at: new Date(),
-    rotations: [{ rotation_id: 'r', position: 1, start_date: endDate, end_date: endDate }],
-    ...extra,
-  });
-
-  it('does nothing while the option is disabled', async () => {
-    await seedEndedCycle('Fini', '05/05/2026');
-    expect(await publishPendingCycleRecaps(db, now)).toEqual({ enabled: false, published: [] });
-  });
-
-  it('publishes recently ended, unpublished cycles once, to every active guild', async () => {
-    await db.collection('app_settings').insertOne({ _id: 'podium', auto_cycle_recap: true });
-    await db.collection('guildes').insertMany([
-      { name: 'Les Quincy', discord_general_channel_id: 'chan-1' },
-      { name: 'Endormie', discord_general_channel_id: 'chan-2', disabled: true },
-    ]);
-    await seedEndedCycle('Fini', '05/05/2026');
-    await seedEndedCycle('Ancien', '01/01/2026');
-    await seedEndedCycle('En cours', '10/05/2026');
-    await seedEndedCycle('Déjà publié', '06/05/2026', { recap_published_at: new Date() });
-
-    const result = await publishPendingCycleRecaps(db, now);
-
-    expect(result.published.map((p) => p.cycle)).toEqual(['Fini']);
-    expect(result.published[0].results).toEqual([{ guild: 'Les Quincy', status: 'requested' }]);
-    const logged = await db.collection('activity_log').find({}).toArray();
-    expect(logged.map((l) => [l.type, l.channel_id]).sort()).toEqual([['cycle_recap', 'chan-1'], ['podium_snapshot', 'chan-1']]);
-    expect((await db.collection('cycles').findOne({ name: 'Fini' })).recap_published_at).toBeInstanceOf(Date);
-
-    // Un second passage ne republie pas
-    expect((await publishPendingCycleRecaps(db, now)).published).toEqual([]);
   });
 });

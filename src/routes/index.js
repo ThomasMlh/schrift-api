@@ -22,7 +22,6 @@ import webviewRouter from './webview.js';
 import settingsRouter from './settings.js';
 import activityRouter from './activity.js';
 import discordRouter from './discord.js';
-import cronRouter from './cron.js';
 
 const router = express.Router();
 
@@ -49,6 +48,5 @@ router.use('/webview', webviewRouter);
 router.use('/settings', settingsRouter);
 router.use('/activity', activityRouter);
 router.use('/discord', discordRouter);
-router.use('/cron', cronRouter);
 
 export default router;
