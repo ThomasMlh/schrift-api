@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { requireDb, requireScoresAccess } from '../middleware/auth.js';
 import { processBatchScreenshots, SCREENSHOTTER_CONFIGS } from '../utils/ocrProcessor.js';
 import { computeDifferential } from '../services/scoreDifferential.js';
+import { notifyPersonalRecords } from '../services/killerRecords.js';
 import { findBestMatch, getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { getGuildAccountRoster, resolveScoreAccounts } from '../utils/bbsAccounts.js';
@@ -244,6 +245,10 @@ router.post('/submit-batch', async (req, res) => {
     }
     
     const insertedScores = [];
+    // Sous-ensemble des scores réellement créés par cet envoi (l'upsert peut aussi mettre à jour
+    // un score existant) : seuls candidats à un record personnel, pour ne pas re-fêter un record
+    // en renvoyant une capture déjà traitée.
+    const newlyCreatedScores = [];
     const errors = [];
 
     // Vérifier que chaque bbs_id appartient bien au user_id ciblé et à la bonne guilde
@@ -311,7 +316,7 @@ router.post('/submit-batch', async (req, res) => {
 
         // Upsert (insert ou update si existe déjà). Filtre par bbs_id seul (identité du compte) :
         // le $set remet user_id à jour vers le user actuel même si le doc existant portait l'ancien.
-        await req.db.collection('scores').updateOne(
+        const upsertResult = await req.db.collection('scores').updateOne(
           {
             bbs_id,
             cycle_id,
@@ -322,6 +327,7 @@ router.post('/submit-batch', async (req, res) => {
           },
           { upsert: true }
         );
+        if (upsertResult.upsertedCount > 0) newlyCreatedScores.push(scoreDocument);
 
         insertedScores.push({
           user_id,
@@ -404,6 +410,9 @@ router.post('/submit-batch', async (req, res) => {
     } catch (notifErr) {
       logger.error('[ocr/submit-batch] Erreur notification Discord (non bloquant):', notifErr.message);
     }
+
+    // Records personnels battus (message groupé par guilde ; ne lève jamais)
+    await notifyPersonalRecords(req.db, newlyCreatedScores);
 
     res.json({
       success: true,

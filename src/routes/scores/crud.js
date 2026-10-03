@@ -4,6 +4,7 @@ import { requireScoresAccess } from "../../middleware/auth.js";
 import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { compareEntities } from "../../services/scoreComparison.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
+import { notifyPersonalRecords } from "../../services/killerRecords.js";
 import { getUserDisplayName } from "../../utils/nameMatching.js";
 import { parsePaginationParams, buildPaginationMeta } from "../../utils/pagination.js";
 import { USER_DISPLAY, USER_SCORES_LOOKUP } from "../../utils/projections.js";
@@ -424,6 +425,10 @@ router.post("/", requireScoresAccess, async (req, res) => {
       const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, cycle_id, bbs_id);
       recalculatedCount = affectedIds.length;
     }
+
+    // Record personnel battu (ne lève jamais). Pas sur PUT /:id : une correction de score par un
+    // chef ne doit pas déclencher de félicitations.
+    await notifyPersonalRecords(req.db, [scoreData]);
 
     res.status(201).json({
       success: true,

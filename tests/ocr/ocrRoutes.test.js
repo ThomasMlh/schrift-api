@@ -140,4 +140,54 @@ describe('POST /api/ocr/submit-batch', () => {
       process.env.FRONTEND_URL = previousUrl;
     }
   });
+
+  it('announces a personal record when a new OCR score beats the account best from a previous cycle', async () => {
+    const { guildId, cycleId, userId } = await seedFixtures();
+    // Cycle précédent sur le même killer (rotation 'r1'), avec un score plus bas pour ce compte
+    const previous = await db.collection('cycles').insertOne({
+      name: 'Cycle Précédent', year: 2026, rotations: [{ rotation_id: 'r1', position: 1 }],
+    });
+    await db.collection('scores').insertOne({
+      cycle_id: previous.insertedId.toString(), rotation_id: 'r1', bbs_id: 'bbs-1', bbs_name: 'Alice',
+      user_id: userId, guild_id: guildId, score: 400000000, raw_score: 400000000, is_differential: false,
+    });
+
+    const res = await request(app)
+      .post('/api/ocr/submit-batch')
+      .set('Authorization', `Bearer ${adminToken()}`)
+      .send({
+        guild_id: guildId,
+        cycle_id: cycleId,
+        rotation_id: 'r1',
+        scores: [{ user_id: userId, bbs_id: 'bbs-1', raw_score: 500000000 }],
+      });
+
+    expect(res.status).toBe(200);
+    const recordNotif = await db.collection('activity_log').findOne({ type: 'personal_record' });
+    expect(recordNotif).not.toBeNull();
+    expect(recordNotif.channel_id).toBe('membres-channel');
+    expect(recordNotif.data.records).toEqual([
+      expect.objectContaining({ pseudo: 'Alice', previous_score: 400000000, new_score: 500000000 }),
+    ]);
+  });
+
+  it('does not announce a record when the same OCR batch is submitted again (update, not creation)', async () => {
+    const { guildId, cycleId, userId } = await seedFixtures();
+    const previous = await db.collection('cycles').insertOne({
+      name: 'Cycle Précédent', year: 2026, rotations: [{ rotation_id: 'r1', position: 1 }],
+    });
+    await db.collection('scores').insertOne({
+      cycle_id: previous.insertedId.toString(), rotation_id: 'r1', bbs_id: 'bbs-1', bbs_name: 'Alice',
+      user_id: userId, guild_id: guildId, score: 400000000, raw_score: 400000000, is_differential: false,
+    });
+    const body = {
+      guild_id: guildId, cycle_id: cycleId, rotation_id: 'r1',
+      scores: [{ user_id: userId, bbs_id: 'bbs-1', raw_score: 500000000 }],
+    };
+
+    await request(app).post('/api/ocr/submit-batch').set('Authorization', `Bearer ${adminToken()}`).send(body);
+    await request(app).post('/api/ocr/submit-batch').set('Authorization', `Bearer ${adminToken()}`).send(body);
+
+    expect(await db.collection('activity_log').countDocuments({ type: 'personal_record' })).toBe(1);
+  });
 });

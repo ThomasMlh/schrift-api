@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { requireScoresAccess } from "../../middleware/auth.js";
 import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
+import { notifyPersonalRecords } from "../../services/killerRecords.js";
 import { getUserDisplayName } from "../../utils/nameMatching.js";
 import { USER_DISPLAY, USER_DISPLAY_WITH_ID } from "../../utils/projections.js";
 import { resolveScoreAccounts } from "../../utils/bbsAccounts.js";
@@ -178,6 +179,9 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     let recalculatedCount = 0;
     const processedIds = [];
     const recalculatedIds = [];
+    // Scores nouvellement créés (pas les mises à jour) : seuls candidats à un record personnel,
+    // pour ne pas re-fêter un record en ressaisissant un score déjà enregistré.
+    const insertedScores = [];
 
     for (const scoreData of finalScores) {
       // bbs_id est la clé d'identité du score, pas user_id (cf. commentaire plus haut) : le filtre
@@ -212,6 +216,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         if (result.insertedId) {
           insertedCount++;
           processedIds.push(result.insertedId);
+          insertedScores.push(scoreData);
         }
       }
 
@@ -300,6 +305,9 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
     } catch (notifErr) {
       logger.error("[scores/bulk] Erreur notification Discord (non bloquant):", notifErr.message);
     }
+
+    // Records personnels battus (message groupé par guilde ; ne lève jamais)
+    await notifyPersonalRecords(req.db, insertedScores);
 
     res.status(200).json({
       success: true,
