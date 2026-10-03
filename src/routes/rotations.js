@@ -1,7 +1,8 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
-import { sendServerError } from '../utils/httpErrors.js';
+import { sendServerError, sendStatusCodeError } from '../utils/httpErrors.js';
+import { getRotationHistory } from '../services/killerRecords.js';
 
 const router = express.Router();
 
@@ -28,6 +29,22 @@ router.get('/:id', async (req, res) => {
     res.json(rotation);
   } catch (err) {
     sendServerError(res, err);
+  }
+});
+
+// Historique d'un killer (= une rotation modèle) sur tous les cycles : records, moyennes par cycle,
+// score à battre. Public, comme les scores de rotation affichés sur la même page.
+// Query : guild_id (optionnel) pour le périmètre guilde, cycle_id (optionnel) pour le score à battre.
+router.get('/:id/history', async (req, res) => {
+  try {
+    const { guild_id, cycle_id } = req.query;
+    const history = await getRotationHistory(req.db, req.params.id, {
+      guildId: guild_id || undefined,
+      currentCycleId: cycle_id || undefined,
+    });
+    res.json({ success: true, data: history });
+  } catch (err) {
+    sendStatusCodeError(res, err, "Erreur serveur lors de la récupération de l'historique du killer", "Erreur lors de la récupération de l'historique du killer:");
   }
 });
 

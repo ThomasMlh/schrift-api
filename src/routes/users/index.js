@@ -4,6 +4,7 @@ import crudRouter from './crud.js';
 import rolesRouter from './roles.js';
 import accountsRouter from './accounts.js';
 import moderationRouter from './moderation.js';
+import recordsRouter from './records.js';
 
 // Découpé depuis un unique users.js de 930 lignes (17 routes) en 4 modules
 // par thème. Montage sans préfixe : les chemins exposés sous /api/users sont
@@ -19,5 +20,6 @@ router.use(crudRouter);
 router.use(rolesRouter);
 router.use(accountsRouter);
 router.use(moderationRouter);
+router.use(recordsRouter);
 
 export default router;
