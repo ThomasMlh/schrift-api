@@ -1,7 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireScoresAccess } from '../middleware/auth.js';
-import { listDiscordChannels, sendDiscordMessage } from '../utils/botClient.js';
+import { listDiscordChannels, listDiscordEmojis, sendDiscordMessage } from '../utils/botClient.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 
 const router = express.Router();
@@ -42,6 +42,30 @@ router.get('/channels', requireScoresAccess, async (req, res) => {
     res.json({ success: true, channels: filtered });
   } catch (err) {
     sendStatusCodeError(res, err, 'Erreur serveur lors de la récupération des salons Discord', 'Erreur lors de la récupération des salons Discord:');
+  }
+});
+
+// GET emojis custom utilisables dans les messages. Admin : ceux de tous les serveurs où est le
+// bot. Chef/sous-chef : uniquement ceux des serveurs Discord contenant un de ses salons autorisés
+// (même périmètre que GET /channels).
+router.get('/emojis', requireScoresAccess, async (req, res) => {
+  try {
+    const emojis = await listDiscordEmojis();
+
+    if (req.user.hasFullAccess) {
+      return res.json({ success: true, emojis });
+    }
+
+    const allowedChannelIds = await getAllowedChannelIds(req.db, req.user.allowedGuildIds);
+    if (allowedChannelIds.size === 0) {
+      return res.json({ success: true, emojis: [] });
+    }
+
+    const channels = await listDiscordChannels();
+    const allowedServerIds = new Set(channels.filter((c) => allowedChannelIds.has(c.id)).map((c) => c.guild_id));
+    res.json({ success: true, emojis: emojis.filter((e) => allowedServerIds.has(e.guild_id)) });
+  } catch (err) {
+    sendStatusCodeError(res, err, 'Erreur serveur lors de la récupération des emojis Discord', 'Erreur lors de la récupération des emojis Discord:');
   }
 });
 

@@ -18,6 +18,12 @@ const MOCK_CHANNELS = [
   { id: 'chan-guild-a-general', name: 'guilde-a-general', guild_id: 'g1', guild_name: 'Discord', members: [{ id: 'u1', username: 'alice', display_name: 'Alice' }, { id: 'u2', username: 'bob', display_name: 'Bob' }] },
   { id: 'chan-guild-b-chefs', name: 'guilde-b-chefs', guild_id: 'g1', guild_name: 'Discord', members: [{ id: 'u3', username: 'carol', display_name: 'Carol' }] },
   { id: 'chan-unrelated', name: 'annonces', guild_id: 'g1', guild_name: 'Discord', members: [] },
+  { id: 'chan-other-server', name: 'ailleurs', guild_id: 'g2', guild_name: 'Autre serveur', members: [] },
+];
+const MOCK_EMOJIS = [
+  { id: 'e1', name: 'pepe', animated: false, url: 'https://cdn.discordapp.com/emojis/e1.png', guild_id: 'g1' },
+  { id: 'e2', name: 'dance', animated: true, url: 'https://cdn.discordapp.com/emojis/e2.gif', guild_id: 'g1' },
+  { id: 'e3', name: 'other', animated: false, url: 'https://cdn.discordapp.com/emojis/e3.png', guild_id: 'g2' },
 ];
 
 let mongod;
@@ -51,6 +57,9 @@ beforeEach(() => {
     if (String(url).includes('/channels')) {
       return { ok: true, status: 200, json: async () => ({ channels: MOCK_CHANNELS }) };
     }
+    if (String(url).includes('/emojis')) {
+      return { ok: true, status: 200, json: async () => ({ emojis: MOCK_EMOJIS }) };
+    }
     if (String(url).includes('/send-message')) {
       return { ok: true, status: 200, json: async () => ({ status: 'ok', message_id: 'm1', channel: 'chan-guild-a-chefs' }) };
     }
@@ -77,7 +86,7 @@ describe('GET /api/discord/channels', () => {
   it('returns every channel for an admin', async () => {
     const res = await request(app).get('/api/discord/channels').set('Authorization', `Bearer ${adminToken()}`);
     expect(res.status).toBe(200);
-    expect(res.body.channels).toHaveLength(4);
+    expect(res.body.channels).toHaveLength(MOCK_CHANNELS.length);
   });
 
   it('returns only the channels of the chef\'s guild', async () => {
@@ -104,6 +113,44 @@ describe('GET /api/discord/channels', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.channels).toEqual([]);
+  });
+});
+
+describe('GET /api/discord/emojis', () => {
+  it('rejects an unauthenticated request with 401', async () => {
+    const res = await request(app).get('/api/discord/emojis');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns every emoji for an admin', async () => {
+    const res = await request(app).get('/api/discord/emojis').set('Authorization', `Bearer ${adminToken()}`);
+    expect(res.status).toBe(200);
+    expect(res.body.emojis.map((e) => e.id)).toEqual(['e1', 'e2', 'e3']);
+  });
+
+  it('returns only the emojis of the Discord server holding the chef\'s channels', async () => {
+    const guild = await db.collection('guildes').insertOne({
+      name: 'Guilde A',
+      discord_channel_id: 'chan-guild-a-chefs',
+    });
+
+    const res = await request(app)
+      .get('/api/discord/emojis')
+      .set('Authorization', `Bearer ${chefTokenFor(guild.insertedId.toString())}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.emojis.map((e) => e.id)).toEqual(['e1', 'e2']);
+  });
+
+  it('returns no emoji for a chef whose guild has no registered Discord channel', async () => {
+    const guild = await db.collection('guildes').insertOne({ name: 'Guilde Sans Discord' });
+
+    const res = await request(app)
+      .get('/api/discord/emojis')
+      .set('Authorization', `Bearer ${chefTokenFor(guild.insertedId.toString())}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.emojis).toEqual([]);
   });
 });
 

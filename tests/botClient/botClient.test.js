@@ -1,4 +1,4 @@
-import { listDiscordChannels, sendDiscordMessage } from '../../src/utils/botClient.js';
+import { listDiscordChannels, listDiscordEmojis, sendDiscordMessage } from '../../src/utils/botClient.js';
 
 const jsonResponse = (status, body) => ({
   ok: status >= 200 && status < 300,
@@ -31,6 +31,27 @@ describe('listDiscordChannels', () => {
   it('propagates the bot status code and message on a non-ok response', async () => {
     global.fetch = jest.fn().mockResolvedValue(jsonResponse(401, { error: 'Non autorisé' }));
     await expect(listDiscordChannels()).rejects.toMatchObject({ statusCode: 401, message: 'Non autorisé' });
+  });
+});
+
+describe('listDiscordEmojis', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('returns the emojis array on success', async () => {
+    const emojis = [{ id: '1', name: 'pepe', animated: false, url: 'u', guild_id: 'g' }];
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(200, { emojis }));
+    expect(await listDiscordEmojis()).toEqual(emojis);
+  });
+
+  it('throws a 502 error when the bot is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(listDiscordEmojis()).rejects.toMatchObject({ statusCode: 502 });
+  });
+
+  it('propagates the bot status code on a non-ok response', async () => {
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(401, { error: 'Non autorisé' }));
+    await expect(listDiscordEmojis()).rejects.toMatchObject({ statusCode: 401 });
   });
 });
 
