@@ -11,15 +11,15 @@ import { logger } from '../utils/logger.js';
  * un killer passe d'une rotation de base à une différentielle ; `raw_score` (cumul hebdo) ne l'est pas.
  */
 
-const parseDate = (s) => {
+export const parseDate = (s) => {
   if (!s) return 0;
   const [day, month, year] = s.split('/');
   return new Date(year, month - 1, day).getTime() || 0;
 };
 
-const cycleTimestamp = (cycle) => parseDate(cycle.rotations?.[0]?.start_date) || new Date(cycle.created_at || 0).getTime();
+export const cycleTimestamp = (cycle) => parseDate(cycle.rotations?.[0]?.start_date) || new Date(cycle.created_at || 0).getTime();
 
-const toObjectIds = (ids) => ids.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
+export const toObjectIds = (ids) => ids.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
 
 /**
  * Charge les scores correspondant au filtre en écartant ceux qui ne sont pas comparables : un score
@@ -28,7 +28,7 @@ const toObjectIds = (ids) => ids.filter((id) => ObjectId.isValid(id)).map((id) =
  * et créerait de faux records.
  */
 export const loadComparableScores = async (db, filter) => {
-  const scores = await db.collection('scores').find({ ...filter, bbs_id: { $ne: null } }).toArray();
+  const scores = await db.collection('scores').find({ bbs_id: { $ne: null }, ...filter }).toArray();
   const differentials = scores.filter((s) => s.is_differential);
   if (differentials.length === 0) return scores;
 
@@ -62,7 +62,7 @@ export const loadComparableScores = async (db, filter) => {
 };
 
 const bestOf = (scores) => scores.reduce((best, s) => ((s.score || 0) > (best?.score || 0) ? s : best), null);
-const average = (scores) => (scores.length ? Math.round(scores.reduce((sum, s) => sum + (s.score || 0), 0) / scores.length) : null);
+export const average = (scores) => (scores.length ? Math.round(scores.reduce((sum, s) => sum + (s.score || 0), 0) / scores.length) : null);
 
 /**
  * Historique d'un killer sur tous les cycles : records (absolu, et de la guilde si guildId),

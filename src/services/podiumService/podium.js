@@ -1,4 +1,5 @@
 import { ObjectId } from 'mongodb';
+import { getProgression, attachIdentity } from '../playerTrends.js';
 import {
   getMinScoresForRanking, lookupUserAndGuild, getCurrentGuildBbsIds,
   buildGuildMatch, overrideGuildName, applyRanks, paginate
@@ -81,8 +82,8 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
   const normalizedRankingType = String(ranking_type).toLowerCase();
   const minScores = await getMinScoresForRanking(db);
 
-  if (!rotation_id && !['average', 'max'].includes(normalizedRankingType)) {
-    const err = new Error('ranking_type doit être "average" ou "max"');
+  if (!rotation_id && !['average', 'max', 'progression'].includes(normalizedRankingType)) {
+    const err = new Error('ranking_type doit être "average", "max" ou "progression"');
     err.statusCode = 400;
     throw err;
   }
@@ -126,6 +127,12 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
     }
     guildId = guild._id.toString();
     currentGuildName = guild.name;
+  }
+
+  if (!rotation_id && normalizedRankingType === 'progression') {
+    return getProgressionPodium(db, {
+      cycle, cycle_name, guildId, guild_name, currentGuildName, minScores, pageNumber, limitNumber,
+    });
   }
 
   const matchStage = { cycle_id: cycle._id.toString(), bbs_id: { $ne: null } };
@@ -244,3 +251,33 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
     }
   };
 }
+
+// Classement "progression" : hausse de la moyenne par rapport au cycle précédent (en %).
+const getProgressionPodium = async (db, { cycle, cycle_name, guildId, guild_name, currentGuildName, minScores, pageNumber, limitNumber }) => {
+  const bbsIds = guildId ? await getCurrentGuildBbsIds(db, guildId) : null;
+  const { previousCycle, rows } = await getProgression(db, { cycle, bbsIds, minScores });
+  const withIdentity = overrideGuildName(await attachIdentity(db, rows), currentGuildName);
+  const { items: data, pagination } = paginate(applyRanks(withIdentity, 'progressionPercent'), pageNumber, limitNumber);
+
+  return {
+    data,
+    pagination,
+    filters: {
+      cycle_name,
+      cycle_id: cycle._id.toString(),
+      rotation_id: null,
+      guild_name: guild_name || null,
+      ranking_type: 'progression'
+    },
+    meta: {
+      totalPlayers: pagination.totalCount,
+      cycleName: cycle_name,
+      rotationInfo: null,
+      guildSpecific: !!guild_name,
+      fullPodium: true,
+      podiumType: 'progression',
+      previousCycle: previousCycle ? { _id: previousCycle._id.toString(), name: previousCycle.name, year: previousCycle.year } : null,
+      ...(minScores > 0 && { minScoresRequired: minScores })
+    }
+  };
+};

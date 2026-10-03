@@ -17,6 +17,7 @@ export const NOTIFICATION_TYPES = [
   'membre_role_change',
   'guild_member_change',
   'personal_record',
+  'cycle_recap',
 ];
 
 export const isValidNotificationType = (type) => NOTIFICATION_TYPES.includes(type);
