@@ -44,6 +44,28 @@ export const listDiscordChannels = async () => {
 };
 
 /**
+ * Liste les emojis custom (disponibles) des serveurs où se trouve le bot.
+ * @returns {Promise<Array<{id, name, animated, url, guild_id}>>}
+ */
+export const listDiscordEmojis = async () => {
+  let res;
+  try {
+    res = await fetch(botUrl('/emojis'), { headers: authHeaders() });
+  } catch (err) {
+    logger.error('[botClient] Impossible de joindre le bot (GET /emojis):', err.message);
+    throw botError(502, 'Impossible de joindre le bot Discord');
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw botError(res.status, body.error || `Le bot a répondu ${res.status}`);
+  }
+
+  const { emojis } = await res.json();
+  return emojis || [];
+};
+
+/**
  * Envoie un message à un salon via le bot.
  * @param {{channel_id: string, content: string, mention_user_ids?: string[]}} params
  * @returns {Promise<{status: string, message_id: string, channel: string}>}
