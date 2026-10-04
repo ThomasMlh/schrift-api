@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireDb } from '../middleware/auth.js';
 import { sendServerErrorWithFlag } from '../utils/httpErrors.js';
+import { CLEAR_SCORE_THRESHOLD } from '../utils/scoreThresholds.js';
 
 const router = express.Router();
 router.use(requireDb);
@@ -44,7 +45,7 @@ router.get('/community', async (req, res) => {
 
     const scores = await req.db.collection('scores').find(scoresQuery, { projection: { score: 1 } }).toArray();
     const totalScores = scores.length;
-    const clearCount = scores.filter(s => (s.score || 0) >= 600_000_000).length;
+    const clearCount = scores.filter(s => (s.score || 0) >= CLEAR_SCORE_THRESHOLD).length;
     const globalClearRate = totalScores > 0 ? Math.round((clearCount / totalScores) * 10000) / 100 : 0;
     const totalPoints = scores.reduce((s, sc) => s + (sc.score || 0), 0);
     const avgScore = totalScores > 0 ? Math.round(totalPoints / totalScores) : 0;
