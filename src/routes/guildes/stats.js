@@ -2,6 +2,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { logger } from '../../utils/logger.js';
 import { sendServerErrorWithFlag } from '../../utils/httpErrors.js';
+import { CLEAR_SCORE_THRESHOLD } from '../../utils/scoreThresholds.js';
 
 const router = express.Router();
 
@@ -43,7 +44,7 @@ router.get('/rankings', async (req, res) => {
       const totalPoints = guildScores.reduce((s, v) => s + v, 0);
       const averageScore = totalScores > 0 ? Math.round(totalPoints / totalScores) : 0;
       const bestScore = totalScores > 0 ? Math.max(...guildScores) : 0;
-      const clearCount = guildScores.filter(v => v >= 600_000_000).length;
+      const clearCount = guildScores.filter(v => v >= CLEAR_SCORE_THRESHOLD).length;
       const clearRate = totalScores > 0 ? Math.round((clearCount / totalScores) * 10000) / 100 : 0;
 
       return { _id: guildId, name: guild.name, totalMembers: memberCountByGuild[guildId] || 0, averageScore, bestScore, totalScores, totalPoints, clearRate };
@@ -111,7 +112,7 @@ router.get('/:id/stats', async (req, res) => {
     const totalPoints = scores.reduce((sum, score) => sum + (score.score || 0), 0);
     const averageScore = totalScores > 0 ? Math.round(totalPoints / totalScores) : 0;
     const bestScore = totalScores > 0 ? Math.max(...scores.map(s => s.score || 0)) : 0;
-    const clearCount = scores.filter(s => (s.score || 0) >= 600_000_000).length;
+    const clearCount = scores.filter(s => (s.score || 0) >= CLEAR_SCORE_THRESHOLD).length;
     const clearRate = totalScores > 0 ? Math.round((clearCount / totalScores) * 100 * 100) / 100 : 0;
 
     const stats = {
@@ -194,8 +195,8 @@ router.get('/:id/score-distribution', async (req, res) => {
       { label: 'Miss', min: 0, max: 0, count: 0 },
       { label: '< 200M', min: 1, max: 200_000_000, count: 0 },
       { label: '200M–400M', min: 200_000_000, max: 400_000_000, count: 0 },
-      { label: '400M–600M', min: 400_000_000, max: 600_000_000, count: 0 },
-      { label: '≥ 600M', min: 600_000_000, max: Infinity, count: 0 },
+      { label: '400M–617M', min: 400_000_000, max: CLEAR_SCORE_THRESHOLD, count: 0 },
+      { label: '≥ 617M', min: CLEAR_SCORE_THRESHOLD, max: Infinity, count: 0 },
     ];
 
     for (const s of scores) {
@@ -251,7 +252,7 @@ router.get('/:id/evolution', async (req, res) => {
       const totalScores = cycleScores.length;
       const totalPoints = cycleScores.reduce((s, v) => s + v, 0);
       const averageScore = totalScores > 0 ? Math.round(totalPoints / totalScores) : 0;
-      const clearCount = cycleScores.filter(v => v >= 600_000_000).length;
+      const clearCount = cycleScores.filter(v => v >= CLEAR_SCORE_THRESHOLD).length;
       const clearRate = totalScores > 0 ? Math.round((clearCount / totalScores) * 10000) / 100 : 0;
       return { cycleId, cycleName: cycle.name, cycleYear: cycle.year, averageScore, totalScores, clearRate };
     });
