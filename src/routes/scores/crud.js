@@ -674,12 +674,24 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
   }
 });
 
-// DELETE supprimer un score
-router.delete("/:id", async (req, res) => {
+// DELETE supprimer un score (admin, ou chef/sous-chef sur un score de sa guilde)
+router.delete("/:id", requireScoresAccess, async (req, res) => {
   try {
-    const result = await req.db.collection("scores").deleteOne({
-      _id: new ObjectId(req.params.id)
-    });
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: "ID de score invalide" });
+    }
+    const existingScore = await req.db.collection("scores").findOne({ _id: new ObjectId(req.params.id) });
+    if (!existingScore) {
+      return res.status(404).json({ success: false, message: "Score non trouvé" });
+    }
+    if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(existingScore.guild_id)) {
+      return res.status(403).json({
+        success: false,
+        message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez supprimer que des scores de vos guildes.`
+      });
+    }
+
+    const result = await req.db.collection("scores").deleteOne({ _id: existingScore._id });
 
     if (result.deletedCount === 0) {
       return res
