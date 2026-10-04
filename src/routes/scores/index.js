@@ -13,7 +13,7 @@ const router = express.Router();
 
 router.use(requireDb);
 
-// Monté avant crud pour que /decline-alerts ne soit pas capturé par une route /:id
+// Monté avant crud pour que /decline-alerts, /anomalies et /history ne soient pas capturés par GET /:id
 router.use(alertsRouter);
 router.use(crudRouter);
 router.use(bulkRouter);

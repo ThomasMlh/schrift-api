@@ -4,6 +4,7 @@ import { requireScoresAccess } from "../../middleware/auth.js";
 import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
 import { notifyPersonalRecords } from "../../services/killerRecords.js";
+import { recordScoreChange } from "../../services/scoreHistory.js";
 import { getUserDisplayName } from "../../utils/nameMatching.js";
 import { USER_DISPLAY, USER_DISPLAY_WITH_ID } from "../../utils/projections.js";
 import { resolveScoreAccounts } from "../../utils/bbsAccounts.js";
@@ -209,6 +210,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
         if (result.matchedCount > 0) {
           updatedCount++;
           processedIds.push(existingScores.get(existingKey)._id);
+          await recordScoreChange(req.db, { action: 'update', source: 'bulk', before: existingScores.get(existingKey), after: scoreData, user: req.user });
         }
       } else {
         // Insérer un nouveau score
@@ -217,6 +219,7 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
           insertedCount++;
           processedIds.push(result.insertedId);
           insertedScores.push(scoreData);
+          await recordScoreChange(req.db, { action: 'create', source: 'bulk', scoreId: result.insertedId, after: scoreData, user: req.user });
         }
       }
 

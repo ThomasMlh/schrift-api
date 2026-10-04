@@ -5,6 +5,7 @@ import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { compareEntities } from "../../services/scoreComparison.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
 import { notifyPersonalRecords } from "../../services/killerRecords.js";
+import { recordScoreChange } from "../../services/scoreHistory.js";
 import { getUserDisplayName } from "../../utils/nameMatching.js";
 import { parsePaginationParams, buildPaginationMeta } from "../../utils/pagination.js";
 import { USER_DISPLAY, USER_SCORES_LOOKUP } from "../../utils/projections.js";
@@ -418,6 +419,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
     };
 
     const result = await req.db.collection("scores").insertOne(scoreData);
+    await recordScoreChange(req.db, { action: 'create', scoreId: result.insertedId, after: scoreData, user: req.user });
 
     // Recalculer les scores différentiels suivants si c'est un score de base
     let recalculatedCount = 0;
@@ -577,6 +579,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         .status(404)
         .json({ success: false, message: "Score non trouvé" });
     }
+    await recordScoreChange(req.db, { action: 'update', before: existingScore, after: updateData, user: req.user });
 
     // Recalculer les scores différentiels suivants si on a modifié un score de base
     let recalculatedCount = 0;
@@ -674,18 +677,31 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
   }
 });
 
-// DELETE supprimer un score
-router.delete("/:id", async (req, res) => {
+// DELETE supprimer un score (admin, ou chef/sous-chef sur un score de sa guilde)
+router.delete("/:id", requireScoresAccess, async (req, res) => {
   try {
-    const result = await req.db.collection("scores").deleteOne({
-      _id: new ObjectId(req.params.id)
-    });
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: "ID de score invalide" });
+    }
+    const existingScore = await req.db.collection("scores").findOne({ _id: new ObjectId(req.params.id) });
+    if (!existingScore) {
+      return res.status(404).json({ success: false, message: "Score non trouvé" });
+    }
+    if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(existingScore.guild_id)) {
+      return res.status(403).json({
+        success: false,
+        message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez supprimer que des scores de vos guildes.`
+      });
+    }
+
+    const result = await req.db.collection("scores").deleteOne({ _id: existingScore._id });
 
     if (result.deletedCount === 0) {
       return res
         .status(404)
         .json({ success: false, message: "Score non trouvé" });
     }
+    await recordScoreChange(req.db, { action: 'delete', before: existingScore, user: req.user });
 
     res.json({ success: true, message: "Score supprimé avec succès" });
   } catch (err) {

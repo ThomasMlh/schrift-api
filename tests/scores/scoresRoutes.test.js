@@ -125,9 +125,41 @@ describe('PUT /api/scores/:id/transfer-account (transfers.js, requireScoresAcces
   });
 });
 
-describe('DELETE /api/scores/:id (crud.js)', () => {
-  it('returns 404 for a non-existent score', async () => {
+describe('DELETE /api/scores/:id (crud.js, requireScoresAccess)', () => {
+  it('rejects an unauthenticated request with 401', async () => {
     const res = await request(app).delete(`/api/scores/${new ObjectId().toString()}`);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 for a non-existent score', async () => {
+    const res = await request(app)
+      .delete(`/api/scores/${new ObjectId().toString()}`)
+      .set('Authorization', `Bearer ${adminToken()}`);
     expect(res.status).toBe(404);
+  });
+
+  it('refuses a chef deleting a score of another guild', async () => {
+    const { insertedId } = await db.collection('scores').insertOne({
+      cycle_id: 'c1', rotation_id: 'r1', bbs_id: 'bbs-1', guild_id: 'other-guild', score: 100, raw_score: 100,
+    });
+    const chefToken = jwt.sign({ id: 'chef-1', guild_roles: [{ guilde_id: 'my-guild', role: 'chef' }] }, JWT_SECRET);
+    const res = await request(app)
+      .delete(`/api/scores/${insertedId.toString()}`)
+      .set('Authorization', `Bearer ${chefToken}`);
+    expect(res.status).toBe(403);
+    expect(await db.collection('scores').countDocuments()).toBe(1);
+  });
+
+  it('deletes a score and records it in the history', async () => {
+    const { insertedId } = await db.collection('scores').insertOne({
+      cycle_id: 'c1', rotation_id: 'r1', bbs_id: 'bbs-1', bbs_name: 'Alice', guild_id: 'g1', score: 100, raw_score: 100,
+    });
+    const res = await request(app)
+      .delete(`/api/scores/${insertedId.toString()}`)
+      .set('Authorization', `Bearer ${adminToken()}`);
+    expect(res.status).toBe(200);
+    const history = await db.collection('score_history').find().toArray();
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ action: 'delete', score_id: insertedId.toString(), before: { score: 100, bbs_name: 'Alice' }, after: null });
   });
 });

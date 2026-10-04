@@ -1,3 +1,5 @@
+import { recordScoreChange } from './scoreHistory.js';
+
 /**
  * Logique de calcul différentiel des scores.
  * 1 rotation sur 2 (index impair) = score différentiel (rawScore - previousRawScore).
@@ -53,10 +55,10 @@ export const recalculateAffectedDifferentials = async (db, cycle, rotationIndex,
     if (!previousScore) continue;
 
     const newScore = Math.max(0, existing.raw_score - previousScore.raw_score);
-    await db.collection('scores').updateOne(
-      { _id: existing._id },
-      { $set: { score: newScore, is_differential: true, updated_at: new Date() } }
-    );
+    const recalculated = { score: newScore, is_differential: true, updated_at: new Date() };
+    await db.collection('scores').updateOne({ _id: existing._id }, { $set: recalculated });
+    // Recalcul automatique (pas d'auteur) ; ignoré par l'historique si le score n'a pas bougé
+    await recordScoreChange(db, { action: 'recalculate', source: 'auto', before: existing, after: recalculated });
 
     recalculatedIds.push(existing._id);
   }
