@@ -4,6 +4,7 @@ import { requireDb, requireScoresAccess } from '../middleware/auth.js';
 import { processBatchScreenshots, SCREENSHOTTER_CONFIGS } from '../utils/ocrProcessor.js';
 import { computeDifferential } from '../services/scoreDifferential.js';
 import { notifyPersonalRecords } from '../services/killerRecords.js';
+import { recordScoreChange } from '../services/scoreHistory.js';
 import { findBestMatch, getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { getGuildAccountRoster, resolveScoreAccounts } from '../utils/bbsAccounts.js';
@@ -316,6 +317,7 @@ router.post('/submit-batch', async (req, res) => {
 
         // Upsert (insert ou update si existe déjà). Filtre par bbs_id seul (identité du compte) :
         // le $set remet user_id à jour vers le user actuel même si le doc existant portait l'ancien.
+        const previousDocument = await req.db.collection('scores').findOne({ bbs_id, cycle_id, rotation_id });
         const upsertResult = await req.db.collection('scores').updateOne(
           {
             bbs_id,
@@ -328,6 +330,14 @@ router.post('/submit-batch', async (req, res) => {
           { upsert: true }
         );
         if (upsertResult.upsertedCount > 0) newlyCreatedScores.push(scoreDocument);
+        await recordScoreChange(req.db, {
+          action: previousDocument ? 'update' : 'create',
+          source: 'ocr',
+          scoreId: previousDocument?._id || upsertResult.upsertedId,
+          before: previousDocument,
+          after: scoreDocument,
+          user: req.user,
+        });
 
         insertedScores.push({
           user_id,

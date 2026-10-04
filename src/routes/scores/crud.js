@@ -5,6 +5,7 @@ import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { compareEntities } from "../../services/scoreComparison.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
 import { notifyPersonalRecords } from "../../services/killerRecords.js";
+import { recordScoreChange } from "../../services/scoreHistory.js";
 import { getUserDisplayName } from "../../utils/nameMatching.js";
 import { parsePaginationParams, buildPaginationMeta } from "../../utils/pagination.js";
 import { USER_DISPLAY, USER_SCORES_LOOKUP } from "../../utils/projections.js";
@@ -418,6 +419,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
     };
 
     const result = await req.db.collection("scores").insertOne(scoreData);
+    await recordScoreChange(req.db, { action: 'create', scoreId: result.insertedId, after: scoreData, user: req.user });
 
     // Recalculer les scores différentiels suivants si c'est un score de base
     let recalculatedCount = 0;
@@ -577,6 +579,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         .status(404)
         .json({ success: false, message: "Score non trouvé" });
     }
+    await recordScoreChange(req.db, { action: 'update', before: existingScore, after: updateData, user: req.user });
 
     // Recalculer les scores différentiels suivants si on a modifié un score de base
     let recalculatedCount = 0;
@@ -698,6 +701,7 @@ router.delete("/:id", requireScoresAccess, async (req, res) => {
         .status(404)
         .json({ success: false, message: "Score non trouvé" });
     }
+    await recordScoreChange(req.db, { action: 'delete', before: existingScore, user: req.user });
 
     res.json({ success: true, message: "Score supprimé avec succès" });
   } catch (err) {

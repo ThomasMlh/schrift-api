@@ -149,4 +149,17 @@ describe('DELETE /api/scores/:id (crud.js, requireScoresAccess)', () => {
     expect(res.status).toBe(403);
     expect(await db.collection('scores').countDocuments()).toBe(1);
   });
+
+  it('deletes a score and records it in the history', async () => {
+    const { insertedId } = await db.collection('scores').insertOne({
+      cycle_id: 'c1', rotation_id: 'r1', bbs_id: 'bbs-1', bbs_name: 'Alice', guild_id: 'g1', score: 100, raw_score: 100,
+    });
+    const res = await request(app)
+      .delete(`/api/scores/${insertedId.toString()}`)
+      .set('Authorization', `Bearer ${adminToken()}`);
+    expect(res.status).toBe(200);
+    const history = await db.collection('score_history').find().toArray();
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ action: 'delete', score_id: insertedId.toString(), before: { score: 100, bbs_name: 'Alice' }, after: null });
+  });
 });

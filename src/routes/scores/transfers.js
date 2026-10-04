@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { requireScoresAccess } from "../../middleware/auth.js";
 import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { buildRotationIndexMap, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
+import { recordScoreChange } from "../../services/scoreHistory.js";
 import { getUserDisplayName } from "../../utils/nameMatching.js";
 import { USER_DISPLAY } from "../../utils/projections.js";
 import { findAccount } from "../../utils/bbsAccounts.js";
@@ -175,20 +176,18 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
       if (existingTarget) {
         await req.db.collection("scores").deleteOne({ _id: existingTarget._id });
         overwrittenCount++;
+        await recordScoreChange(req.db, { action: 'delete', source: 'transfer_rotation', before: existingTarget, user: req.user });
       }
 
       // Mettre à jour le score source en place (change rotation_id + recalcul)
-      await req.db.collection("scores").updateOne(
-        { _id: score._id },
-        {
-          $set: {
-            rotation_id: target_rotation_id,
-            score: newScore,
-            is_differential: isDifferential,
-            updated_at: new Date()
-          }
-        }
-      );
+      const transferUpdate = {
+        rotation_id: target_rotation_id,
+        score: newScore,
+        is_differential: isDifferential,
+        updated_at: new Date()
+      };
+      await req.db.collection("scores").updateOne({ _id: score._id }, { $set: transferUpdate });
+      await recordScoreChange(req.db, { action: 'transfer_rotation', before: score, after: transferUpdate, user: req.user });
     }
 
     // Si la rotation cible est une base (index pair), recalculer les différentiels suivants
@@ -355,6 +354,7 @@ router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
     };
 
     await req.db.collection("scores").updateOne({ _id: existingScore._id }, { $set: updateData });
+    await recordScoreChange(req.db, { action: 'transfer_account', before: existingScore, after: updateData, user: req.user });
 
     // Le score de base a changé de compte : recalculer les différentiels suivants du compte
     // cible (comme à la création) ET ceux qui suivaient encore l'ancien compte.
