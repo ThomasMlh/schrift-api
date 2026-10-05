@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { toObjectIds } from './killerRecords.js';
+import { invalidateAchievementsCache } from './achievements.js';
 
 /**
  * Historique des modifications de scores (collection `score_history`) : une entrée par création,
@@ -29,6 +30,8 @@ const authorOf = (user) => (user ? (user._id?.toString() || user.id?.toString() 
  * une suppression). Une modification sans changement réel n'est pas enregistrée. Ne lève jamais.
  */
 export const recordScoreChange = async (db, { action, source = 'manual', scoreId, before = null, after = null, user = null }) => {
+  // Tout changement de score peut débloquer ou retirer un succès
+  invalidateAchievementsCache();
   try {
     const beforeSnap = snapshot(before);
     const afterSnap = snapshot(after ? { ...before, ...after } : null);
