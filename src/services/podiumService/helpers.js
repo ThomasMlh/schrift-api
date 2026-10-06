@@ -1,3 +1,5 @@
+import { parseDate } from '../killerRecords.js';
+
 // Pipeline commun pour joindre users (identité Discord uniquement : avatar/global_name) à partir
 // d'un champ user_id présent sur le document, et guildes à partir d'un champ guild_id présent sur
 // le document lui-même (le guild_id/bbs_name du SCORE, jamais la guilde/le pseudo actuels du user
@@ -94,6 +96,34 @@ export const getUnguildedBbsIds = async (db) => {
 // Condition de match pour une guilde : scores des comptes actuellement dans la guilde (via
 // bbs_id). Les scores sans bbs_id (anciens, en voie de suppression) ne remontent jamais.
 export const buildGuildMatch = (currentBbsIds) => ({ bbs_id: { $in: currentBbsIds } });
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Un cycle est en cours entre le début de sa première rotation et la fin de sa dernière.
+export const isCycleInProgress = (cycle, now = Date.now()) => {
+  const rotations = cycle?.rotations || [];
+  if (rotations.length === 0) return false;
+  const start = parseDate(rotations[0].start_date);
+  const end = parseDate(rotations[rotations.length - 1].end_date || rotations[rotations.length - 1].start_date);
+  return start > 0 && start <= now && now < end + DAY_MS;
+};
+
+// Périmètre d'une guilde sur un cycle :
+//  - cycle en cours : les membres ACTUELS de la guilde (un joueur transféré en cours de cycle
+//    apparaît dans sa nouvelle guilde avec tous ses scores) ;
+//  - cycle passé : les scores saisis pour cette guilde sur ce cycle (guild_id du score), pour
+//    que les anciens podiums restent fidèles aux guildes de l'époque, même après un draft.
+// Sans cycle connu, on garde le comportement des membres actuels.
+export const getGuildScoreMatch = async (db, cycle, guildId, now = Date.now()) =>
+  !cycle || isCycleInProgress(cycle, now)
+    ? buildGuildMatch(await getCurrentGuildBbsIds(db, guildId))
+    : { guild_id: guildId };
+
+// Comptes de la guilde sur un cycle, selon la même règle que getGuildScoreMatch.
+export const getGuildBbsIdsForCycle = async (db, cycle, guildId, now = Date.now()) =>
+  !cycle || isCycleInProgress(cycle, now)
+    ? getCurrentGuildBbsIds(db, guildId)
+    : db.collection('scores').distinct('bbs_id', { cycle_id: cycle._id.toString(), guild_id: guildId, bbs_id: { $ne: null } });
 
 // Une fois le filtre par guilde appliqué, chaque ligne appartient par construction à cette
 // guilde : on force l'affichage dessus plutôt que sur le guild_id (potentiellement obsolète,

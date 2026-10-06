@@ -6,6 +6,7 @@ import {
   getPodiumWeekly,
   getPodiumMisses,
   getDraftProposal,
+  isCycleInProgress,
 } from '../../src/services/podiumService/index.js';
 
 // Tests d'intégration exerçant les vrais pipelines d'agrégation MongoDB (les
@@ -247,6 +248,66 @@ describe('getPodiumMisses (integration)', () => {
     expect(result.data[0].bbs_name).toBe('Alice');
     expect(result.data[0].total_misses).toBe(2);
     expect(result.meta.totalMissesInCycle).toBe(2);
+  });
+});
+
+// --- Périmètre d'une guilde : cycle passé vs cycle en cours -------------------
+
+describe('guild scope on past and in-progress cycles', () => {
+  const ddmmyyyy = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  const DAY = 24 * 60 * 60 * 1000;
+
+  // Alice a joué pour la guilde A, puis a été transférée dans la guilde B (draft)
+  const seedTransfer = async (rotations) => {
+    const guildA = await makeGuild('Guilde A');
+    const guildB = await makeGuild('Guilde B');
+    await makeUser({ discordId: 'd1', bbsAccounts: [{ bbs_id: 'bbs-alice', guilde_id: guildB }] });
+    await makeUser({ discordId: 'd2', bbsAccounts: [{ bbs_id: 'bbs-bob', guilde_id: guildA }] });
+    const cycle = await makeCycle({ name: 'Cycle Scope', rotations });
+    const cycleId = cycle._id.toString();
+    await insertScore(cycleId, { bbsId: 'bbs-alice', bbsName: 'Alice', userId: 'd1', guildId: guildA, rotationId: 'r1', score: 500 });
+    await insertScore(cycleId, { bbsId: 'bbs-bob', bbsName: 'Bob', userId: 'd2', guildId: guildA, rotationId: 'r1', score: 300 });
+    return { cycleId };
+  };
+
+  it('uses the guild recorded on the scores for a past cycle', async () => {
+    const { cycleId } = await seedTransfer([{ rotation_id: 'r1', position: 1, start_date: '01/01/2025', end_date: '03/01/2025' }]);
+
+    const guildA = await getPodiumFull(db, { cycle_name: 'Cycle Scope', guild_name: 'Guilde A' });
+    expect(guildA.data.map((p) => p.bbs_name)).toEqual(['Alice', 'Bob']);
+    const guildB = await getPodiumFull(db, { cycle_name: 'Cycle Scope', guild_name: 'Guilde B' });
+    expect(guildB.data).toEqual([]);
+
+    const guildAId = (await db.collection('guildes').findOne({ name: 'Guilde A' }))._id.toString();
+    const { podium } = await getPodium(db, { cycle_id: cycleId, guild_id: guildAId });
+    expect(podium.map((p) => p.bbs_name)).toEqual(['Alice', 'Bob']);
+  });
+
+  it('uses the current guild members for the cycle in progress', async () => {
+    const now = new Date();
+    await seedTransfer([{ rotation_id: 'r1', position: 1, start_date: ddmmyyyy(new Date(now.getTime() - 2 * DAY)), end_date: ddmmyyyy(new Date(now.getTime() + 2 * DAY)) }]);
+
+    const guildA = await getPodiumFull(db, { cycle_name: 'Cycle Scope', guild_name: 'Guilde A' });
+    expect(guildA.data.map((p) => p.bbs_name)).toEqual(['Bob']);
+    const guildB = await getPodiumFull(db, { cycle_name: 'Cycle Scope', guild_name: 'Guilde B' });
+    expect(guildB.data.map((p) => p.bbs_name)).toEqual(['Alice']);
+  });
+
+  it('applies the same rule to the misses podium', async () => {
+    await seedTransfer([{ rotation_id: 'r1', position: 1, start_date: '01/01/2025', end_date: '03/01/2025' }]);
+    await db.collection('scores').updateMany({}, { $set: { score: 0 } });
+
+    const guildA = await getPodiumMisses(db, { cycle_name: 'Cycle Scope', guild_name: 'Guilde A' });
+    expect(guildA.data.map((p) => p.bbs_name).sort()).toEqual(['Alice', 'Bob']);
+  });
+
+  it('isCycleInProgress: from the first rotation start to the end of the last one', () => {
+    const cycle = { rotations: [{ start_date: '01/03/2026' }, { start_date: '10/03/2026', end_date: '12/03/2026' }] };
+    expect(isCycleInProgress(cycle, new Date(2026, 1, 28).getTime())).toBe(false);
+    expect(isCycleInProgress(cycle, new Date(2026, 2, 1).getTime())).toBe(true);
+    expect(isCycleInProgress(cycle, new Date(2026, 2, 12, 23).getTime())).toBe(true);
+    expect(isCycleInProgress(cycle, new Date(2026, 2, 13, 1).getTime())).toBe(false);
+    expect(isCycleInProgress({ rotations: [] })).toBe(false);
   });
 });
 
