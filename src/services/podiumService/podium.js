@@ -1,8 +1,8 @@
 import { ObjectId } from 'mongodb';
 import { getProgression, attachIdentity } from '../playerTrends.js';
 import {
-  getMinScoresForRanking, lookupUserAndGuild, getCurrentGuildBbsIds,
-  buildGuildMatch, overrideGuildName, applyRanks, paginate
+  getMinScoresForRanking, lookupUserAndGuild, getGuildScoreMatch, getGuildBbsIdsForCycle,
+  overrideGuildName, applyRanks, paginate
 } from './helpers.js';
 
 // GET podium simple (top 10, sans pagination)
@@ -17,7 +17,10 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
   let currentGuildName = null;
   const matchStage = { cycle_id, bbs_id: { $ne: null } };
   if (guild_id) {
-    Object.assign(matchStage, buildGuildMatch(await getCurrentGuildBbsIds(db, guild_id)));
+    const cycle = ObjectId.isValid(cycle_id)
+      ? await db.collection('cycles').findOne({ _id: new ObjectId(cycle_id) }, { projection: { rotations: 1 } })
+      : null;
+    Object.assign(matchStage, await getGuildScoreMatch(db, cycle, guild_id));
     const guildDoc = await db.collection('guildes').findOne({ _id: new ObjectId(guild_id) });
     currentGuildName = guildDoc?.name || null;
   }
@@ -137,7 +140,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
 
   const matchStage = { cycle_id: cycle._id.toString(), bbs_id: { $ne: null } };
   if (rotation_id) matchStage.rotation_id = rotation_id;
-  if (guildId) Object.assign(matchStage, buildGuildMatch(await getCurrentGuildBbsIds(db, guildId)));
+  if (guildId) Object.assign(matchStage, await getGuildScoreMatch(db, cycle, guildId));
 
   let pipeline;
   if (rotation_id) {
@@ -254,7 +257,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
 
 // Classement "progression" : hausse de la moyenne par rapport au cycle précédent (en %).
 const getProgressionPodium = async (db, { cycle, cycle_name, guildId, guild_name, currentGuildName, minScores, pageNumber, limitNumber }) => {
-  const bbsIds = guildId ? await getCurrentGuildBbsIds(db, guildId) : null;
+  const bbsIds = guildId ? await getGuildBbsIdsForCycle(db, cycle, guildId) : null;
   const { previousCycle, rows } = await getProgression(db, { cycle, bbsIds, minScores });
   const withIdentity = overrideGuildName(await attachIdentity(db, rows), currentGuildName);
   const { items: data, pagination } = paginate(applyRanks(withIdentity, 'progressionPercent'), pageNumber, limitNumber);

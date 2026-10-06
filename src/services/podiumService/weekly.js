@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { getCurrentGuildBbsIds, buildGuildMatch, lookupUserByUserId, overrideGuildName, applyRanks, paginate } from './helpers.js';
+import { getGuildScoreMatch, lookupUserByUserId, overrideGuildName, applyRanks, paginate } from './helpers.js';
 
 // GET podium hebdomadaire (2 rotations consécutives)
 export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild_name, page = 1, limit = 50 }) => {
@@ -86,7 +86,7 @@ export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild
     rotation_id: { $in: [rotation1Id, rotation2Id] },
     bbs_id: { $ne: null }
   };
-  if (guildId) Object.assign(matchStage, buildGuildMatch(await getCurrentGuildBbsIds(db, guildId)));
+  if (guildId) Object.assign(matchStage, await getGuildScoreMatch(db, cycle, guildId));
 
   const pipeline = [
     { $match: matchStage },

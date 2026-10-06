@@ -2,7 +2,7 @@ import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
 import { loadComparableScores, cycleTimestamp, toObjectIds, average } from './killerRecords.js';
 import { getProgression, getPreviousCycle, getCyclesChronological } from './playerTrends.js';
-import { getPodiumFull, getCurrentGuildBbsIds, getMinScoresForRanking } from './podiumService/index.js';
+import { getPodiumFull, getGuildBbsIdsForCycle, getGuildScoreMatch, getMinScoresForRanking } from './podiumService/index.js';
 
 // Nombre maximum de records listés dans le message (le total est toujours indiqué).
 const MAX_LISTED_RECORDS = 8;
@@ -42,22 +42,27 @@ const getCycleRecords = async (db, cycle, bbsIds) => {
 };
 
 /**
- * Bilan d'un cycle pour une guilde (membres actuels) : top 3 (même classement que le podium
- * publié), records personnels battus, plus forte progression et moyenne de la guilde comparée
- * au cycle précédent.
+ * Bilan d'un cycle pour une guilde : top 3 (même classement que le podium publié), records
+ * personnels battus, plus forte progression et moyenne de la guilde comparée au cycle précédent.
+ * Même périmètre que le podium : membres actuels si le cycle est en cours, sinon les scores
+ * saisis pour la guilde sur chaque cycle.
  */
 export const getCycleRecap = async (db, cycle, guild) => {
   const guildId = guild._id.toString();
-  const bbsIds = await getCurrentGuildBbsIds(db, guildId);
+  const bbsIds = await getGuildBbsIdsForCycle(db, cycle, guildId);
   const minScores = await getMinScoresForRanking(db);
   const previousCycle = await getPreviousCycle(db, cycle._id);
+  const [currentMatch, previousMatch] = await Promise.all([
+    getGuildScoreMatch(db, cycle, guildId),
+    previousCycle ? getGuildScoreMatch(db, previousCycle, guildId) : null,
+  ]);
 
   const [podium, records, progression, currentScores, previousScores] = await Promise.all([
     getPodiumFull(db, { cycle_name: cycle.name, year: cycle.year, guild_name: guild.name, ranking_type: 'average', limit: 3 }),
     getCycleRecords(db, cycle, bbsIds),
     getProgression(db, { cycle, bbsIds, minScores }),
-    loadComparableScores(db, { cycle_id: cycle._id.toString(), bbs_id: { $in: bbsIds } }),
-    previousCycle ? loadComparableScores(db, { cycle_id: previousCycle._id.toString(), bbs_id: { $in: bbsIds } }) : [],
+    loadComparableScores(db, { cycle_id: cycle._id.toString(), ...currentMatch }),
+    previousCycle ? loadComparableScores(db, { cycle_id: previousCycle._id.toString(), ...previousMatch }) : [],
   ]);
 
   const rotationIds = [...new Set(records.map((r) => r.rotation_id))];

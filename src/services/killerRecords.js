@@ -11,8 +11,11 @@ import { logger } from '../utils/logger.js';
  * un killer passe d'une rotation de base à une différentielle ; `raw_score` (cumul hebdo) ne l'est pas.
  */
 
+// Dates des rotations stockées en "jj/mm/aaaa" (accepte aussi un objet Date)
 export const parseDate = (s) => {
   if (!s) return 0;
+  if (s instanceof Date) return s.getTime() || 0;
+  if (typeof s !== 'string') return 0;
   const [day, month, year] = s.split('/');
   return new Date(year, month - 1, day).getTime() || 0;
 };

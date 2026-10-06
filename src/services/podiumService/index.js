@@ -13,5 +13,6 @@ export { getDraftProposal } from './draft.js';
 // réexportés pour que ces tests n'aient qu'à changer leur chemin d'import.
 export {
   getMinScoresForRanking, getCurrentGuildBbsIds, getUnguildedBbsIds,
-  buildGuildMatch, overrideGuildName, applyRanks, paginate
+  buildGuildMatch, overrideGuildName, applyRanks, paginate,
+  isCycleInProgress, getGuildScoreMatch, getGuildBbsIdsForCycle
 } from './helpers.js';

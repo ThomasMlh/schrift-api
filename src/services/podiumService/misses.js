@@ -1,4 +1,4 @@
-import { getCurrentGuildBbsIds, buildGuildMatch, lookupUserByUserId, overrideGuildName, paginate } from './helpers.js';
+import { getGuildScoreMatch, lookupUserByUserId, overrideGuildName, paginate } from './helpers.js';
 
 // GET podium des miss (scores à 0 ou négatifs)
 export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page = 1, limit = 50 }) => {
@@ -37,7 +37,7 @@ export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page =
   }
 
   const matchStage = { cycle_id: cycle._id.toString(), score: { $lte: 0 }, bbs_id: { $ne: null } };
-  if (guildId) Object.assign(matchStage, buildGuildMatch(await getCurrentGuildBbsIds(db, guildId)));
+  if (guildId) Object.assign(matchStage, await getGuildScoreMatch(db, cycle, guildId));
 
   const pipeline = [
     { $match: matchStage },
