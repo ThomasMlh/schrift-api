@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireDb } from '../middleware/auth.js';
+import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
 import { USER_SCORES_LOOKUP } from '../utils/projections.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
@@ -69,7 +69,7 @@ router.get('/:cycleId', async (req, res) => {
 });
 
 // POST créer un nouveau cycle
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   try {
     const { name, rotations } = req.body;
 
@@ -156,7 +156,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT modifier un cycle
-router.put('/:cycleId', async (req, res) => {
+router.put('/:cycleId', requireAdmin, async (req, res) => {
   try {
     const { name, rotations } = req.body;
 
@@ -255,7 +255,7 @@ router.put('/:cycleId', async (req, res) => {
 });
 
 // DELETE supprimer un cycle
-router.delete('/:cycleId', async (req, res) => {
+router.delete('/:cycleId', requireAdmin, async (req, res) => {
   try {
     const cycleToDelete = await req.db.collection('cycles').findOne({ _id: new ObjectId(req.params.cycleId) });
 

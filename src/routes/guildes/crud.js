@@ -38,7 +38,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Ajouter une guilde
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   try {
     const { name } = req.body;
 
@@ -83,14 +83,30 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Renommer une guilde
-router.put('/:id', async (req, res) => {
+// Renommer une guilde (admin) ou modifier ses salons et notifications (admin, ou chef/sous-chef
+// de cette guilde, sans pouvoir la renommer)
+router.put('/:id', requireScoresAccess, async (req, res) => {
   try {
     const { name } = req.body;
     const guildeId = req.params.id;
 
     if (!name || name.trim() === '') {
       return res.status(400).json({ success: false, message: 'Le nom de la guilde est requis' });
+    }
+    if (!ObjectId.isValid(guildeId)) {
+      return res.status(400).json({ success: false, message: 'ID de guilde invalide' });
+    }
+    if (!req.user.hasFullAccess) {
+      if (!(req.user.allowedGuildIds || []).includes(guildeId)) {
+        return res.status(403).json({ success: false, message: 'Accès refusé à cette guilde' });
+      }
+      const guild = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) }, { projection: { name: 1 } });
+      if (!guild) {
+        return res.status(404).json({ success: false, message: 'Guilde non trouvée' });
+      }
+      if (guild.name !== name.trim()) {
+        return res.status(403).json({ success: false, message: 'Seul un admin peut renommer une guilde' });
+      }
     }
 
     // Vérifier si une autre guilde avec ce nom existe déjà (excluant la guilde actuelle)
@@ -254,7 +270,7 @@ router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
 });
 
 // Supprimer une guilde
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(req.params.id) });
     if (!guilde) {
