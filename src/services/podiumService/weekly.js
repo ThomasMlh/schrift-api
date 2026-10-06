@@ -1,4 +1,5 @@
 import { ObjectId } from 'mongodb';
+import { attachTopAchievements } from './achievementBadges.js';
 import { getGuildScoreMatch, lookupUserByUserId, overrideGuildName, applyRanks, paginate } from './helpers.js';
 
 // GET podium hebdomadaire (2 rotations consécutives)
@@ -150,6 +151,7 @@ export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild
   overrideGuildName(allResults, currentGuildName);
   const resultsWithRank = applyRanks(allResults, 'week_total_score');
   const { items: data, pagination } = paginate(resultsWithRank, pageNumber, limitNumber);
+  await attachTopAchievements(db, data);
 
   const totalWeekScore = allResults.reduce((sum, p) => sum + (p.week_total_score || 0), 0);
   const averageWeekScore = allResults.length > 0 ? Math.round(totalWeekScore / allResults.length) : 0;

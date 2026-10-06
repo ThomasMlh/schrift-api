@@ -5,6 +5,7 @@ import { processBatchScreenshots, SCREENSHOTTER_CONFIGS } from '../utils/ocrProc
 import { computeDifferential } from '../services/scoreDifferential.js';
 import { notifyPersonalRecords } from '../services/killerRecords.js';
 import { recordScoreChange } from '../services/scoreHistory.js';
+import { notifyAchievementUnlocks } from '../services/achievementAnnouncements.js';
 import { findBestMatch, getUserDisplayName } from '../utils/nameMatching.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { getGuildAccountRoster, resolveScoreAccounts } from '../utils/bbsAccounts.js';
@@ -423,6 +424,7 @@ router.post('/submit-batch', async (req, res) => {
 
     // Records personnels battus (message groupé par guilde ; ne lève jamais)
     await notifyPersonalRecords(req.db, newlyCreatedScores);
+    await notifyAchievementUnlocks(req.db, insertedScores.map((s) => ({ bbs_id: s.bbs_id, guild_id })));
 
     res.json({
       success: true,

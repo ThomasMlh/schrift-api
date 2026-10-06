@@ -5,6 +5,7 @@ import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
 import { notifyPersonalRecords } from "../../services/killerRecords.js";
 import { recordScoreChange } from "../../services/scoreHistory.js";
+import { notifyAchievementUnlocks } from "../../services/achievementAnnouncements.js";
 import { getUserDisplayName } from "../../utils/nameMatching.js";
 import { USER_DISPLAY, USER_DISPLAY_WITH_ID } from "../../utils/projections.js";
 import { resolveScoreAccounts } from "../../utils/bbsAccounts.js";
@@ -311,6 +312,8 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
     // Records personnels battus (message groupé par guilde ; ne lève jamais)
     await notifyPersonalRecords(req.db, insertedScores);
+    // Une mise à jour peut aussi débloquer un succès : tous les scores traités
+    await notifyAchievementUnlocks(req.db, finalScores);
 
     res.status(200).json({
       success: true,
