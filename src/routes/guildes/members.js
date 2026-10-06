@@ -1,5 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
+import { requireAdmin } from '../../middleware/auth.js';
 import { getUserDisplayName } from '../../utils/nameMatching.js';
 import { notifyDiscord } from '../../utils/notifyDiscord.js';
 import {
@@ -26,7 +27,7 @@ router.get('/:id/membres', async (req, res) => {
 
 // Assigner un utilisateur à une guilde avec un rôle
 // bbs_id optionnel : cible ce compte précis ; par défaut, le compte principal du user.
-router.post('/:id/assign-member', async (req, res) => {
+router.post('/:id/assign-member', requireAdmin, async (req, res) => {
   try {
     const guildeId = req.params.id;
     const { userId, role, bbs_id } = req.body;
@@ -85,7 +86,7 @@ router.post('/:id/assign-member', async (req, res) => {
 
 // Retirer un membre d'une guilde. bbs_id optionnel (query) : cible ce compte précis ;
 // par défaut, le compte rattaché à cette guilde (ou le principal en dernier recours).
-router.delete('/:id/members/:userId', async (req, res) => {
+router.delete('/:id/members/:userId', requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     const guildeId = req.params.id;
@@ -132,7 +133,7 @@ router.delete('/:id/members/:userId', async (req, res) => {
 });
 
 // Retirer un membre d'une guilde (variante FR). bbs_id optionnel (body) : cible ce compte précis.
-router.delete('/:guildeId/membres/:userId', async (req, res) => {
+router.delete('/:guildeId/membres/:userId', requireAdmin, async (req, res) => {
   try {
     const guildeId = req.params.guildeId;
     const userId = req.params.userId;
@@ -187,7 +188,7 @@ router.delete('/:guildeId/membres/:userId', async (req, res) => {
 });
 
 // Ajouter un membre à une guilde (création d'un user complet — legacy/admin, cas rare)
-router.post('/:id/membres', async (req, res) => {
+router.post('/:id/membres', requireAdmin, async (req, res) => {
   try {
     const guildeId = req.params.id;
     const role = req.body.role || 'membre';

@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { validateObjectIdParam } from '../../middleware/auth.js';
+import { requireAdmin, validateObjectIdParam } from '../../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../../utils/pagination.js';
 import { USER_BUILD } from '../../utils/projections.js';
 import { notifyDiscord } from '../../utils/notifyDiscord.js';
@@ -128,7 +128,7 @@ router.get('/:id', validateObjectIdParam('id'), async (req, res) => {
 });
 
 // DELETE /builds/:id - Supprimer un build
-router.delete('/:id', validateObjectIdParam('id'), async (req, res) => {
+router.delete('/:id', requireAdmin, validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
 

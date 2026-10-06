@@ -1,6 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import jwt from 'jsonwebtoken';
 import { MongoClient, ObjectId } from 'mongodb';
 import buildsRouter from '../../src/routes/builds/index.js';
 
@@ -101,9 +102,19 @@ describe('PATCH /api/builds/:id/validate (update.js, requireAdmin)', () => {
   });
 });
 
-describe('DELETE /api/builds/:id (crud.js)', () => {
-  it('returns 404 for a non-existent build', async () => {
+describe('DELETE /api/builds/:id (crud.js, requireAdmin)', () => {
+  const adminAuth = () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
+    return { Authorization: `Bearer ${jwt.sign({ id: 'admin-1', is_admin: true }, process.env.JWT_SECRET)}` };
+  };
+
+  it('rejects an unauthenticated request with 401', async () => {
     const res = await request(app).delete(`/api/builds/${new ObjectId().toString()}`);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 for a non-existent build', async () => {
+    const res = await request(app).delete(`/api/builds/${new ObjectId().toString()}`).set(adminAuth());
     expect(res.status).toBe(404);
   });
 
@@ -111,7 +122,7 @@ describe('DELETE /api/builds/:id (crud.js)', () => {
     const { insertedId } = await db.collection('builds').insertOne({
       rotation_id: 'r1', team: [], user_id: null, isValid: false,
     });
-    const res = await request(app).delete(`/api/builds/${insertedId.toString()}`);
+    const res = await request(app).delete(`/api/builds/${insertedId.toString()}`).set(adminAuth());
     expect(res.status).toBe(200);
     expect(await db.collection('builds').findOne({ _id: insertedId })).toBeNull();
   });

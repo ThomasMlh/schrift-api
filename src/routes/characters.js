@@ -418,7 +418,7 @@ router.get("/names", async (req, res) => {
   }
 });
 
-router.post("/admin/create-indexes", async (req, res) => {
+router.post("/admin/create-indexes", requireAdmin, async (req, res) => {
   try {
     // Créer les index pour optimiser les performances
     await Promise.all([

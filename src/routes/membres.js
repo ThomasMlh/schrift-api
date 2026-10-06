@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireDb } from '../middleware/auth.js';
+import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
 import { sendServerError } from '../utils/httpErrors.js';
@@ -34,7 +34,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Changer le rôle d'un membre
-router.put('/:id/role', async (req, res) => {
+router.put('/:id/role', requireAdmin, async (req, res) => {
   try {
     const memberId = req.params.id;
     const newRole = req.body.role;
@@ -97,7 +97,7 @@ router.put('/:id/role', async (req, res) => {
 });
 
 // Déplacer un membre vers une autre guilde (rôle automatiquement "membre")
-router.put('/:id/guilde', async (req, res) => {
+router.put('/:id/guilde', requireAdmin, async (req, res) => {
   try {
     const memberId = req.params.id;
     const newGuildeId = req.body.guilde_id;
@@ -126,7 +126,7 @@ router.put('/:id/guilde', async (req, res) => {
 });
 
 // Supprimer un membre
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const member = await req.db.collection('membres').findOne({ _id: new ObjectId(req.params.id) });
     if (!member) return res.status(404).json({ success: false, message: 'Membre non trouvé' });

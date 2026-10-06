@@ -286,7 +286,7 @@ router.get('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateur 
   }
 });
 
-router.patch('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
+router.patch('/:userId', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
     const updates = { ...req.body };

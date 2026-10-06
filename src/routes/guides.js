@@ -46,7 +46,7 @@ router.get('/orbes', async (req, res) => {
 });
 
 // POST /guides/orbes - Ajouter une nouvelle entrée au guide des orbes
-router.post('/orbes', async (req, res) => {
+router.post('/orbes', requireAdmin, async (req, res) => {
   try {
     const newEntry = req.body;
     
@@ -63,7 +63,7 @@ router.post('/orbes', async (req, res) => {
 });
 
 // DELETE /guides/orbes/:id - Supprimer une entrée du guide des orbes
-router.delete('/orbes/:id', async (req, res) => {
+router.delete('/orbes/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -83,7 +83,7 @@ router.delete('/orbes/:id', async (req, res) => {
 });
 
 // PATCH /guides/orbes/:id - Mettre à jour une entrée spécifique du guide des orbes
-router.patch('/orbes/:id', async (req, res) => {
+router.patch('/orbes/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
