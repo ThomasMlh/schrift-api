@@ -4,6 +4,7 @@ import { requireScoresAccess } from '../../middleware/auth.js';
 import { getDeclineAlerts } from '../../services/playerTrends.js';
 import { getScoreAnomalies, reviewScoreAnomaly } from '../../services/scoreAnomalies.js';
 import { getScoreHistory, isScoreHistoryAction } from '../../services/scoreHistory.js';
+import { getMissingScores, getRotationPreparation } from '../../services/guildTools.js';
 import { sendServerError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
@@ -36,6 +37,13 @@ const resolveGuildScope = async (req, { adminDefault = 'active' } = {}) => {
   const allowed = req.user.allowedGuildIds || [];
   if (guild_id && !allowed.includes(guild_id)) throw new ScopeError(403, 'Accès refusé à cette guilde');
   return guild_id ? [guild_id] : allowed;
+};
+
+// Une seule guilde : celle demandée (?guild_id=), ou la seule guilde gérée par le chef.
+const resolveSingleGuild = async (req) => {
+  const guildIds = await resolveGuildScope(req);
+  if (!req.query.guild_id && guildIds.length !== 1) throw new ScopeError(400, 'guild_id requis');
+  return guildIds[0];
 };
 
 const handleError = (res, err) => {
@@ -79,6 +87,30 @@ router.post('/:id/anomaly-review', requireScoresAccess, async (req, res) => {
 
     await reviewScoreAnomaly(req.db, score, req.user);
     res.json({ success: true, message: 'Score marqué comme vérifié' });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET scores manquants d'un cycle (cycle en cours par défaut) pour les membres actuels de la guilde.
+router.get('/missing', requireScoresAccess, async (req, res) => {
+  try {
+    const guildId = await resolveSingleGuild(req);
+    res.json({ success: true, ...(await getMissingScores(req.db, { guildId, cycleId: req.query.cycle_id })) });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET fiche de préparation d'une rotation (prochaine rotation du cycle en cours par défaut).
+router.get('/preparation', requireScoresAccess, async (req, res) => {
+  try {
+    const guildId = await resolveSingleGuild(req);
+    const preparation = await getRotationPreparation(req.db, {
+      guildId, cycleId: req.query.cycle_id, rotationId: req.query.rotation_id,
+    });
+    if (!preparation) return res.status(404).json({ success: false, message: 'Aucune rotation trouvée' });
+    res.json({ success: true, ...preparation });
   } catch (err) {
     handleError(res, err);
   }

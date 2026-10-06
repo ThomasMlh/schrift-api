@@ -13,7 +13,8 @@ const router = express.Router();
 
 router.use(requireDb);
 
-// Monté avant crud pour que /decline-alerts, /anomalies et /history ne soient pas capturés par GET /:id
+// Monté avant crud pour que les routes des outils chefs (/decline-alerts, /anomalies, /history,
+// /missing, /preparation) ne soient pas capturées par GET /:id
 router.use(alertsRouter);
 router.use(crudRouter);
 router.use(bulkRouter);
