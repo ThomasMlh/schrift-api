@@ -1,45 +1,12 @@
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
-import { loadComparableScores, cycleTimestamp, toObjectIds, average } from './killerRecords.js';
-import { getProgression, getPreviousCycle, getCyclesChronological } from './playerTrends.js';
+import { loadComparableScores, toObjectIds, average } from './killerRecords.js';
+import { getProgression, getPreviousCycle, getCycleRecords } from './playerTrends.js';
 import { getPodiumFull, getGuildBbsIdsForCycle, getGuildScoreMatch, getMinScoresForRanking } from './podiumService/index.js';
+import { getGuildGoals } from './guildGoals.js';
 
 // Nombre maximum de records listés dans le message (le total est toujours indiqué).
 const MAX_LISTED_RECORDS = 8;
-
-/**
- * Records personnels battus pendant `cycle` par les comptes `bbsIds` : scores du cycle qui
- * dépassent le meilleur score du même compte sur le même killer lors des cycles ANTÉRIEURS.
- */
-const getCycleRecords = async (db, cycle, bbsIds) => {
-  const cycleId = cycle._id.toString();
-  const rotationIds = (cycle.rotations || []).map((r) => r.rotation_id);
-  if (bbsIds.length === 0 || rotationIds.length === 0) return [];
-
-  const cycles = await getCyclesChronological(db);
-  const start = cycleTimestamp(cycle);
-  const earlierCycleIds = new Set(cycles.filter((c) => cycleTimestamp(c) < start).map((c) => c._id.toString()));
-
-  const scores = await loadComparableScores(db, { bbs_id: { $in: bbsIds }, rotation_id: { $in: rotationIds } });
-  const bestBefore = new Map();
-  for (const s of scores) {
-    if (!earlierCycleIds.has(s.cycle_id)) continue;
-    const key = `${s.bbs_id}|${s.rotation_id}`;
-    if ((s.score || 0) > (bestBefore.get(key) ?? -Infinity)) bestBefore.set(key, s.score || 0);
-  }
-
-  return scores
-    .filter((s) => s.cycle_id === cycleId && bestBefore.has(`${s.bbs_id}|${s.rotation_id}`)
-      && (s.score || 0) > bestBefore.get(`${s.bbs_id}|${s.rotation_id}`))
-    .map((s) => ({
-      bbs_id: s.bbs_id,
-      pseudo: s.bbs_name || s.bbs_id,
-      rotation_id: s.rotation_id,
-      previous_score: bestBefore.get(`${s.bbs_id}|${s.rotation_id}`),
-      new_score: s.score,
-    }))
-    .sort((a, b) => (b.new_score - b.previous_score) / b.previous_score - (a.new_score - a.previous_score) / a.previous_score);
-};
 
 /**
  * Bilan d'un cycle pour une guilde : top 3 (même classement que le podium publié), records
@@ -57,12 +24,13 @@ export const getCycleRecap = async (db, cycle, guild) => {
     previousCycle ? getGuildScoreMatch(db, previousCycle, guildId) : null,
   ]);
 
-  const [podium, records, progression, currentScores, previousScores] = await Promise.all([
+  const [podium, records, progression, currentScores, previousScores, goals] = await Promise.all([
     getPodiumFull(db, { cycle_name: cycle.name, year: cycle.year, guild_name: guild.name, ranking_type: 'average', limit: 3 }),
     getCycleRecords(db, cycle, bbsIds),
     getProgression(db, { cycle, bbsIds, minScores }),
     loadComparableScores(db, { cycle_id: cycle._id.toString(), ...currentMatch }),
     previousCycle ? loadComparableScores(db, { cycle_id: previousCycle._id.toString(), ...previousMatch }) : [],
+    getGuildGoals(db, cycle, guildId),
   ]);
 
   const rotationIds = [...new Set(records.map((r) => r.rotation_id))];
@@ -92,6 +60,7 @@ export const getCycleRecap = async (db, cycle, guild) => {
       : null,
     guild_average: average(currentScores),
     previous_guild_average: average(previousScores),
+    goals: goals.goals.map(({ type, unit, target, value, achieved }) => ({ type, unit, target, value, achieved })),
   };
 };
 

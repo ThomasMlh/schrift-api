@@ -1,5 +1,5 @@
 import { loadComparableScores, cycleTimestamp, parseDate } from './killerRecords.js';
-import { getMinScoresForRanking } from './podiumService/index.js';
+import { getMinScoresForRanking } from './podiumService/helpers.js';
 import { CLEAR_SCORE_THRESHOLD } from '../utils/scoreThresholds.js';
 
 /**
@@ -22,6 +22,18 @@ export const MAX_PLAUSIBLE_SCORE = 625_000_000;
 export const MIN_PROGRESSION_SCORES = 10;
 
 export const TIER_ORDER = ['bronze', 'silver', 'gold', 'platinum'];
+
+// Libellés français, pour les messages Discord et le bot (le site a ses propres traductions)
+export const TIER_LABELS_FR = { bronze: 'Bronze', silver: 'Argent', gold: 'Or', platinum: 'Platine' };
+export const ACHIEVEMENT_NAMES_FR = {
+  first_step: 'Premier pas', clear: 'Clear', perfect_score: 'Score parfait', perfect_week: 'Semaine parfaite',
+  exceptional_cycle: "Cycle d'exception", immaculate_cycle: 'Cycle immaculé', billionaire: 'Milliardaire',
+  outdone: 'Dépassement', reference: 'Référence', living_legend: 'Légende vivante', veteran: 'Vétéran',
+  diligent: 'Assidu', full_cycle: 'Cycle complet', flawless: 'Sans faute', unstoppable: 'Inarrêtable',
+  loyal: 'Fidèle', comeback: 'Le retour', improving: 'En progrès', revelation: 'Révélation',
+  on_a_roll: 'Sur sa lancée', podium: 'Sur le podium', leader: 'Meneur', elite: 'Élite',
+  number_one: 'Numéro un', week_king: 'Roi de la semaine', versatile: 'Touche-à-tout',
+};
 
 const t = (bronze, silver, gold, platinum) => [
   ['bronze', bronze], ['silver', silver], ['gold', gold], ['platinum', platinum],
@@ -350,6 +362,7 @@ const evaluateAccount = (ctx, bbs) => {
     const next = tiers.find((tr) => tr.unlocked_at === null) || null;
     return {
       code: def.code,
+      name: ACHIEVEMENT_NAMES_FR[def.code],
       category: def.category,
       unit: def.unit,
       value: Math.max(0, value),
@@ -404,4 +417,54 @@ export const getAchievementsForAccounts = async (db, bbsIds, { now = Date.now(),
     }))];
   }));
   return { accounts, totalAccounts: ctx.results.size };
+};
+
+/**
+ * Paliers débloqués (par défaut or et platine), pour tous les comptes ou ceux demandés, avec le
+ * dernier pseudo connu du compte et la rareté du palier.
+ */
+export const listUnlockedTiers = async (db, { tiers = ['gold', 'platinum'], bbsIds = null, now = Date.now() } = {}) => {
+  const ctx = await getContext(db, now);
+  const wanted = bbsIds ? new Set(bbsIds) : null;
+  const unlocked = [];
+  for (const [bbs, list] of ctx.results) {
+    if (wanted && !wanted.has(bbs)) continue;
+    const scores = ctx.byAccount.get(bbs) || [];
+    const name = scores.length ? scores[scores.length - 1].name : null;
+    for (const a of list) {
+      for (const tr of a.tiers) {
+        if (tr.unlocked_at === null || !tiers.includes(tr.tier)) continue;
+        unlocked.push({
+          bbs_id: bbs, bbs_name: name, code: a.code, name: a.name, tier: tr.tier,
+          unlocked_at: tr.unlocked_at, rarity: ctx.rarity.get(`${a.code}|${tr.tier}`) ?? 0,
+        });
+      }
+    }
+  }
+  return unlocked;
+};
+
+/**
+ * Succès le plus rare débloqué par chaque compte (rareté la plus basse, puis palier le plus élevé),
+ * pour l'afficher à côté du pseudo dans les classements.
+ * @returns {Promise<Map<string, { code, name, tier, rarity }>>}
+ */
+export const getTopAchievements = async (db, bbsIds, { now = Date.now() } = {}) => {
+  const top = new Map();
+  if (bbsIds.length === 0) return top;
+  const ctx = await getContext(db, now);
+  for (const bbs of bbsIds) {
+    let best = null;
+    for (const a of ctx.results.get(bbs) || []) {
+      for (const tr of a.tiers) {
+        if (tr.unlocked_at === null) continue;
+        const rarity = ctx.rarity.get(`${a.code}|${tr.tier}`) ?? 0;
+        const better = !best || rarity < best.rarity
+          || (rarity === best.rarity && TIER_ORDER.indexOf(tr.tier) > TIER_ORDER.indexOf(best.tier));
+        if (better) best = { code: a.code, name: a.name, tier: tr.tier, rarity };
+      }
+    }
+    if (best) top.set(bbs, best);
+  }
+  return top;
 };

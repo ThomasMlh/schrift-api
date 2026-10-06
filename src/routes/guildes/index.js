@@ -4,6 +4,7 @@ import statsRouter from './stats.js';
 import crudRouter from './crud.js';
 import membersRouter from './members.js';
 import draftRouter from './draft.js';
+import goalsRouter from './goals.js';
 
 // Découpé depuis un unique guildes.js de 991 lignes (19 routes) en 4 modules
 // par thème. Montage sans préfixe : les chemins exposés sous /api/guildes
@@ -24,5 +25,6 @@ router.use(statsRouter);
 router.use(crudRouter);
 router.use(membersRouter);
 router.use(draftRouter);
+router.use(goalsRouter);
 
 export default router;

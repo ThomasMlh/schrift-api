@@ -239,3 +239,37 @@ export const getDeclineAlerts = async (db, { guildIds, threshold = DECLINE_THRES
 
   return alerts.sort((a, b) => a.ratio - b.ratio);
 };
+
+/**
+ * Records personnels battus pendant `cycle` par les comptes `bbsIds` : scores du cycle qui
+ * dépassent le meilleur score du même compte sur le même killer lors des cycles ANTÉRIEURS.
+ */
+export const getCycleRecords = async (db, cycle, bbsIds) => {
+  const cycleId = cycle._id.toString();
+  const rotationIds = (cycle.rotations || []).map((r) => r.rotation_id);
+  if (bbsIds.length === 0 || rotationIds.length === 0) return [];
+
+  const cycles = await getCyclesChronological(db);
+  const start = cycleTimestamp(cycle);
+  const earlierCycleIds = new Set(cycles.filter((c) => cycleTimestamp(c) < start).map((c) => c._id.toString()));
+
+  const scores = await loadComparableScores(db, { bbs_id: { $in: bbsIds }, rotation_id: { $in: rotationIds } });
+  const bestBefore = new Map();
+  for (const s of scores) {
+    if (!earlierCycleIds.has(s.cycle_id)) continue;
+    const key = `${s.bbs_id}|${s.rotation_id}`;
+    if ((s.score || 0) > (bestBefore.get(key) ?? -Infinity)) bestBefore.set(key, s.score || 0);
+  }
+
+  return scores
+    .filter((s) => s.cycle_id === cycleId && bestBefore.has(`${s.bbs_id}|${s.rotation_id}`)
+      && (s.score || 0) > bestBefore.get(`${s.bbs_id}|${s.rotation_id}`))
+    .map((s) => ({
+      bbs_id: s.bbs_id,
+      pseudo: s.bbs_name || s.bbs_id,
+      rotation_id: s.rotation_id,
+      previous_score: bestBefore.get(`${s.bbs_id}|${s.rotation_id}`),
+      new_score: s.score,
+    }))
+    .sort((a, b) => (b.new_score - b.previous_score) / b.previous_score - (a.new_score - a.previous_score) / a.previous_score);
+};

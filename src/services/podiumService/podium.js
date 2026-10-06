@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { getProgression, attachIdentity } from '../playerTrends.js';
+import { attachTopAchievements } from './achievementBadges.js';
 import {
   getMinScoresForRanking, lookupUserAndGuild, getGuildScoreMatch, getGuildBbsIdsForCycle,
   overrideGuildName, applyRanks, paginate
@@ -60,7 +61,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
 
   const podium = await db.collection('scores').aggregate(pipeline).toArray();
   overrideGuildName(podium, currentGuildName);
-  const podiumWithRank = podium.map((player, index) => ({ rank: index + 1, ...player }));
+  const podiumWithRank = await attachTopAchievements(db, podium.map((player, index) => ({ rank: index + 1, ...player })));
 
   return {
     podium: podiumWithRank,
@@ -212,6 +213,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
   const scoreKey = rotation_id ? 'score' : (normalizedRankingType === 'max' ? 'totalScore' : 'averageScore');
   const resultsWithRank = applyRanks(allResults, scoreKey);
   const { items: data, pagination } = paginate(resultsWithRank, pageNumber, limitNumber);
+  await attachTopAchievements(db, data);
 
   let rotationInfo = null;
   if (rotationDoc) {
@@ -261,6 +263,7 @@ const getProgressionPodium = async (db, { cycle, cycle_name, guildId, guild_name
   const { previousCycle, rows } = await getProgression(db, { cycle, bbsIds, minScores });
   const withIdentity = overrideGuildName(await attachIdentity(db, rows), currentGuildName);
   const { items: data, pagination } = paginate(applyRanks(withIdentity, 'progressionPercent'), pageNumber, limitNumber);
+  await attachTopAchievements(db, data);
 
   return {
     data,

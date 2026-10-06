@@ -6,6 +6,7 @@ import { compareEntities } from "../../services/scoreComparison.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
 import { notifyPersonalRecords } from "../../services/killerRecords.js";
 import { recordScoreChange } from "../../services/scoreHistory.js";
+import { notifyAchievementUnlocks } from "../../services/achievementAnnouncements.js";
 import { getUserDisplayName } from "../../utils/nameMatching.js";
 import { parsePaginationParams, buildPaginationMeta } from "../../utils/pagination.js";
 import { USER_DISPLAY, USER_SCORES_LOOKUP } from "../../utils/projections.js";
@@ -431,6 +432,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
     // Record personnel battu (ne lève jamais). Pas sur PUT /:id : une correction de score par un
     // chef ne doit pas déclencher de félicitations.
     await notifyPersonalRecords(req.db, [scoreData]);
+    await notifyAchievementUnlocks(req.db, [scoreData]);
 
     res.status(201).json({
       success: true,
