@@ -70,6 +70,7 @@ router.get('/draft-proposal', requireAdmin, async (req, res) => {
         cycle_name: req.query.cycle_name,
         ranking_type: result.meta.rankingType,
         guild_order: result.meta.guildOrder,
+        locked_guild_names: result.meta.lockedGuilds,
         total_candidates: result.meta.totalCandidates,
         guilds: result.guilds,
         leftover: result.leftover,

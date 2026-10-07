@@ -340,6 +340,38 @@ describe('getDraftProposal (integration)', () => {
     expect(result.guilds[0].players[0].bbs_name).toBe('Player0');
   });
 
+  it('leaves a locked guild untouched and drafts the other guilds without it', async () => {
+    const guildA = await makeGuild('A');
+    const guildB = await makeGuild('B');
+    const guildC = await makeGuild('C');
+    const cycle = await makeCycle({ name: 'Cycle Lock', rotations: [makeRotationMeta('r1', 1)] });
+    const cycleId = cycle._id.toString();
+
+    // A : 2 très bons joueurs qu'on veut garder ensemble ; B et C : 25 joueurs à répartir
+    const users = [
+      { discord_id: 'a1', bbs_accounts: [{ bbs_id: 'bbs-a1', guilde_id: guildA }] },
+      { discord_id: 'a2', bbs_accounts: [{ bbs_id: 'bbs-a2', guilde_id: guildA }] },
+    ];
+    await insertScore(cycleId, { bbsId: 'bbs-a1', bbsName: 'A1', userId: 'a1', guildId: guildA, rotationId: 'r1', score: 5000 });
+    await insertScore(cycleId, { bbsId: 'bbs-a2', bbsName: 'A2', userId: 'a2', guildId: guildA, rotationId: 'r1', score: 4000 });
+    for (let i = 0; i < 25; i++) {
+      const guildId = i % 2 ? guildB : guildC;
+      users.push({ discord_id: `d${i}`, bbs_accounts: [{ bbs_id: `bbs-${i}`, guilde_id: guildId }] });
+      await insertScore(cycleId, { bbsId: `bbs-${i}`, bbsName: `P${i}`, userId: `d${i}`, guildId, rotationId: 'r1', score: 1000 - i });
+    }
+    await db.collection('users').insertMany(users);
+
+    const result = await getDraftProposal(db, { cycle_name: 'Cycle Lock', guild_names: 'A,B,C', locked_guild_names: 'A' });
+
+    expect(result.guilds.map((g) => [g.guild_name, !!g.locked, g.players.length])).toEqual([['A', true, 2], ['B', false, 20], ['C', false, 5]]);
+    expect(result.guilds[0].players.map((p) => p.bbs_name)).toEqual(['A1', 'A2']);
+    expect(result.guilds[0].players[0].overallRank).toBeNull();
+    // Les joueurs de A ne sont pas redistribués : le 1er paquet de B commence par P0
+    expect(result.guilds[1].players[0].bbs_name).toBe('P0');
+    expect(result.meta.lockedGuilds).toEqual(['A']);
+    expect(result.meta.totalCandidates).toBe(25);
+  });
+
   it('keeps a pinned player in their current guild regardless of score', async () => {
     const guildA = await makeGuild('A');
     const guildB = await makeGuild('B');
