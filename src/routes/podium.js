@@ -1,7 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
-import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMisses, getDraftProposal } from '../services/podiumService/index.js';
+import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMisses, getDraftProposal, getDraftReplacement } from '../services/podiumService/index.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { USER_DISPLAY } from '../utils/projections.js';
 import { publishCycleRecap, getCycleRecap } from '../services/cycleRecap.js';
@@ -80,6 +80,17 @@ router.get('/draft-proposal', requireAdmin, async (req, res) => {
     }
   } catch (error) {
     sendStatusCodeError(res, error, 'Erreur serveur lors de la génération de la proposition de draft');
+  }
+});
+
+// GET remplacement ciblé (admin) : remplaçants équivalents ou plus forts pour des joueurs d'une
+// guilde, pris dans les guildes inférieures de l'ordre ou parmi les joueurs sans guilde
+router.get('/draft-replacement', requireAdmin, async (req, res) => {
+  try {
+    const result = await getDraftReplacement(req.db, req.query);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    sendStatusCodeError(res, error, 'Erreur serveur lors de la recherche de remplaçants');
   }
 });
 
