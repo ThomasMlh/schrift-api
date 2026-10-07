@@ -6,6 +6,7 @@ import {
   getPodiumWeekly,
   getPodiumMisses,
   getDraftProposal,
+  getDraftReplacement,
   isCycleInProgress,
 } from '../../src/services/podiumService/index.js';
 
@@ -420,3 +421,68 @@ describe('getDraftProposal (integration)', () => {
       .rejects.toMatchObject({ statusCode: 404 });
   });
 });
+
+// --- getDraftReplacement -------------------------------------------------------
+
+describe('getDraftReplacement (integration)', () => {
+  // Ordre A > C > B : on remplace des joueurs de C
+  const seedHierarchy = async () => {
+    const guilds = {};
+    for (const name of ['A', 'C', 'B']) guilds[name] = await makeGuild(name);
+    const cycle = await makeCycle({ name: 'Cycle Repl', rotations: [makeRotationMeta('r1', 1)] });
+    const cycleId = cycle._id.toString();
+    const players = [
+      ['a-strong', 'A', 900], // plus fort, mais guilde supérieure : jamais proposé
+      ['c-weak', 'C', 500], ['c-mid', 'C', 600], ['c-strong', 'C', 950], // c-strong : même guilde, jamais proposé
+      ['b-top', 'B', 700], ['b-equal', 'B', 480], ['b-low', 'B', 300],
+      ['free', null, 650], // sans guilde : proposable
+    ];
+    const users = [];
+    for (const [bbsId, guildName, value] of players) {
+      users.push({ discord_id: `d-${bbsId}`, bbs_accounts: [{ bbs_id: bbsId, guilde_id: guildName ? guilds[guildName] : null }] });
+      await insertScore(cycleId, { bbsId, bbsName: bbsId, userId: `d-${bbsId}`, guildId: guildName ? guilds[guildName] : null, rotationId: 'r1', score: value });
+    }
+    await db.collection('users').insertMany(users);
+  };
+
+  it('lists the target guild roster when no player is selected', async () => {
+    await seedHierarchy();
+    const result = await getDraftReplacement(db, { cycle_name: 'Cycle Repl', guild_names: 'A,C,B', target_guild: 'C' });
+    expect(result.roster.map((p) => p.bbs_id)).toEqual(['c-strong', 'c-mid', 'c-weak']);
+    expect(result.replacements).toEqual([]);
+    expect(result.meta).toMatchObject({ higherGuilds: ['A'], lowerGuilds: ['B'] });
+  });
+
+  it('only suggests equivalent or stronger players from lower guilds or without guild', async () => {
+    await seedHierarchy();
+    const result = await getDraftReplacement(db, {
+      cycle_name: 'Cycle Repl', guild_names: 'A,C,B', target_guild: 'C', replace_bbs_ids: 'c-weak,c-mid', tolerance: 5,
+    });
+
+    const byPlayer = Object.fromEntries(result.replacements.map((r) => [r.player.bbs_id, r]));
+    // c-weak (500) : ≥ 475 → b-top 700, free 650, b-equal 480 ; jamais a-strong ni c-strong
+    expect(byPlayer['c-weak'].suggestions.map((c) => c.bbs_id)).toEqual(['b-top', 'free', 'b-equal']);
+    // c-mid (600) : ≥ 570 → b-top, free
+    expect(byPlayer['c-mid'].suggestions.map((c) => c.bbs_id)).toEqual(['b-top', 'free']);
+    expect(byPlayer['c-mid'].suggestions[0]).toMatchObject({ currentGuildName: 'B', delta: 100, deltaPercent: 16.7 });
+    expect(byPlayer['c-mid'].suggestions[1].currentGuildName).toBeNull();
+    // Recommandation : le plus fort (c-mid) prend b-top, c-weak prend le suivant libre (free)
+    expect(byPlayer['c-mid'].recommended_bbs_id).toBe('b-top');
+    expect(byPlayer['c-weak'].recommended_bbs_id).toBe('free');
+  });
+
+  it('with no tolerance, only stronger players are suggested', async () => {
+    await seedHierarchy();
+    const result = await getDraftReplacement(db, {
+      cycle_name: 'Cycle Repl', guild_names: 'A,C,B', target_guild: 'C', replace_bbs_ids: 'c-weak', tolerance: 0,
+    });
+    expect(result.replacements[0].suggestions.map((c) => c.bbs_id)).toEqual(['b-top', 'free']);
+  });
+
+  it('rejects a target guild outside the order and an invalid tolerance', async () => {
+    await seedHierarchy();
+    await expect(getDraftReplacement(db, { cycle_name: 'Cycle Repl', guild_names: 'A,C,B', target_guild: 'Z' })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(getDraftReplacement(db, { cycle_name: 'Cycle Repl', guild_names: 'A,C,B', target_guild: 'C', tolerance: 80 })).rejects.toMatchObject({ statusCode: 400 });
+  });
+});
+

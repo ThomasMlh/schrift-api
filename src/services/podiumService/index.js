@@ -7,7 +7,7 @@
 export { getPodium, getPodiumFull } from './podium.js';
 export { getPodiumWeekly } from './weekly.js';
 export { getPodiumMisses } from './misses.js';
-export { getDraftProposal } from './draft.js';
+export { getDraftProposal, getDraftReplacement } from './draft.js';
 
 // Helpers déjà couverts par tests/podiumService/podiumService.test.js :
 // réexportés pour que ces tests n'aient qu'à changer leur chemin d'import.
