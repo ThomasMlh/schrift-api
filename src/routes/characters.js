@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb";
 import { cleanObject } from "../utils/cleaners.js";
 import { requireAdmin, requireDb } from "../middleware/auth.js";
 import { syncCharactersFromSFTP, uploadImagesBatch } from "../services/characterSync.js";
-import { convertDateToFormat, reorderCharactersByReleaseDate } from "../utils/characterHelpers.js";
+import { computeStatMax, convertDateToFormat, reorderCharactersByReleaseDate } from "../utils/characterHelpers.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 import { logger } from '../utils/logger.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
@@ -289,10 +289,11 @@ router.get("/", async (req, res) => {
 // GET valeurs distinctes pour killers, catégories, affinités
 router.get("/meta", async (req, res) => {
   try {
-    const [killers, categories, affinities] = await Promise.all([
+    const [killers, categories, affinities, statDocs] = await Promise.all([
       req.db.collection('characters').distinct('killers', { killers: { $exists: true, $ne: '' } }),
       req.db.collection('characters').distinct('categories', { categories: { $exists: true, $ne: '' } }),
       req.db.collection('characters').distinct('affinity', { affinity: { $exists: true, $ne: '' } }),
+      req.db.collection('characters').find({ stats: { $exists: true } }, { projection: { stats: 1 } }).toArray(),
     ]);
 
     res.json({
@@ -300,6 +301,7 @@ router.get("/meta", async (req, res) => {
       killers: killers.filter(Boolean).sort(),
       categories: categories.filter(Boolean).sort(),
       affinities: affinities.filter(Boolean).sort(),
+      stat_max: computeStatMax(statDocs),
     });
   } catch (error) {
     logger.error('Erreur lors de la récupération des métadonnées:', error);

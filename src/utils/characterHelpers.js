@@ -80,3 +80,13 @@ export const reorderCharactersByReleaseDate = async (db) => {
     lastCharacter: `${sorted[sorted.length - 1]?.name} (${sorted[sorted.length - 1]?.release_date})`
   };
 }
+
+const STAT_KEYS = ['end', 'atk', 'def', 'cct', 'pre'];
+
+// Les stats sont stockées en texte ("12 345") : on garde les chiffres pour comparer.
+export const parseStat = (value) => parseInt(String(value ?? '').replace(/[^\d]/g, ''), 10) || 0;
+
+// Valeur maximale de chaque stat parmi les personnages, pour situer un personnage sur une échelle
+export const computeStatMax = (docs) => Object.fromEntries(
+  STAT_KEYS.map((key) => [key, docs.reduce((max, doc) => Math.max(max, parseStat(doc.stats?.[key])), 0)])
+);
