@@ -1,4 +1,4 @@
-import { listDiscordChannels, listDiscordEmojis, sendDiscordMessage } from '../../src/utils/botClient.js';
+import { listDiscordChannels, listDiscordEmojis, sendDiscordMessage, syncDiscordProfiles } from '../../src/utils/botClient.js';
 
 const jsonResponse = (status, body) => ({
   ok: status >= 200 && status < 300,
@@ -88,5 +88,35 @@ describe('sendDiscordMessage', () => {
   it('maps an unexpected bot status (e.g. 500) to a generic 502', async () => {
     global.fetch = jest.fn().mockResolvedValue(jsonResponse(500, {}));
     await expect(sendDiscordMessage({ channel_id: '1', content: 'hi' })).rejects.toMatchObject({ statusCode: 502 });
+  });
+});
+
+describe('syncDiscordProfiles', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('POSTs to /sync-profiles and returns the bot result', async () => {
+    const result = { total: 3, updated: 1, unchanged: 2, changed_players: [], servers: ['Schrift'] };
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(200, result));
+
+    expect(await syncDiscordProfiles()).toEqual(result);
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(url).toMatch(/\/sync-profiles$/);
+    expect(options.method).toBe('POST');
+  });
+
+  it('throws a 502 error when the bot is unreachable', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(syncDiscordProfiles()).rejects.toMatchObject({ statusCode: 502 });
+  });
+
+  it('reports a timeout with an explicit message', async () => {
+    global.fetch = jest.fn().mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    await expect(syncDiscordProfiles()).rejects.toThrow(/trop de temps/);
+  });
+
+  it('propagates the bot error message', async () => {
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(503, { error: 'Module botmanager non chargé' }));
+    await expect(syncDiscordProfiles()).rejects.toMatchObject({ statusCode: 502, message: 'Module botmanager non chargé' });
   });
 });
