@@ -2,6 +2,8 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
+import { syncDiscordProfiles } from '../utils/botClient.js';
+import { sendStatusCodeError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
@@ -102,6 +104,16 @@ router.get('/bot-health', requireAdmin, async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Synchronise bannières, avatars et pseudos Discord des joueurs (bouton « Outils » de l'admin)
+router.post('/sync-profiles', requireAdmin, async (req, res) => {
+  try {
+    const result = await syncDiscordProfiles();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    sendStatusCodeError(res, err, 'Erreur lors de la synchronisation des profils Discord');
   }
 });
 

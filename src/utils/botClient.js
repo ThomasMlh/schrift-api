@@ -90,3 +90,39 @@ export const sendDiscordMessage = async ({ channel_id, content, mention_user_ids
 
   return res.json();
 };
+
+// La synchronisation lit le profil Discord de chaque joueur : elle peut prendre une à deux minutes.
+const SYNC_PROFILES_TIMEOUT_MS = 180_000;
+
+/**
+ * Lance la synchronisation des bannières, avatars et pseudos Discord des users par le bot.
+ * @returns {Promise<{total, updated, unchanged, null_set, missing_on_server, lookup_errors,
+ *   patch_errors, servers: string[], changed_players: Array<{name, discord_id, changes: string[]}>}>}
+ */
+export const syncDiscordProfiles = async () => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SYNC_PROFILES_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(botUrl('/sync-profiles'), {
+      method: 'POST',
+      headers: authHeaders(),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw botError(504, 'La synchronisation prend trop de temps : elle continue côté bot, réessayez plus tard');
+    }
+    logger.error('[botClient] Impossible de joindre le bot (POST /sync-profiles):', err.message);
+    throw botError(502, 'Impossible de joindre le bot Discord');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw botError(res.status, body.error || `Le bot a répondu ${res.status}`);
+  }
+
+  return res.json();
+};
