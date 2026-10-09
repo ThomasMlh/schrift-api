@@ -62,6 +62,20 @@ describe('GET /api/users/accounts (crud.js) is not shadowed by GET /:userId', ()
     expect(res.status).toBe(200);
     expect(res.body.users).toEqual([]);
   });
+
+  it('attaches top_achievement to each account (null without any unlocked achievement)', async () => {
+    await db.collection('users').insertOne({
+      username: 'surimi',
+      global_name: 'Surimi',
+      bbs_id: '111',
+      bbs_name: 'Surimi',
+      bbs_accounts: [{ bbs_id: '111', bbs_name: 'Surimi', is_primary: true, guilde_id: null, role: 'membre' }],
+    });
+    const res = await request(app).get('/api/users/accounts');
+    expect(res.status).toBe(200);
+    expect(res.body.users).toHaveLength(1);
+    expect(res.body.users[0]).toHaveProperty('top_achievement', null);
+  });
 });
 
 describe('GET /api/users/:userId (crud.js)', () => {

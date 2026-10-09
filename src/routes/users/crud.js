@@ -13,6 +13,7 @@ import players from '../../assets/joueurs.json' with { type: "json" };
 import { logger } from '../../utils/logger.js';
 import { sendHiddenServiceError } from '../../utils/httpErrors.js';
 import { notifyGuildChange } from './notifications.js';
+import { attachTopAchievements } from '../../services/podiumService/achievementBadges.js';
 
 const router = express.Router();
 
@@ -249,6 +250,8 @@ router.get('/accounts', async (req, res) => {
       skip,
       limit
     });
+    // Succès le plus rare de chaque compte, affiché à côté du pseudo (comme sur le podium)
+    await attachTopAchievements(req.db, accounts);
 
     res.json({
       success: true,
