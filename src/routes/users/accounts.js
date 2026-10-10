@@ -108,6 +108,11 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
       );
     }
 
+    // L'album de personnages est indexé par bbs_id : il suit le compte renommé
+    if (isRenaming) {
+      await req.db.collection('albums').updateOne({ bbs_id: bbsId }, { $set: { bbs_id: newBbsId } });
+    }
+
     // Notification Discord — guilde et/ou rôle du compte ont pu changer, attendue avant la réponse.
     try {
       const oldGuildeId = accountBefore?.guilde_id || null;
