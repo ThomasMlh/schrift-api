@@ -5,6 +5,7 @@ import { notifyDiscord } from '../../utils/notifyDiscord.js';
 import { getUserDisplayName } from '../../utils/nameMatching.js';
 import { logger } from '../../utils/logger.js';
 import { enrichWithUser, enrichWithRotation, enrichTeamWithCharacters } from './enrich.js';
+import { parseBuildResult } from './result.js';
 
 const router = express.Router();
 
@@ -29,6 +30,12 @@ router.post('/', optionalAuth, async (req, res) => {
       if (user) {
         user_id = user._id.toString();
       }
+    }
+
+    // Résultat facultatif (score, chronos)
+    const { values: buildResult, error: resultError } = parseBuildResult(req.body);
+    if (resultError) {
+      return res.status(400).json({ success: false, message: resultError });
     }
 
     // Validation des champs obligatoires
@@ -236,6 +243,10 @@ router.post('/', optionalAuth, async (req, res) => {
       isValid: false, // Toujours false par défaut
       user_id: user_id,
       team: team,
+      score: buildResult.score ?? null,
+      time_normal_wave: buildResult.time_normal_wave ?? null,
+      time_extra_wave: buildResult.time_extra_wave ?? null,
+      screenshot: null,
       created_at: new Date(),
       updated_at: new Date()
     };

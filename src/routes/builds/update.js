@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { requireAdmin, optionalAuth, validateObjectIdParam } from '../../middleware/auth.js';
 import { logger } from '../../utils/logger.js';
 import { enrichWithUser, enrichWithRotation, enrichTeamWithCharacters } from './enrich.js';
+import { parseBuildResult } from './result.js';
 
 const router = express.Router();
 
@@ -245,16 +246,26 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       }
     }
 
-    // Mettre à jour - forcer isValid à false si ce n'est pas un admin qui modifie
-    updates.updated_at = new Date();
+    const { values: result, error: resultError } = parseBuildResult(updates);
+    if (resultError) {
+      return res.status(400).json({ success: false, message: resultError });
+    }
 
+    // Seuls les champs modifiables sont enregistrés (la capture passe par /:id/screenshot,
+    // l'auteur et la validation ne se changent pas ici)
+    const setFields = { ...result, updated_at: new Date() };
+    for (const field of ['rotation_id', 'description', 'team']) {
+      if (field in updates) setFields[field] = updates[field];
+    }
+
+    // Forcer isValid à false si ce n'est pas un admin qui modifie
     if (!isAdmin) {
-      updates.isValid = false;
+      setFields.isValid = false;
     }
 
     await req.db.collection('builds').updateOne(
       { _id: new ObjectId(id) },
-      { $set: updates }
+      { $set: setFields }
     );
 
     // Récupérer le build mis à jour
