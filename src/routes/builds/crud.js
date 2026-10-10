@@ -7,6 +7,7 @@ import { notifyDiscord } from '../../utils/notifyDiscord.js';
 import { getUserDisplayName } from '../../utils/nameMatching.js';
 import { logger } from '../../utils/logger.js';
 import { enrichWithUser, enrichWithRotation, enrichTeamWithCharacters } from './enrich.js';
+import { removeScreenshot } from '../../services/buildScreenshots.js';
 
 const router = express.Router();
 
@@ -144,6 +145,9 @@ router.delete('/:id', requireAdmin, validateObjectIdParam('id'), async (req, res
         message: 'Build non trouvé'
       });
     }
+
+    // La capture du build n'a plus de raison d'être sur le bucket
+    await removeScreenshot(buildToDelete?.screenshot);
 
     // Notification Discord — attendue avant la réponse.
     try {

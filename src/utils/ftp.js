@@ -54,6 +54,29 @@ export class FTPUploader {
   }
 
   /**
+   * Upload un buffer (ex : image déjà traitée) sur le FTP, en créant le dossier au besoin
+   * @param {Buffer} buffer - Contenu du fichier
+   * @param {string} remotePath - Chemin de destination sur le FTP
+   */
+  async uploadBuffer(buffer, remotePath) {
+    const dir = remotePath.substring(0, remotePath.lastIndexOf("/"));
+    await this.client.ensureDir(dir);
+    await this.client.uploadFrom(Readable.from(buffer), remotePath);
+  }
+
+  /**
+   * Supprime un fichier du FTP (sans erreur s'il n'existe déjà plus)
+   * @param {string} remotePath - Chemin complet sur le FTP
+   */
+  async removeFile(remotePath) {
+    try {
+      await this.client.remove(remotePath);
+    } catch (err) {
+      logger.warn(`⚠️ Suppression FTP impossible (${remotePath}): ${err.message}`);
+    }
+  }
+
+  /**
    * Télécharge une image depuis une URL et l'upload sur le FTP
    * @param {string} imageUrl - URL source de l'image
    * @param {string} remotePath - Chemin de destination sur le FTP
