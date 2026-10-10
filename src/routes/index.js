@@ -22,6 +22,7 @@ import webviewRouter from './webview.js';
 import settingsRouter from './settings.js';
 import activityRouter from './activity.js';
 import discordRouter from './discord.js';
+import albumsRouter from './albums.js';
 
 const router = express.Router();
 
@@ -48,5 +49,6 @@ router.use('/webview', webviewRouter);
 router.use('/settings', settingsRouter);
 router.use('/activity', activityRouter);
 router.use('/discord', discordRouter);
+router.use('/albums', albumsRouter);
 
 export default router;

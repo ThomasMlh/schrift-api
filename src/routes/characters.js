@@ -309,6 +309,23 @@ router.get("/meta", async (req, res) => {
   }
 });
 
+// GET catalogue complet et léger des personnages (album des joueurs) : pas de pagination,
+// uniquement les champs nécessaires à une grille de vignettes. Déclaré avant /:id.
+router.get("/catalog", async (req, res) => {
+  try {
+    const characters = await req.db
+      .collection("characters")
+      .find({}, { projection: { name: 1, search_name: 1, version: 1, affinity: 1, attack_type: 1, killers: 1, categories: 1 } })
+      .sort({ sort_order: 1, release_date: -1 })
+      .toArray();
+
+    res.json({ success: true, data: characters });
+  } catch (error) {
+    logger.error('Erreur lors de la récupération du catalogue des personnages:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur', error: error.message });
+  }
+});
+
 router.get("/:id", async (req, res) => {
   try {
     const character = await req.db

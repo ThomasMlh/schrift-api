@@ -37,6 +37,12 @@ export const requireAdmin = withVerifiedToken((decoded, req, res, next) => {
   next();
 });
 
+// Middleware pour toute route réservée aux utilisateurs connectés (admin ou joueur via Discord)
+export const requireAuth = withVerifiedToken((decoded, req, res, next) => {
+  req.user = decoded;
+  next();
+});
+
 // Middleware pour les scores - Admin ou Chef/Sous-Chef de guilde
 export const requireScoresAccess = withVerifiedToken((decoded, req, res, next) => {
   req.user = decoded;
