@@ -415,6 +415,39 @@ describe('getDraftProposal (integration)', () => {
     expect(result.guilds[0].players).toHaveLength(0);
   });
 
+  it('gives each guild its average before and after the draft', async () => {
+    const guildA = await makeGuild('A');
+    const guildB = await makeGuild('B');
+    const guildC = await makeGuild('C');
+    const cycle = await makeCycle({ name: 'Cycle Avg', rotations: [makeRotationMeta('r1', 1)] });
+    const cycleId = cycle._id.toString();
+
+    // 25 joueurs (score 1000 - i) : pairs dans A, impairs dans B ; C figée avec 2 joueurs
+    const users = [
+      { discord_id: 'c1', bbs_accounts: [{ bbs_id: 'bbs-c1', guilde_id: guildC }] },
+      { discord_id: 'c2', bbs_accounts: [{ bbs_id: 'bbs-c2', guilde_id: guildC }] },
+    ];
+    await insertScore(cycleId, { bbsId: 'bbs-c1', bbsName: 'C1', userId: 'c1', guildId: guildC, rotationId: 'r1', score: 300 });
+    await insertScore(cycleId, { bbsId: 'bbs-c2', bbsName: 'C2', userId: 'c2', guildId: guildC, rotationId: 'r1', score: 100 });
+    for (let i = 0; i < 25; i++) {
+      const guildId = i % 2 ? guildB : guildA;
+      users.push({ discord_id: `d${i}`, bbs_accounts: [{ bbs_id: `bbs-${i}`, guilde_id: guildId }] });
+      await insertScore(cycleId, { bbsId: `bbs-${i}`, bbsName: `P${i}`, userId: `d${i}`, guildId, rotationId: 'r1', score: 1000 - i });
+    }
+    await db.collection('users').insertMany(users);
+
+    // P0 est exclu de la simulation : il compte toujours dans la moyenne "avant" de A
+    const result = await getDraftProposal(db, {
+      cycle_name: 'Cycle Avg', guild_names: 'A,B,C', locked_guild_names: 'C', excluded_bbs_ids: 'bbs-0',
+    });
+
+    const averages = result.guilds.map((g) => [g.guild_name, g.average_before, g.average_after]);
+    // A avant : i pairs 0..24 → 988 ; après : i 1..20 → 989.5 → 990
+    // B avant : i impairs 1..23 → 988 ; après : i 21..24 → 977.5 → 978
+    // C figée : identique avant/après
+    expect(averages).toEqual([['A', 988, 990], ['B', 988, 978], ['C', 200, 200]]);
+  });
+
   it('throws a 404 when a requested guild name does not exist', async () => {
     await makeCycle({ name: 'Cycle NoGuild', rotations: [] });
     await expect(getDraftProposal(db, { cycle_name: 'Cycle NoGuild', guild_names: 'Ghost' }))
