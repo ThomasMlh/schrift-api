@@ -3,6 +3,11 @@ import { getMinScoresForRanking, lookupUserAndGuild, getCurrentGuildBbsIds, getU
 const DEFAULT_DRAFT_GUILD_ORDER = ['A', 'C', 'B', 'E', 'D'];
 const DRAFT_GUILD_SIZE = 20;
 
+// Moyenne du score de classement (moyenne ou total) d'une liste de joueurs ; null si vide
+const averageOf = (players, scoreKey) => players.length
+  ? Math.round(players.reduce((sum, p) => sum + p[scoreKey], 0) / players.length)
+  : null;
+
 const httpError = (statusCode, message) => Object.assign(new Error(message), { statusCode });
 
 // Liste "a,b,c" (ou tableau) -> tableau de valeurs non vides
@@ -138,10 +143,27 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
       locked: true,
       member_count: bbsIds.length,
       players: players.map(p => ({ ...p, overallRank: null, currentGuildName: name, isPinned: false })),
+      average_before: averageOf(players, scoreKey),
+      average_after: averageOf(players, scoreKey),
     });
   }
+
+  // Moyenne de chaque guilde redistribuée AVANT la draft : ses membres actuels, mêmes règles de
+  // classement que les candidats (seuil de scores compris), y compris ceux exclus de la simulation
+  // puisqu'ils font bien partie de la guilde aujourd'hui.
+  const currentMemberIds = [...currentGuildByBbsId.keys()];
+  const currentRanked = currentMemberIds.length ? await rankAccounts(currentMemberIds, { applyThreshold: true }) : [];
+  const averageBeforeByGuild = new Map(draftOrder.map(name => [
+    name,
+    averageOf(currentRanked.filter(p => currentGuildByBbsId.get(p.bbs_id) === name), scoreKey),
+  ]));
+
   const assemble = (draftedGuilds) => {
-    const drafted = new Map(draftedGuilds.map(g => [g.guild_name, g]));
+    const drafted = new Map(draftedGuilds.map(g => [g.guild_name, {
+      ...g,
+      average_before: averageBeforeByGuild.get(g.guild_name) ?? null,
+      average_after: averageOf(g.players, scoreKey),
+    }]));
     return guildOrder.map(name => lockedGuilds.get(name) || drafted.get(name));
   };
 
