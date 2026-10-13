@@ -5,7 +5,7 @@ import { ABOVE_USUAL_FACTOR, BELOW_USUAL_FACTOR } from './scoreAnomalies.js';
 /**
  * Repères affichés à côté de chaque champ de la saisie groupée, pour repérer une faute de frappe
  * avant d'enregistrer :
- *  - usual_score : sa moyenne sur ce killer (mêmes scores comparables que l'outil d'anomalies)
+ *  - usual_score : moyenne du compte sur ce killer (mêmes scores comparables que l'outil d'anomalies)
  *  - base_raw : rotation différentielle uniquement, score brut de la rotation précédente du cycle
  *    (le cumul saisi ne peut pas lui être inférieur)
  * Les seuils d'alerte sont ceux de scoreAnomalies, renvoyés pour que le front applique les mêmes.
