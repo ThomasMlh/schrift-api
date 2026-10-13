@@ -1,6 +1,5 @@
 /**
- * Logique de synchronisation des personnages depuis SFTP et d'upload des images FTP.
- * Extrait de characters.js pour réduire la taille du fichier de routes.
+ * Character synchronization from SFTP and FTP image upload.
  */
 import { cleanObject } from '../utils/cleaners.js';
 import { SFTPClient } from '../utils/database.js';
@@ -56,7 +55,6 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
     throw err;
   }
 
-  // Téléchargement SFTP
   let fileContent;
   let sftpClient;
   try {
@@ -77,11 +75,10 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
     throw err;
   } finally {
     if (sftpClient) {
-      try { await sftpClient.disconnect(); } catch { /* ignore */ }
+      try { await sftpClient.disconnect(); } catch { /* Ignore disconnect errors */ }
     }
   }
 
-  // Parsing du fichier
   let characters;
   try {
     characters = JSON.parse(fileContent);
@@ -101,7 +98,7 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
     throw err;
   }
 
-  // Connexion FTP si upload demandé
+  // FTP connection when an upload is requested
   let ftpUploader = null;
   if (uploadImages) {
     try {
@@ -202,7 +199,7 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
   }
 
   if (ftpUploader) {
-    try { await ftpUploader.disconnect(); } catch { /* ignore */ }
+    try { await ftpUploader.disconnect(); } catch { /* Ignore disconnect errors */ }
   }
 
   let reorderStats = null;
@@ -284,9 +281,9 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
     }
   }
 
-  try { await ftpUploader.disconnect(); } catch { /* ignore */ }
+  try { await ftpUploader.disconnect(); } catch { /* Ignore disconnect errors */ }
 
-  // Bannières manquantes
+  // Missing banners
   let bannersUploaded = 0;
   const bannersToUpload = await db.collection('banners')
     .find({ url: { $exists: true, $ne: '' }, images_uploaded: { $ne: true } })
@@ -304,7 +301,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
         }
         await db.collection('banners').updateOne({ _id: banner._id }, { $set: { images_uploaded: true } });
       }
-      try { await bannerFtp.disconnect(); } catch { /* ignore */ }
+      try { await bannerFtp.disconnect(); } catch { /* Ignore disconnect errors */ }
     } catch (bannerErr) {
       logger.warn('⚠️ Erreur upload bannières:', bannerErr.message);
     }

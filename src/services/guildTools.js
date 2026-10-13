@@ -5,15 +5,15 @@ import { isCycleInProgress } from './podiumService/index.js';
 import { getGuildAccountRoster } from '../utils/bbsAccounts.js';
 
 /**
- * Outils des chefs pour leur guilde (membres ACTUELS, ceux pour qui un chef peut saisir) :
- * scores manquants d'un cycle et fiche de préparation d'une rotation.
+ * Leader tools for their guild (CURRENT members, those a leader can enter scores for): missing
+ * scores of a cycle and rotation preparation sheet.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const rotationEnd = (r) => parseDate(r.end_date) || parseDate(r.start_date);
 
-/** Cycle demandé, sinon le cycle en cours, sinon le dernier cycle commencé. */
+/** The requested cycle, otherwise the current one, otherwise the latest started cycle. */
 export const resolveCycle = async (db, cycleId, now = Date.now()) => {
   if (cycleId) {
     if (!ObjectId.isValid(cycleId)) return null;
@@ -31,8 +31,8 @@ const rotationDocs = async (db, rotationIds) => {
 };
 
 /**
- * Scores manquants : pour chaque rotation terminée du cycle, les membres actuels de la guilde
- * sans aucun score saisi (quelle que soit la guilde du score). Rotations les plus récentes d'abord.
+ * Missing scores: for each finished rotation of the cycle, the guild's current members without any
+ * score (whatever the score's guild). Most recent rotations first.
  */
 export const getMissingScores = async (db, { guildId, cycleId, now = Date.now() }) => {
   const cycle = await resolveCycle(db, cycleId, now);
@@ -62,7 +62,7 @@ export const getMissingScores = async (db, { guildId, cycleId, now = Date.now() 
       killer: doc?.killer || r.killer || null,
       attack: doc?.attack || r.attack || null,
       alteration: doc?.alteration || r.alteration || null,
-      // Rotation différentielle (2e de la semaine) : le chef saisit le cumul affiché en jeu
+      // Differential rotation (2nd of the week): the leader enters the running total shown in game
       is_differential: r.index % 2 === 1,
       missing: roster
         .filter((m) => m.bbs_id && !scored.has(`${m.bbs_id}|${r.rotation_id}`))
@@ -81,9 +81,9 @@ export const getMissingScores = async (db, { guildId, cycleId, now = Date.now() 
 const round = (n) => Math.round(n);
 
 /**
- * Fiche de préparation d'une rotation : historique de chaque membre actuel de la guilde sur ce
- * killer (record, moyenne, dernier score), plus la moyenne et le record de tous les joueurs.
- * Rotation par défaut : la prochaine rotation non terminée du cycle (sinon la dernière).
+ * Rotation preparation sheet: each current guild member's history on this killer (record, average,
+ * latest score), plus the average and record of all players.
+ * Default rotation: the next unfinished rotation of the cycle (otherwise the last one).
  */
 export const getRotationPreparation = async (db, { guildId, cycleId, rotationId, now = Date.now() }) => {
   const cycle = await resolveCycle(db, cycleId, now);

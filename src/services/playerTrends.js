@@ -1,11 +1,11 @@
 import { loadComparableScores, cycleTimestamp, toObjectIds } from './killerRecords.js';
 
 /**
- * Tendances par compte bbs : progression d'un cycle à l'autre et baisses de régime récentes.
- * Comme pour les records, seuls les scores comparables (loadComparableScores) sont pris en compte.
+ * Trends per bbs account: cycle-to-cycle progression and recent declines.
+ * As for records, only comparable scores (loadComparableScores) are used.
  */
 
-/** Tous les cycles, du plus ancien au plus récent (date de début de la première rotation). */
+/** Every cycle, oldest first (by the start date of the first rotation). */
 export const getCyclesChronological = async (db) => {
   const cycles = await db.collection('cycles')
     .find({}, { projection: { name: 1, year: 1, rotations: 1, created_at: 1 } })
@@ -13,7 +13,7 @@ export const getCyclesChronological = async (db) => {
   return cycles.sort((a, b) => cycleTimestamp(a) - cycleTimestamp(b));
 };
 
-/** Cycle qui précède chronologiquement `cycleId`, ou null s'il n'y en a pas. */
+/** The cycle chronologically preceding `cycleId`, or null. */
 export const getPreviousCycle = async (db, cycleId) => {
   const cycles = await getCyclesChronological(db);
   const index = cycles.findIndex((c) => c._id.toString() === cycleId.toString());
@@ -34,10 +34,9 @@ const groupByAccount = (scores) => {
 };
 
 /**
- * Progression de la moyenne de chaque compte entre le cycle précédent et `cycle`, triée de la
- * plus forte hausse (en %) à la plus forte baisse. Un compte doit avoir au moins `minScores`
- * scores (et au moins un) sur chacun des deux cycles. `bbsIds` restreint aux comptes donnés
- * (membres actuels d'une guilde).
+ * Average progression of each account between the previous cycle and `cycle`, sorted from the
+ * largest increase (in %) to the largest decrease. An account needs at least `minScores` scores (and
+ * at least one) on both cycles. `bbsIds` restricts to the given accounts (a guild's current members).
  */
 export const getProgression = async (db, { cycle, bbsIds = null, minScores = 0 }) => {
   const previousCycle = await getPreviousCycle(db, cycle._id);
@@ -82,8 +81,8 @@ export const getProgression = async (db, { cycle, bbsIds = null, minScores = 0 }
 };
 
 /**
- * Complète des lignes portant user_id/guild_id avec l'identité Discord (avatar, global_name) et le
- * nom de la guilde, comme le fait lookupUserAndGuild pour les classements agrégés en base.
+ * Adds the Discord identity (avatar, global_name) and the guild name to rows holding
+ * user_id/guild_id, like lookupUserAndGuild does for database-aggregated rankings.
  */
 export const attachIdentity = async (db, rows) => {
   const userIds = [...new Set(rows.map((r) => r.user_id).filter(Boolean))];
@@ -121,20 +120,20 @@ export const attachIdentity = async (db, rows) => {
   });
 };
 
-// Seuil de signalement : moyenne des derniers scores sous 80 % de l'habitude du joueur.
+// Reporting threshold: average of the latest scores below 80% of the player's usual level.
 export const DECLINE_THRESHOLD = 0.8;
-// Nombre de derniers scores examinés, et minimum de scores comparables pour signaler quelqu'un
-// (un seul mauvais score n'est pas une tendance).
+// Number of latest scores examined, and minimum number of comparable scores to report someone
+// (a single bad score is not a trend).
 const RECENT_SCORES = 3;
 const MIN_RECENT_SAMPLES = 2;
-// Seuls les scores des deux derniers cycles commencés comptent comme "récents".
+// Only scores from the two latest started cycles count as "recent".
 const RECENT_CYCLES = 2;
 
 /**
- * Comptes dont les derniers scores sont nettement sous leur propre habitude. Comme les killers
- * n'ont pas tous la même échelle de points, chaque score récent est comparé à la moyenne du joueur
- * sur le MÊME killer lors des fois précédentes ; un score sans historique sur son killer est ignoré.
- * Retourne les comptes sous `threshold` (ratio moyen), du plus en difficulté au moins en difficulté.
+ * Accounts whose latest scores are well below their own usual level. Killers do not share the same
+ * point scale, so each recent score is compared with the player's average on the SAME killer in
+ * previous occurrences; a score without history on its killer is ignored.
+ * Returns the accounts below `threshold` (average ratio), most struggling first.
  */
 export const getDeclineAlerts = async (db, { guildIds, threshold = DECLINE_THRESHOLD, now = Date.now() }) => {
   const guilds = await db.collection('guildes')
@@ -142,7 +141,7 @@ export const getDeclineAlerts = async (db, { guildIds, threshold = DECLINE_THRES
     .toArray();
   if (guilds.length === 0) return [];
 
-  // Membres actuels (users.bbs_accounts[].guilde_id), avec leur guilde actuelle
+  // Current members (users.bbs_accounts[].guilde_id), with their current guild
   const guildIdStrings = guilds.map((g) => g._id.toString());
   const users = await db.collection('users').find(
     { 'bbs_accounts.guilde_id': { $in: guildIdStrings } },
@@ -222,7 +221,7 @@ export const getDeclineAlerts = async (db, { guildIds, threshold = DECLINE_THRES
 
   if (alerts.length === 0) return [];
 
-  // Killer/attaque de chaque rotation échantillonnée, pour l'affichage
+  // Killer/attack of each sampled rotation, for display
   const rotationIds = [...new Set(alerts.flatMap((a) => a.samples.map((s) => s.rotation_id)))];
   const rotations = await db.collection('rotations')
     .find({ _id: { $in: toObjectIds(rotationIds) } }, { projection: { killer: 1, attack: 1, alteration: 1 } })
@@ -241,8 +240,8 @@ export const getDeclineAlerts = async (db, { guildIds, threshold = DECLINE_THRES
 };
 
 /**
- * Records personnels battus pendant `cycle` par les comptes `bbsIds` : scores du cycle qui
- * dépassent le meilleur score du même compte sur le même killer lors des cycles ANTÉRIEURS.
+ * Personal records beaten during `cycle` by the `bbsIds` accounts: cycle scores above the same
+ * account's best on the same killer in EARLIER cycles.
  */
 export const getCycleRecords = async (db, cycle, bbsIds) => {
   const cycleId = cycle._id.toString();

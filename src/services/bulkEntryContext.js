@@ -3,12 +3,11 @@ import { loadComparableScores } from './killerRecords.js';
 import { ABOVE_USUAL_FACTOR, BELOW_USUAL_FACTOR } from './scoreAnomalies.js';
 
 /**
- * Repères affichés à côté de chaque champ de la saisie groupée, pour repérer une faute de frappe
- * avant d'enregistrer :
- *  - usual_score : moyenne du compte sur ce killer (mêmes scores comparables que l'outil d'anomalies)
- *  - base_raw : rotation différentielle uniquement, score brut de la rotation précédente du cycle
- *    (le cumul saisi ne peut pas lui être inférieur)
- * Les seuils d'alerte sont ceux de scoreAnomalies, renvoyés pour que le front applique les mêmes.
+ * References shown next to each bulk entry field, to catch typos before saving:
+ *  - usual_score: the account's average on this killer (same comparable scores as the anomaly tool)
+ *  - base_raw: differential rotations only, raw score of the previous rotation of the cycle
+ *    (the entered running total cannot be lower)
+ * Alert thresholds come from scoreAnomalies and are returned so the front end applies the same ones.
  */
 export const getBulkEntryContext = async (db, { cycleId, rotationId, bbsIds }) => {
   const cycle = ObjectId.isValid(cycleId)
@@ -18,7 +17,7 @@ export const getBulkEntryContext = async (db, { cycleId, rotationId, bbsIds }) =
 
   const rotationIndex = (cycle.rotations || []).findIndex((r) => r.rotation_id === rotationId);
   if (rotationIndex === -1) throw Object.assign(new Error('Rotation introuvable dans ce cycle'), { statusCode: 404 });
-  // Même règle que computeDifferential : les rotations d'index impair sont différentielles
+  // Same rule as computeDifferential: odd-index rotations are differential
   const isDifferential = rotationIndex > 0 && rotationIndex % 2 === 1;
 
   const accounts = Object.fromEntries(bbsIds.map((id) => [id, { usual_score: null, base_raw: null }]));

@@ -6,7 +6,7 @@ import {
   overrideGuildName, applyRanks, paginate
 } from './helpers.js';
 
-// GET podium simple (top 10, sans pagination)
+// Podium (top 10, no pagination)
 export const getPodium = async (db, { cycle_id, guild_id }) => {
   if (!cycle_id) {
     const err = new Error('Le paramètre cycle_id est obligatoire');
@@ -73,7 +73,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
   };
 }
 
-// GET podium complet paginé (par cycle_name, optionnel rotation_id)
+// Full paginated podium (by cycle_name, optional rotation_id)
 export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_name, ranking_type = 'average', page = 1, limit = 50 }) => {
   if (!cycle_name) {
     const err = new Error('Le paramètre cycle_name est obligatoire');
@@ -92,9 +92,9 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
     throw err;
   }
 
-  // Le nom d'un cycle peut être réutilisé d'une année à l'autre (l'année les distingue) :
-  // on filtre par year quand il est fourni, et on trie par created_at desc en repli pour
-  // résoudre vers le plus récent si year est absent ou si un doublon name+year existe.
+  // A cycle name can be reused across years (the year tells them apart): filter by year when given,
+  // and sort by created_at desc as a fallback to resolve to the most recent cycle when year is missing
+  // or a name+year duplicate exists.
   const cycleQuery = { name: cycle_name };
   if (year) cycleQuery.year = parseInt(year, 10);
   const cycle = await db.collection('cycles').findOne(cycleQuery, { sort: { created_at: -1 } });
@@ -145,8 +145,8 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
 
   let pipeline;
   if (rotation_id) {
-    // Un score par bbs_id sur une rotation donnée : pas de $group nécessaire, mais bbs_name/
-    // bbs_id doivent venir du score lui-même (le compte qui a joué), pas du user courant.
+    // One score per bbs_id on a given rotation: no $group needed, but bbs_name/bbs_id must come from the
+    // score itself (the account that played), not from the current user.
     pipeline = [
       { $match: matchStage },
       ...lookupUserAndGuild(),
@@ -183,8 +183,8 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
           totalRawScore: { $sum: "$raw_score" }
         }
       },
-      // Le seuil ne s'applique qu'au classement par moyenne : en "max" (somme), un joueur
-      // avec peu de scores n'a de toute façon qu'un total plus bas, pas d'avantage injustifié.
+      // The threshold only applies to the average ranking: in "max" (sum) mode a player with few scores
+      // already has a lower total, so there is no unfair advantage.
       ...(normalizedRankingType === 'max' ? [] : [{ $match: { totalScores: { $gte: minScores } } }]),
       ...lookupUserAndGuild(),
       {
@@ -257,7 +257,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
   };
 }
 
-// Classement "progression" : hausse de la moyenne par rapport au cycle précédent (en %).
+// "progression" ranking: increase of the average versus the previous cycle (in %).
 const getProgressionPodium = async (db, { cycle, cycle_name, guildId, guild_name, currentGuildName, minScores, pageNumber, limitNumber }) => {
   const bbsIds = guildId ? await getGuildBbsIdsForCycle(db, cycle, guildId) : null;
   const { previousCycle, rows } = await getProgression(db, { cycle, bbsIds, minScores });

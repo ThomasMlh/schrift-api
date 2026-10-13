@@ -3,27 +3,27 @@ import { getMinScoresForRanking } from './podiumService/helpers.js';
 import { CLEAR_SCORE_THRESHOLD } from '../utils/scoreThresholds.js';
 
 /**
- * Succès des comptes bbs, calculés à partir des scores (rien n'est stocké) : un succès obtenu
- * disparaît si une correction de score fait qu'il n'est plus mérité. La date d'obtention d'un
- * palier est celle de la rotation (ou de la fin du cycle) qui l'a débloqué.
+ * bbs account achievements, computed from scores (nothing is stored): an achievement disappears if
+ * a score correction means it is no longer earned. A tier's unlock date is that of the rotation (or
+ * the end of the cycle) that unlocked it.
  *
- * Les valeurs (records, moyennes, podiums) n'utilisent que les scores comparables ; la
- * participation (rotations jouées, cycles complets, séries sans miss) compte tous les scores.
+ * Values (records, averages, podiums) only use comparable scores; participation (rotations played,
+ * full cycles, streaks without misses) counts every score.
  */
 
 export const PERFECT_SCORE = 621_000_000;
 export const PERFECT_SCORE_PLUS = 621_400_000;
 export const PERFECT_WEEK_SCORE = 620_000_000;
 export const EXCEPTIONAL_CYCLE_TOTAL = 12_000_000_000;
-// Le maximum réel d'une rotation tourne autour de 621,6M : au-delà, c'est une erreur de saisie,
-// qui ne doit débloquer aucun succès (elle remonte dans « Scores à vérifier »).
+// The real maximum of a rotation is around 621.6M: anything above is a typo, which must not unlock
+// any achievement (it shows up in "Scores to review").
 export const MAX_PLAUSIBLE_SCORE = 625_000_000;
-// Scores minimum sur chacun des deux cycles pour qu'une progression de moyenne compte
+// Minimum number of scores on each of the two cycles for an average progression to count
 export const MIN_PROGRESSION_SCORES = 10;
 
 export const TIER_ORDER = ['bronze', 'silver', 'gold', 'platinum'];
 
-// Libellés français, pour les messages Discord et le bot (le site a ses propres traductions)
+// French labels, for Discord messages and the bot (the site has its own translations)
 export const TIER_LABELS_FR = { bronze: 'Bronze', silver: 'Argent', gold: 'Or', platinum: 'Platine' };
 export const ACHIEVEMENT_NAMES_FR = {
   first_step: 'Premier pas', clear: 'Clear', perfect_score: 'Score parfait', perfect_week: 'Semaine parfaite',
@@ -39,7 +39,7 @@ const t = (bronze, silver, gold, platinum) => [
   ['bronze', bronze], ['silver', silver], ['gold', gold], ['platinum', platinum],
 ].filter(([, threshold]) => threshold !== undefined).map(([tier, threshold]) => ({ tier, threshold }));
 
-// unit : comment le front affiche la valeur et les seuils (count, score, billions, percent, flag)
+// unit: how the front end displays the value and thresholds (count, score, billions, percent, flag)
 export const ACHIEVEMENTS = [
   { code: 'first_step', category: 'scores', unit: 'flag', tiers: t(1) },
   { code: 'clear', category: 'scores', unit: 'count', tiers: t(3, 15, 40, 100) },
@@ -72,12 +72,12 @@ export const ACHIEVEMENTS = [
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
-// --- Timelines : valeur d'un succès dans le temps, pour dater chaque palier --------------------
+// Timelines: value of an achievement over time, used to date each tier
 
-// Une entrée par occurrence (dates triées) : la valeur est le nombre d'occurrences
+// One entry per occurrence (sorted dates): the value is the occurrence count
 const countTimeline = (dates) => [...dates].sort((a, b) => a - b).map((at, i) => ({ value: i + 1, at }));
 
-// Nouvelles valeurs maximales atteintes, dans l'ordre chronologique
+// New maximum values reached, in chronological order
 const maxTimeline = (points) => {
   const timeline = [];
   let best = -Infinity;
@@ -90,7 +90,7 @@ const maxTimeline = (points) => {
   return timeline;
 };
 
-// Plus longue série d'indices consécutifs (cycles) satisfaisant une condition
+// Longest streak of consecutive indexes (cycles) meeting a condition
 const streakTimeline = (items) => {
   const points = [];
   let run = 0;
@@ -105,7 +105,7 @@ const streakTimeline = (items) => {
 
 const lastValue = (timeline) => (timeline.length ? timeline[timeline.length - 1].value : 0);
 
-// --- Contexte global (tous les comptes), mis en cache -----------------------------------------
+// Global context (every account), cached
 
 const buildContext = async (db, now) => {
   const cycles = (await db.collection('cycles').find({}, { projection: { name: 1, year: 1, rotations: 1, created_at: 1 } }).toArray())
@@ -150,7 +150,7 @@ const buildContext = async (db, now) => {
     byAccount.get(s.bbs).push(s);
   }
 
-  // Statistiques par compte et par cycle
+  // Stats per account and per cycle
   const cycleStats = new Map(); // `${bbs}|${ci}` -> stats
   for (const [bbs, list] of byAccount) {
     const byCycle = new Map();
@@ -175,7 +175,7 @@ const buildContext = async (db, now) => {
     }
   }
 
-  // Record absolu de chaque killer (le premier à l'atteindre en cas d'égalité)
+  // Absolute record of each killer (the first to reach it on ties)
   const absoluteRecord = new Map();
   for (const s of scores) {
     if (!s.comparable) continue;
@@ -183,7 +183,7 @@ const buildContext = async (db, now) => {
     if (!best || s.v > best.v) absoluteRecord.set(s.rotation, s);
   }
 
-  // Podiums des cycles terminés (moyenne, même seuil minimum que le podium du site)
+  // Podiums of finished cycles (average, same minimum as the site podium)
   const required = Math.max(1, minScores);
   const podiumDates = { podium: new Map(), leader: new Map(), elite: new Map(), number_one: new Map() };
   const push = (map, bbs, at) => { if (!map.has(bbs)) map.set(bbs, []); map.get(bbs).push(at); };
@@ -204,7 +204,7 @@ const buildContext = async (db, now) => {
     }
   }
 
-  // Progressions de moyenne entre deux cycles terminés consécutifs
+  // Average progressions between two consecutive finished cycles
   const progressions = new Map(); // bbs -> [{ index, pct, at, guild }]
   for (const st of cycleStats.values()) {
     if (st.ci === 0 || !cycleInfo[st.ci].ended || st.n < MIN_PROGRESSION_SCORES) continue;
@@ -226,7 +226,7 @@ const buildContext = async (db, now) => {
   }
   for (const best of bestByGuildCycle.values()) if (best.pct > 0) push(revelationDates, best.bbs, best.at);
 
-  // Roi de la semaine : meilleur total des 2 rotations d'une semaine terminée, par guilde
+  // King of the week: best total of the 2 rotations of a finished week, per guild
   const weekTotals = new Map(); // `${ci}|${week}|${guild}` -> Map(bbs -> total)
   for (const s of scores) {
     if (!s.comparable) continue;
@@ -253,7 +253,7 @@ const buildContext = async (db, now) => {
   return context;
 };
 
-// --- Évaluation d'un compte -----------------------------------------------------------------
+// Evaluation of one account
 
 const evaluateAccount = (ctx, bbs) => {
   const list = ctx.byAccount.get(bbs) || [];
@@ -284,7 +284,7 @@ const evaluateAccount = (ctx, bbs) => {
   let cumulative = 0;
   timelines.billionaire = values.map((s) => ({ value: (cumulative += s.v), at: s.at }));
 
-  // Records personnels : meilleur score sur un killer battu (cycles antérieurs uniquement)
+  // Personal records: best score on a killer beaten (earlier cycles only)
   const recordDates = [];
   const bestByRotation = new Map();
   for (const st of stats) {
@@ -306,7 +306,7 @@ const evaluateAccount = (ctx, bbs) => {
   const complete = stats.filter(isComplete);
   timelines.full_cycle = countTimeline(complete.map((st) => st.lastAt));
 
-  // Plus longue série de rotations sans miss (une rotation non saisie casse la série)
+  // Longest streak of rotations without a miss (a rotation without a score breaks it)
   const played = new Map(list.map((s) => [`${s.ci}|${s.ri}`, s.v]));
   const streakPoints = [];
   if (list.length) {
@@ -315,7 +315,7 @@ const evaluateAccount = (ctx, bbs) => {
       const info = ctx.cycleInfo[ci];
       for (let ri = ci === list[0].ci ? list[0].ri : 0; ri < info.size; ri++) {
         const v = played.get(`${ci}|${ri}`);
-        // Les rotations pas encore terminées ne cassent pas la série (scores pas encore saisis)
+        // Unfinished rotations do not break the streak (scores not entered yet)
         if (v === undefined && info.rotationDates[ri] + DAY_MS > ctx.now) continue;
         run = v > 0 ? run + 1 : 0;
         if (run > 0) streakPoints.push({ value: run, at: info.rotationDates[ri] });
@@ -375,7 +375,7 @@ const evaluateAccount = (ctx, bbs) => {
 
 const computeRarity = (results) => {
   const total = results.size;
-  const rarity = new Map(); // `${code}|${tier}` -> % de comptes
+  const rarity = new Map(); // `${code}|${tier}` -> % of accounts
   for (const def of ACHIEVEMENTS) {
     for (const { tier } of def.tiers) {
       let count = 0;
@@ -390,7 +390,7 @@ const computeRarity = (results) => {
 
 let cache = null;
 
-/** Vide le cache (appelé à chaque modification de score). */
+/** Clears the cache (called on every score change). */
 export const invalidateAchievementsCache = () => { cache = null; };
 
 const getContext = async (db, now) => {
@@ -402,8 +402,8 @@ const getContext = async (db, now) => {
 };
 
 /**
- * Succès de chaque compte demandé, avec la rareté de chaque palier (% des comptes ayant au moins
- * un score qui l'ont débloqué).
+ * Achievements of each requested account, with the rarity of each tier (% of accounts with at least
+ * one score that unlocked it).
  * @returns {Promise<{ accounts: Map<string, Array>, totalAccounts: number }>}
  */
 export const getAchievementsForAccounts = async (db, bbsIds, { now = Date.now(), fresh = false } = {}) => {
@@ -420,8 +420,8 @@ export const getAchievementsForAccounts = async (db, bbsIds, { now = Date.now(),
 };
 
 /**
- * Paliers débloqués (par défaut or et platine), pour tous les comptes ou ceux demandés, avec le
- * dernier pseudo connu du compte et la rareté du palier.
+ * Unlocked tiers (gold and platinum by default), for every account or the requested ones, with the
+ * account's latest known name and the tier's rarity.
  */
 export const listUnlockedTiers = async (db, { tiers = ['gold', 'platinum'], bbsIds = null, now = Date.now() } = {}) => {
   const ctx = await getContext(db, now);
@@ -445,8 +445,8 @@ export const listUnlockedTiers = async (db, { tiers = ['gold', 'platinum'], bbsI
 };
 
 /**
- * Succès le plus rare débloqué par chaque compte (rareté la plus basse, puis palier le plus élevé),
- * pour l'afficher à côté du pseudo dans les classements.
+ * Rarest achievement unlocked by each account (lowest rarity, then highest tier), shown next to the
+ * name in rankings.
  * @returns {Promise<Map<string, { code, name, tier, rarity }>>}
  */
 export const getTopAchievements = async (db, bbsIds, { now = Date.now() } = {}) => {

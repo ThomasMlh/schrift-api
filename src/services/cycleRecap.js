@@ -5,14 +5,13 @@ import { getProgression, getPreviousCycle, getCycleRecords } from './playerTrend
 import { getPodiumFull, getGuildBbsIdsForCycle, getGuildScoreMatch, getMinScoresForRanking } from './podiumService/index.js';
 import { getGuildGoals } from './guildGoals.js';
 
-// Nombre maximum de records listés dans le message (le total est toujours indiqué).
+// Maximum number of records listed in the message (the total is always shown).
 const MAX_LISTED_RECORDS = 8;
 
 /**
- * Bilan d'un cycle pour une guilde : top 3 (même classement que le podium publié), records
- * personnels battus, plus forte progression et moyenne de la guilde comparée au cycle précédent.
- * Même périmètre que le podium : membres actuels si le cycle est en cours, sinon les scores
- * saisis pour la guilde sur chaque cycle.
+ * A guild's cycle recap: top 3 (same ranking as the published podium), personal records beaten,
+ * biggest progression and guild average compared with the previous cycle. Same scope as the podium:
+ * current members while the cycle is running, otherwise the scores entered for the guild.
  */
 export const getCycleRecap = async (db, cycle, guild) => {
   const guildId = guild._id.toString();
@@ -67,9 +66,9 @@ export const getCycleRecap = async (db, cycle, guild) => {
 const cycleSlugOf = (cycle) => `${(cycle.name || '').toLowerCase().replace(/\s+/g, '-')}-${cycle.year}`;
 
 /**
- * Publie le récap d'un cycle dans le salon général de chaque guilde (salon chefs à défaut) :
- * capture du podium et/ou bilan écrit. Les envois sont attendus (Promise.all) : sur Vercel,
- * l'exécution peut être coupée dès la réponse envoyée.
+ * Publishes a cycle recap in each guild's general channel (leaders channel as a fallback): podium
+ * capture and/or written summary. Sends are awaited (Promise.all): on Vercel, execution may stop
+ * once the response is sent.
  */
 export const publishCycleRecap = async (db, cycle, guilds, { rankingType = 'average', includeSnapshot = true, includeSummary = true } = {}) => {
   const frontendUrl = process.env.FRONTEND_URL?.replace(/\/$/, '');

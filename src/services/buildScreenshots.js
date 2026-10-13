@@ -2,26 +2,26 @@ import sharp from 'sharp';
 import { FTPUploader } from '../utils/ftp.js';
 import { logger } from '../utils/logger.js';
 
-// Dossier des captures de builds sur le FTP (servi par bucket.bbs-schrift.fr/builds/)
+// FTP folder of build screenshots (served by bucket.bbs-schrift.fr/builds/)
 export const BUILD_SCREENSHOT_DIR = '/bucket.bbs-schrift.fr/builds';
-// Largeur maximale de la capture une fois convertie
+// Maximum width after conversion
 const MAX_WIDTH = 1600;
-// Taille maximale de l'image envoyée (avant conversion)
+// Maximum uploaded image size (before conversion)
 export const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 
 const pad = (n) => String(n).padStart(2, '0');
 
 /**
- * Nom du fichier d'une capture : <buildId>_<AAAAMMJJ-HHmmss>.webp (heure UTC). L'horodatage change
- * à chaque remplacement, ce qui évite qu'un cache serve l'ancienne image.
+ * Screenshot file name: <buildId>_<YYYYMMDD-HHmmss>.webp (UTC). The timestamp changes on every
+ * replacement, so no cache serves the old image.
  */
 export const screenshotFilename = (buildId, date = new Date()) =>
   `${buildId}_${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}`
   + `-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}.webp`;
 
 /**
- * Décode une image envoyée en data URL (ou base64 brut). Renvoie null si le contenu n'est pas
- * une image base64 exploitable ou dépasse la taille maximale.
+ * Decodes an image sent as a data URL (or raw base64). Returns null when the content is not a usable
+ * base64 image or exceeds the maximum size.
  */
 export const decodeImage = (dataUrl) => {
   if (typeof dataUrl !== 'string' || !dataUrl) return null;
@@ -33,11 +33,11 @@ export const decodeImage = (dataUrl) => {
   return buffer;
 };
 
-/** Convertit une capture en WebP, orientée et limitée à MAX_WIDTH pixels de large. */
+/** Converts a screenshot to WebP, auto-rotated and at most MAX_WIDTH pixels wide. */
 export const toWebp = (buffer) =>
   sharp(buffer).rotate().resize({ width: MAX_WIDTH, withoutEnlargement: true }).webp({ quality: 82 }).toBuffer();
 
-// Stockage FTP, remplaçable dans les tests
+// FTP storage, replaceable in tests
 let storage = {
   upload: async (buffer, filename) => {
     const ftp = new FTPUploader();
@@ -63,7 +63,7 @@ export const setScreenshotStorage = (custom) => { storage = custom; };
 
 export const uploadScreenshot = (buffer, filename) => storage.upload(buffer, filename);
 
-/** Supprime une capture sans faire échouer l'appelant (fichier déjà absent, FTP indisponible…). */
+/** Deletes a screenshot without failing the caller (file already gone, FTP unavailable…). */
 export const removeScreenshot = async (filename) => {
   if (!filename) return;
   try {

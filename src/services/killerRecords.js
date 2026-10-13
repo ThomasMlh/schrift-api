@@ -3,15 +3,15 @@ import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
 
 /**
- * Records et historique par killer.
+ * Records and history per killer.
  *
- * Un document `rotations` est un modèle (killer + type d'attaque + altération) réutilisé d'un cycle
- * à l'autre : comparer des scores "sur le même killer" revient donc à comparer à rotation_id égal.
- * Le champ `score` (points gagnés sur la rotation elle-même) est comparable entre cycles même quand
- * un killer passe d'une rotation de base à une différentielle ; `raw_score` (cumul hebdo) ne l'est pas.
+ * A `rotations` document is a template (killer + attack type + alteration) reused across cycles, so
+ * comparing scores "on the same killer" means comparing them for the same rotation_id.
+ * The `score` field (points earned on the rotation itself) is comparable across cycles even when a
+ * killer moves from a base rotation to a differential one; `raw_score` (weekly running total) is not.
  */
 
-// Dates des rotations stockées en "jj/mm/aaaa" (accepte aussi un objet Date)
+// Rotation dates are stored as "dd/mm/yyyy" (a Date object is also accepted)
 export const parseDate = (s) => {
   if (!s) return 0;
   if (s instanceof Date) return s.getTime() || 0;
@@ -25,10 +25,9 @@ export const cycleTimestamp = (cycle) => parseDate(cycle.rotations?.[0]?.start_d
 export const toObjectIds = (ids) => ids.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
 
 /**
- * Charge les scores correspondant au filtre en écartant ceux qui ne sont pas comparables : un score
- * différentiel sans score de base dans la même semaine du même cycle vaut le cumul hebdomadaire
- * entier (computeDifferential retombe sur raw_score faute de base), pas les points de la rotation,
- * et créerait de faux records.
+ * Loads the scores matching the filter, leaving out non-comparable ones: a differential score without
+ * a base score in the same week of the same cycle holds the whole weekly total (computeDifferential
+ * falls back to raw_score without a base), not the rotation's points, and would create false records.
  */
 export const loadComparableScores = async (db, filter) => {
   const scores = await db.collection('scores').find({ bbs_id: { $ne: null }, ...filter }).toArray();
@@ -40,7 +39,7 @@ export const loadComparableScores = async (db, filter) => {
     .find({ _id: { $in: toObjectIds(cycleIds) } }, { projection: { rotations: 1 } })
     .toArray();
 
-  // `${cycle_id}|${rotation_id}` -> rotation_id de la rotation précédente dans ce cycle
+  // `${cycle_id}|${rotation_id}` -> rotation_id of the previous rotation in that cycle
   const previousRotation = new Map();
   for (const cycle of cycles) {
     (cycle.rotations || []).forEach((r, i) => {
@@ -68,10 +67,10 @@ const bestOf = (scores) => scores.reduce((best, s) => ((s.score || 0) > (best?.s
 export const average = (scores) => (scores.length ? Math.round(scores.reduce((sum, s) => sum + (s.score || 0), 0) / scores.length) : null);
 
 /**
- * Historique d'un killer sur tous les cycles : records (absolu, et de la guilde si guildId),
- * moyennes cycle par cycle, et "score à battre" pour currentCycleId (le meilleur score des AUTRES
- * cycles, dans le périmètre guilde si guildId). La guilde d'un score est celle à laquelle il a été
- * saisi (score.guild_id) : on regarde ce que la guilde a réalisé, pas son roster actuel.
+ * A killer's history across all cycles: records (absolute, and the guild's when guildId is given),
+ * per-cycle averages, and the "score to beat" for currentCycleId (best score of the OTHER cycles,
+ * within the guild scope when guildId is given). A score's guild is the one it was entered for
+ * (score.guild_id): this reflects what the guild achieved, not its current roster.
  */
 export const getRotationHistory = async (db, rotationId, { guildId, currentCycleId } = {}) => {
   const scores = await loadComparableScores(db, { rotation_id: rotationId });
@@ -136,8 +135,8 @@ export const getRotationHistory = async (db, rotationId, { guildId, currentCycle
 };
 
 /**
- * Meilleur score de chaque compte bbs sur chaque killer (records personnels, pour la page joueur).
- * @returns {Promise<Map<string, Array>>} bbs_id -> records triés par killer
+ * Best score of each bbs account on each killer (personal records, for the player page).
+ * @returns {Promise<Map<string, Array>>} bbs_id -> records sorted by killer
  */
 export const getAccountRecords = async (db, bbsIds) => {
   if (bbsIds.length === 0) return new Map();
@@ -183,9 +182,9 @@ export const getAccountRecords = async (db, bbsIds) => {
 };
 
 /**
- * Parmi des scores tout juste insérés, retrouve ceux qui battent le meilleur score précédent du
- * même compte sur le même killer (cycles précédents uniquement). Le premier score jamais saisi
- * sur un killer n'est pas un record (rien à battre), et un score non comparable non plus.
+ * Among newly inserted scores, finds those beating the same account's previous best on the same
+ * killer (earlier cycles only). The first score ever entered on a killer is not a record (nothing to
+ * beat), and neither is a non-comparable score.
  */
 export const findNewRecords = async (db, insertedScores) => {
   const candidates = insertedScores.filter((s) => s.bbs_id && s.rotation_id && s.cycle_id && (s.score || 0) > 0);
@@ -200,7 +199,7 @@ export const findNewRecords = async (db, insertedScores) => {
   for (const candidate of candidates) {
     const sameKiller = comparable.filter((s) => s.bbs_id === candidate.bbs_id && s.rotation_id === candidate.rotation_id);
     const current = sameKiller.find((s) => s.cycle_id === candidate.cycle_id);
-    if (!current) continue; // non comparable (différentiel sans score de base)
+    if (!current) continue; // Not comparable (differential without a base score)
 
     const previousBest = bestOf(sameKiller.filter((s) => s.cycle_id !== candidate.cycle_id));
     if (!previousBest || !(current.score > previousBest.score)) continue;
@@ -219,10 +218,10 @@ export const findNewRecords = async (db, insertedScores) => {
 };
 
 /**
- * Détecte les records parmi des scores tout juste insérés et envoie un message groupé par guilde
- * (salon général, à défaut salon chefs). Ne lève jamais : un échec de détection/notification ne
- * doit pas faire échouer la saisie des scores.
- * @returns {Promise<number>} nombre de records détectés
+ * Detects records among newly inserted scores and sends one message per guild (general channel,
+ * falling back to the leaders channel). Never throws: a detection or notification failure must not
+ * fail the score entry.
+ * @returns {Promise<number>} number of records detected
  */
 export const notifyPersonalRecords = async (db, insertedScores) => {
   try {

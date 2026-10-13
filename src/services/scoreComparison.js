@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 
 /**
- * Compare les scores de deux entités (joueurs ou guildes).
+ * Compares the scores of two entities (players or guilds).
  */
 export const compareEntities = async (db, fieldName, entity1, entity2, baseFilter, options) => {
   const results = {};
@@ -53,7 +53,7 @@ export const compareEntities = async (db, fieldName, entity1, entity2, baseFilte
       entityInfo = options.type === 'players'
         ? await db.collection('users').findOne({ _id: new ObjectId(entityId) })
         : await db.collection('guildes').findOne({ name: entityId });
-    } catch { /* entityInfo reste null */ }
+    } catch { /* entityInfo stays null */ }
 
     results[entityId] = {
       entityInfo,

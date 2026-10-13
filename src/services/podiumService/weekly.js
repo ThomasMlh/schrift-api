@@ -2,7 +2,7 @@ import { ObjectId } from 'mongodb';
 import { attachTopAchievements } from './achievementBadges.js';
 import { getGuildScoreMatch, lookupUserByUserId, overrideGuildName, applyRanks, paginate } from './helpers.js';
 
-// GET podium hebdomadaire (2 rotations consécutives)
+// Weekly podium (2 consecutive rotations)
 export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild_name, page = 1, limit = 50 }) => {
   if (!cycle_name) {
     const err = new Error('Le paramètre cycle_name est obligatoire');
@@ -25,9 +25,9 @@ export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild
   const pageNumber = Math.max(1, parseInt(page, 10) || 1);
   const limitNumber = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
 
-  // Le nom d'un cycle peut être réutilisé d'une année à l'autre (l'année les distingue) :
-  // on filtre par year quand il est fourni, et on trie par created_at desc en repli pour
-  // résoudre vers le plus récent si year est absent ou si un doublon name+year existe.
+  // A cycle name can be reused across years (the year tells them apart): filter by year when given,
+  // and sort by created_at desc as a fallback to resolve to the most recent cycle when year is missing
+  // or a name+year duplicate exists.
   const cycleQuery = { name: cycle_name };
   if (year) cycleQuery.year = parseInt(year, 10);
   const cycle = await db.collection('cycles').findOne(cycleQuery, { sort: { created_at: -1 } });

@@ -5,12 +5,12 @@ import { getGuildScoreMatch, getGuildBbsIdsForCycle } from './podiumService/inde
 import { CLEAR_SCORE_THRESHOLD } from '../utils/scoreThresholds.js';
 
 /**
- * Objectifs d'une guilde sur un cycle (collection `guild_goals`, un document par guilde et par
- * cycle), fixés par un chef ou un admin. La progression suit le même périmètre que le podium :
- * membres actuels si le cycle est en cours, sinon les scores saisis pour la guilde.
+ * A guild's goals on a cycle (`guild_goals` collection, one document per guild and cycle), set by
+ * a leader or an admin. Progress uses the same scope as the podium: current members while the cycle
+ * is running, otherwise the scores entered for the guild.
  */
 
-// unit : percent (0-100), score (points), count
+// unit: percent (0-100), score (points), count
 export const GOAL_TYPES = {
   average: { unit: 'score' },
   clear_rate: { unit: 'percent' },
@@ -22,7 +22,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const validationError = (message) => Object.assign(new Error(message), { statusCode: 400 });
 
-/** Valide et normalise une liste d'objectifs ({ type, target }) ; lève une erreur 400 sinon. */
+/** Validates and normalizes a goal list ({ type, target }); throws a 400 error otherwise. */
 export const sanitizeGoals = (goals) => {
   if (!Array.isArray(goals)) throw validationError('goals doit être une liste');
   const seen = new Set();
@@ -40,7 +40,7 @@ export const sanitizeGoals = (goals) => {
 
 const average = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
 
-/** Valeur actuelle de chaque type d'objectif pour une guilde sur un cycle. */
+/** Current value of each goal type for a guild on a cycle. */
 const computeGoalValues = async (db, cycle, guildId, now) => {
   const cycleId = cycle._id.toString();
   const [match, bbsIds] = await Promise.all([
@@ -67,7 +67,7 @@ const computeGoalValues = async (db, cycle, guildId, now) => {
 };
 
 /**
- * Objectifs d'une guilde sur un cycle avec leur progression.
+ * A guild's goals on a cycle with their progress.
  * @returns {Promise<{ goals: Array, updated_at: Date|null, updated_by: string|null }>}
  */
 export const getGuildGoals = async (db, cycle, guildId, now = Date.now()) => {
@@ -92,7 +92,7 @@ export const getGuildGoals = async (db, cycle, guildId, now = Date.now()) => {
   };
 };
 
-/** Remplace les objectifs d'une guilde sur un cycle (liste vide = supprime les objectifs). */
+/** Replaces a guild's goals on a cycle (empty list = no goals). */
 export const setGuildGoals = async (db, { guildId, cycleId, goals, user }) => {
   const clean = sanitizeGoals(goals);
   if (!ObjectId.isValid(cycleId)) throw validationError('cycle_id invalide');

@@ -1,8 +1,8 @@
 import { recordScoreChange } from './scoreHistory.js';
 
 /**
- * Logique de calcul différentiel des scores.
- * 1 rotation sur 2 (index impair) = score différentiel (rawScore - previousRawScore).
+ * Differential score computation.
+ * Every other rotation (odd index) holds a differential score (rawScore - previousRawScore).
  */
 
 export const buildRotationIndexMap = (cycle) => {
@@ -24,17 +24,17 @@ export const computeDifferential = (rawScore, rotationIndex, previousRawScore) =
 }
 
 /**
- * Recalcule les scores différentiels suivants quand un score de base est modifié.
- * Recherche par {bbs_id, cycle_id, rotation_id} uniquement (pas user_id) : bbs_id identifie déjà
- * le compte de façon unique, et un compte transféré à un autre user garde ses anciens scores sous
- * l'ancien user_id — filtrer aussi sur user_id manquerait l'historique pré-transfert.
- * @returns {Promise<ObjectId[]>} IDs des scores recalculés
+ * Recomputes the following differential scores when a base score changes.
+ * Looks up {bbs_id, cycle_id, rotation_id} only (not user_id): bbs_id already identifies the account,
+ * and an account transferred to another user keeps its old scores under the previous user_id, so
+ * filtering on user_id too would miss the pre-transfer history.
+ * @returns {Promise<ObjectId[]>} ids of the recomputed scores
  */
 export const recalculateAffectedDifferentials = async (db, cycle, rotationIndex, cycleId, bbsId) => {
   const recalculatedIds = [];
 
   for (let i = rotationIndex + 1; i < cycle.rotations.length; i++) {
-    if (i % 2 !== 1) continue; // Seulement les rotations différentielles
+    if (i % 2 !== 1) continue; // Differential rotations only
 
     const nextRotationId = cycle.rotations[i].rotation_id;
     const existing = await db.collection('scores').findOne({
@@ -57,7 +57,7 @@ export const recalculateAffectedDifferentials = async (db, cycle, rotationIndex,
     const newScore = Math.max(0, existing.raw_score - previousScore.raw_score);
     const recalculated = { score: newScore, is_differential: true, updated_at: new Date() };
     await db.collection('scores').updateOne({ _id: existing._id }, { $set: recalculated });
-    // Recalcul automatique (pas d'auteur) ; ignoré par l'historique si le score n'a pas bougé
+    // Automatic recomputation (no author); ignored by the history when the score did not change
     await recordScoreChange(db, { action: 'recalculate', source: 'auto', before: existing, after: recalculated });
 
     recalculatedIds.push(existing._id);

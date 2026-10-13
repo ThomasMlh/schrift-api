@@ -2,17 +2,17 @@ import { ObjectId } from 'mongodb';
 import { findAccount, getGuildAccountRoster } from '../utils/bbsAccounts.js';
 import { logger } from '../utils/logger.js';
 
-// Helper pour parser la date DD/MM/YYYY
+// Parses DD/MM/YYYY
 const parseDate = (dateStr) => {
   if (!dateStr) return new Date(0);
   const [day, month, year] = dateStr.split('/');
   return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
 }
 
-// Stats scopées à UN compte bbs (principal par défaut) : chaque compte d'un user a son propre
-// classement/historique indépendant, ils ne sont jamais fusionnés.
+// Stats scoped to ONE bbs account (main by default): each account of a user has its own ranking and
+// history, never merged.
 export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
-  // Vérifier que l'utilisateur existe (bbs_id peut être celui d'un alt)
+  // The user must exist (bbs_id may be an alt's)
   const user = await db.collection('users').findOne({
     $or: [
       ...(ObjectId.isValid(user_id) ? [{ _id: new ObjectId(user_id) }] : []),
@@ -28,7 +28,7 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
     throw err;
   }
 
-  // Résoudre le compte ciblé (bbs_id fourni, sinon le compte principal)
+  // Target account (given bbs_id, otherwise the main account)
   const account = bbs_id
     ? findAccount(user, bbs_id)
     : (user.bbs_accounts || []).find(a => a.is_primary) || null;
@@ -41,14 +41,13 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
 
   const resolvedBbsId = account?.bbs_id || null;
 
-  // Construire le filtre pour les scores. Le bbs_id est la véritable identité du compte : un
-  // compte transféré à un autre user (cf. /accounts/:bbsId/transfer) garde ses anciens scores sous
-  // l'ancien user_id, donc filtrer sur user_id ET bbs_id exclurait à tort tout l'historique
-  // pré-transfert. Le user_id ne sert de repli que pour un compte sans bbs_id lié.
+  // Score filter. bbs_id is the real account identity: an account transferred to another user (see
+  // /accounts/:bbsId/transfer) keeps its old scores under the previous user_id, so filtering on user_id
+  // AND bbs_id would wrongly drop the pre-transfer history. user_id is only a fallback for an account
+  // without a linked bbs_id.
   const scoreFilter = resolvedBbsId ? { bbs_id: resolvedBbsId } : { user_id: user._id.toString() };
   if (cycle_id) scoreFilter.cycle_id = cycle_id;
 
-  // Récupérer tous les scores de l'utilisateur avec les détails des rotations
   const scoresWithRotations = await db.collection('scores')
     .aggregate([
       { $match: scoreFilter },
@@ -120,12 +119,10 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
     };
   }
 
-  // Statistiques globales
   const totalScores = scoresWithRotations.length;
   const totalPoints = scoresWithRotations.reduce((sum, s) => sum + (s.score || 0), 0);
   const averageScore = Math.round(totalPoints / totalScores);
 
-  // Grouper par rotation
   const rotationStats = {};
   for (const score of scoresWithRotations) {
     if (!score.rotation_id) continue;
@@ -167,13 +164,13 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
   const bestRotation = mapRotation(rotationAverages[0]);
   const worstRotation = mapRotation(rotationAverages[rotationAverages.length - 1]);
 
-  // Meilleur / pire score unique
+  // Best / worst single score
   const bestScore = Math.max(...scoresWithRotations.map(s => s.score || 0));
   const bestScoreDetails = scoresWithRotations.find(s => s.score === bestScore);
   const worstScore = Math.min(...scoresWithRotations.map(s => s.score || 0));
   const worstScoreDetails = scoresWithRotations.find(s => s.score === worstScore);
 
-  // Classement global — groupé par compte bbs (pas par user) : chaque compte est classé séparément.
+  // Global ranking, grouped by bbs account (not user): each account is ranked separately.
   const allUserStats = await db.collection('scores')
     .aggregate([
       ...(cycle_id ? [{ $match: { cycle_id } }] : []),
@@ -196,7 +193,7 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
   const userRankIndex = allUserStats.findIndex(u => u._id === resolvedBbsId);
   const globalRank = userRankIndex !== -1 ? userRankIndex + 1 : null;
 
-  // Classement dans la guilde du compte consulté (comptes bbs de cette guilde, pas les users)
+  // Ranking within the viewed account's guild (that guild's bbs accounts, not users)
   let guildRank = null;
   let totalGuildPlayers = null;
   if (account?.guilde_id) {
@@ -222,7 +219,6 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
   const top1AverageScore = allUserStats.length > 0 ? allUserStats[0].averageScore : null;
   const gapWithTop1 = top1AverageScore ? Math.round(top1AverageScore - averageScore) : null;
 
-  // Grouper par cycle
   const cycleStats = {};
   for (const score of scoresWithRotations) {
     if (!score.cycle_id) continue;
@@ -253,14 +249,12 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
     if (cycleDoc) bestCycle.cycle_name = cycleDoc.name;
   }
 
-  // Ancienneté
+  // Seniority
   const firstParticipation = [...scoresWithRotations]
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0]?.created_at ?? null;
 
-  // Builds créés
   const buildsCount = await db.collection('builds').countDocuments({ user_id: user._id.toString() });
 
-  // Évolution temporelle
   const temporalEvolution = cycleAverages.map(c => ({
     cycle_id: c.cycle_id,
     averageScore: Math.round(c.averageScore),
@@ -287,11 +281,10 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
     temporalEvolution.sort((a, b) => parseDate(a.start_date).getTime() - parseDate(b.start_date).getTime());
   }
 
-  // Taux de miss
   const missCount = scoresWithRotations.filter(s => s.score === 0).length;
   const missRate = totalScores > 0 ? Math.round((missCount / totalScores) * 100) : 0;
 
-  // Tendance récente (5 dernières rotations, cycle sélectionné seulement)
+  // Recent trend (last 5 rotations, selected cycle only)
   let recentTrend = null;
   if (cycle_id && scoresWithRotations.length >= 5) {
     const sortedByDate = [...scoresWithRotations].sort((a, b) => {
@@ -318,8 +311,8 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
     };
   }
 
-  // Rivaux (comptes proches dans le classement) — bbs_name/guilde viennent du compte (rival._id
-  // via bbs_name/guild_id déjà accumulés dans allUserStats), pas du miroir racine du rival.
+  // Rivals (accounts close in the ranking): bbs_name/guild come from the account (rival._id through
+  // the bbs_name/guild_id gathered in allUserStats), not from the rival's root mirror.
   let rivals = [];
   if (globalRank && allUserStats.length > 0) {
     const userIndex = globalRank - 1;
@@ -373,33 +366,31 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
       .slice(0, 6);
   }
 
-  // Score médian
   const sortedScores = [...scoresWithRotations].sort((a, b) => (a.score || 0) - (b.score || 0));
   const mid = Math.floor(sortedScores.length / 2);
   const medianScore = sortedScores.length % 2 === 0
     ? Math.round((sortedScores[mid - 1].score + sortedScores[mid].score) / 2)
     : sortedScores[mid].score;
 
-  // Écart-type et coefficient de variation (consistance)
+  // Standard deviation and coefficient of variation (consistency)
   const variance = scoresWithRotations.reduce((sum, s) => sum + Math.pow((s.score || 0) - averageScore, 2), 0) / totalScores;
   const stdDeviation = Math.round(Math.sqrt(variance));
   const consistencyScore = averageScore > 0 ? Math.round((stdDeviation / averageScore) * 100) : 0;
 
-  // Cycles complets (toutes 20 rotations jouées)
+  // Full cycles (all 20 rotations played)
   const cyclesWithFullParticipation = Object.values(cycleStats).filter(c => c.count >= 20).length;
 
-  // Contribution à la guilde (%) par cycle
-  // On utilise guild_id stocké sur chaque score pour savoir dans quelle guilde
-  // l'utilisateur était au moment du scoring (évite de comparer avec la guilde actuelle
-  // pour des cycles où l'utilisateur était dans une autre guilde).
+  // Guild contribution (%) per cycle.
+  // The guild_id stored on each score tells which guild the user was in when the score was entered
+  // (avoids comparing with the current guild for cycles spent in another guild).
   let guildContribution = null;
   if (account?.guilde_id) {
     const userCycleIds = Object.keys(cycleStats);
     const currentGuildId = account.guilde_id.toString();
     if (userCycleIds.length > 0) {
-      // Déterminer la guilde du compte pour chaque cycle via guild_id des scores. On filtre par
-      // bbs_id seul (comme scoreFilter plus haut) : un compte transféré garde ses anciens scores
-      // sous un autre user_id, un AND sur les deux exclurait à tort cet historique.
+      // The account's guild for each cycle, from the scores' guild_id. Filtered by bbs_id only (like
+      // scoreFilter above): a transferred account keeps its old scores under another user_id, so an AND
+      // on both would wrongly drop that history.
       const userGuildByCycle = await db.collection('scores')
         .aggregate([
           {
@@ -416,13 +407,13 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
       const cycleGuildMap = {};
       userGuildByCycle.forEach(c => { cycleGuildMap[c._id] = c.guild_id; });
 
-      // Garder uniquement les cycles où l'utilisateur était dans sa guilde actuelle
+      // Only keep cycles spent in the current guild
       const relevantCycleIds = userCycleIds.filter(
         cid => cycleGuildMap[cid] === currentGuildId
       );
 
       if (relevantCycleIds.length > 0) {
-        // Total de la guilde par cycle en s'appuyant sur guild_id des scores
+        // Guild total per cycle, based on the scores' guild_id
         const guildCycleTotals = await db.collection('scores')
           .aggregate([
             { $match: { guild_id: currentGuildId, cycle_id: { $in: relevantCycleIds } } },
@@ -451,7 +442,7 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
     }
   }
 
-  // Performance par quartile de position (1-5, 6-10, 11-15, 16-20)
+  // Performance by position quartile (1-5, 6-10, 11-15, 16-20)
   const quartileMap = { 'Q1 (1-5)': { totalScore: 0, count: 0 }, 'Q2 (6-10)': { totalScore: 0, count: 0 }, 'Q3 (11-15)': { totalScore: 0, count: 0 }, 'Q4 (16-20)': { totalScore: 0, count: 0 } };
   for (const score of scoresWithRotations) {
     const pos = score.rotation_position;
@@ -468,7 +459,7 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
       count: s.count
     }));
 
-  // Performance par type d'attaque (R / B)
+  // Performance by attack type (R / B)
   const attackMap = {};
   for (const score of scoresWithRotations) {
     const key = score.rotation_attack || 'Inconnu';
@@ -484,7 +475,7 @@ export const getUserStats = async (db, user_id, { cycle_id, bbs_id } = {}) => {
     }))
     .sort((a, b) => b.averageScore - a.averageScore);
 
-  // Performance par altération d'état
+  // Performance by status alteration
   const alterationMap = {};
   for (const score of scoresWithRotations) {
     const key = score.rotation_alteration || 'Aucune';

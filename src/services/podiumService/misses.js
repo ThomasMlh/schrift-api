@@ -1,6 +1,6 @@
 import { getGuildScoreMatch, lookupUserByUserId, overrideGuildName, paginate } from './helpers.js';
 
-// GET podium des miss (scores à 0 ou négatifs)
+// Misses podium (scores at 0 or negative)
 export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page = 1, limit = 50 }) => {
   if (!cycle_name) {
     const err = new Error('Le paramètre cycle_name est obligatoire');
@@ -11,9 +11,9 @@ export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page =
   const pageNumber = Math.max(1, parseInt(page, 10) || 1);
   const limitNumber = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
 
-  // Le nom d'un cycle peut être réutilisé d'une année à l'autre (l'année les distingue) :
-  // on filtre par year quand il est fourni, et on trie par created_at desc en repli pour
-  // résoudre vers le plus récent si year est absent ou si un doublon name+year existe.
+  // A cycle name can be reused across years (the year tells them apart): filter by year when given,
+  // and sort by created_at desc as a fallback to resolve to the most recent cycle when year is missing
+  // or a name+year duplicate exists.
   const cycleQuery = { name: cycle_name };
   if (year) cycleQuery.year = parseInt(year, 10);
   const cycle = await db.collection('cycles').findOne(cycleQuery, { sort: { created_at: -1 } });
@@ -103,7 +103,7 @@ export const getPodiumMisses = async (db, { cycle_name, year, guild_name, page =
   const allResults = await db.collection('scores').aggregate(pipeline).toArray();
   overrideGuildName(allResults, currentGuildName);
 
-  // Rank tenant compte des ex-aequo sur les 2 critères
+  // Ranks with ties on both criteria
   let currentRank = 1;
   let prevMisses = null;
   let prevNegScore = null;
