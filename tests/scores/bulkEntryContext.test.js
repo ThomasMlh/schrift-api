@@ -38,7 +38,7 @@ const score = (cycleId, rotationId, bbsId, value, extra = {}) =>
   ({ cycle_id: cycleId, rotation_id: rotationId, bbs_id: bbsId, score: value, raw_score: value, ...extra });
 
 describe('getBulkEntryContext', () => {
-  it('gives the last and usual score of each account on the killer', async () => {
+  it('gives the usual score of each account on the killer', async () => {
     const old1 = await makeCycle('C1', ['quincy', 'hollow'], '01');
     const old2 = await makeCycle('C2', ['quincy', 'hollow'], '02');
     const current = await makeCycle('C3', ['quincy', 'hollow'], '03');
@@ -53,8 +53,8 @@ describe('getBulkEntryContext', () => {
     expect(context.is_differential).toBe(false);
     expect(context.thresholds).toEqual({ above: 2, below: 0.25 });
     expect(context.accounts).toEqual({
-      p1: { last_score: 300, usual_score: 200, base_raw: null },
-      p2: { last_score: null, usual_score: null, base_raw: null },
+      p1: { usual_score: 200, base_raw: null },
+      p2: { usual_score: null, base_raw: null },
     });
   });
 
