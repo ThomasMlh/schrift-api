@@ -4,7 +4,7 @@ import { cleanPlayerNameOCR, parseScore } from './nameMatching.js';
 import { logger } from './logger.js';
 
 /**
- * Zones prédéfinies par défaut (résolution de référence 1371x771)
+ * Default predefined zones (reference resolution 1371x771)
  */
 const DEFAULT_ROWS = [
   { 
@@ -98,12 +98,12 @@ const LUMILA_ROWS = [
   }
 ];
 /**
- * Configurations de zones par screenshotter
- * Chaque personne a ses propres coordonnées calibrées sur son appareil/résolution.
- * Les coordonnées sont relatives (0-1) basées sur la taille de l'image.
- * 
- * Pour calibrer : utiliser la page OCR Debug, sélectionner le profil,
- * puis ajuster les valeurs ici jusqu'à ce que les rectangles soient bien placés.
+ * Zone configurations per screenshotter.
+ * Each person has their own coordinates, calibrated for their device/resolution. Coordinates are
+ * relative (0-1) to the image size.
+ *
+ * To calibrate: open the OCR Debug page, select the profile, then adjust the values here until the
+ * rectangles are correctly placed.
  */
 export const SCREENSHOTTER_CONFIGS = {
   stormisi: {
@@ -141,8 +141,8 @@ export const SCREENSHOTTER_CONFIGS = {
 };
 
 /**
- * Retourne les zones (PLAYER_ROWS) pour un screenshotter donné
- * @param {string} screenshotterId - Identifiant du screenshotter
+ * Zones (PLAYER_ROWS) of a screenshotter
+ * @param {string} screenshotterId - Screenshotter id
  * @returns {{ rows: Array, label: string }}
  */
 export const getScreenshotterConfig = (screenshotterId) => {
@@ -155,37 +155,35 @@ export const getScreenshotterConfig = (screenshotterId) => {
 }
 
 /**
- * Convertit une image base64 en buffer
+ * Converts a base64 image into a buffer
  */
 const base64ToBuffer = (base64String) => {
-  // Enlever le préfixe data:image/...;base64, si présent
+  // Strip the data:image/...;base64, prefix when present
   const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
   return Buffer.from(base64Data, 'base64');
 }
 
 /**
- * Prétraite une région de l'image pour améliorer l'OCR
- * - Extraction et agrandissement (2x) pour meilleure reconnaissance
- * - Conversion en niveaux de gris
- * - Augmentation agressive du contraste
- * - Binarisation avec seuil adaptatif
+ * Preprocesses an image region to improve OCR:
+ * - crop and upscale (2x) for better recognition
+ * - greyscale
+ * - strong contrast increase
+ * - binarization
  */
 const preprocessRegion = async (imageBuffer, region, imageWidth, imageHeight) => {
   try {
-    // Calculer les coordonnées absolues
     const left = Math.round(region.x * imageWidth);
     const top = Math.round(region.y * imageHeight);
     const width = Math.round(region.w * imageWidth);
     const height = Math.round(region.h * imageHeight);
     
-    // Extraire et prétraiter la région avec upscaling pour meilleur OCR
     const processedBuffer = await sharp(imageBuffer)
       .extract({ left, top, width, height })
-      .resize(width * 2, height * 2, { kernel: 'lanczos3' }) // Agrandir 2x
+      .resize(width * 2, height * 2, { kernel: 'lanczos3' }) // Upscale 2x
       .greyscale()
-      .linear(1.5, -(128 * 0.5)) // Augmenter le contraste
-      .normalize() // Normaliser les niveaux
-      .threshold(140) // Binarisation avec seuil plus élevé
+      .linear(1.5, -(128 * 0.5)) // Increase contrast
+      .normalize() // Normalize levels
+      .threshold(140) // Binarize with a higher threshold
       .toBuffer();
     
     return processedBuffer;
@@ -196,7 +194,7 @@ const preprocessRegion = async (imageBuffer, region, imageWidth, imageHeight) =>
 }
 
 /**
- * Effectue l'OCR sur une région spécifique avec paramètres optimisés
+ * Runs OCR on a region with tuned parameters
  */
 const performOCR = async (imageBuffer, lang = 'eng', config = {}) => {
   try {
@@ -206,8 +204,8 @@ const performOCR = async (imageBuffer, lang = 'eng', config = {}) => {
           logger.info(`OCR progress: ${Math.round(m.progress * 100)}%`);
         }
       },
-      tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Une seule ligne de texte
-      tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY, // Meilleur moteur
+      tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line of text
+      tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY, // Best engine
       ...config
     });
     
@@ -219,28 +217,27 @@ const performOCR = async (imageBuffer, lang = 'eng', config = {}) => {
 }
 
 /**
- * Détecte si une ligne contient du texte (n'est pas vide)
+ * Whether a row contains text (is not empty)
  */
 const hasVisibleText = async (imageBuffer, region, imageWidth, imageHeight) => {
   try {
     const processedBuffer = await preprocessRegion(imageBuffer, region, imageWidth, imageHeight);
     
-    // Analyser les pixels pour détecter du contenu
     const stats = await sharp(processedBuffer).stats();
     
-    // Si trop uniforme (tous blancs ou tous noirs), pas de texte
+    // Too uniform (all white or all black): no text
     const variance = stats.channels[0].stdev;
-    return variance > 10; // Seuil ajustable
+    return variance > 10; // Tunable threshold
   } catch (error) {
     return false;
   }
 }
 
 /**
- * Traite un screenshot de classement BBS et extrait les noms et scores
- * @param {string} base64Image - Image en base64
- * @param {string} [screenshotterId] - Identifiant du screenshotter (pour charger sa config de zones)
- * @returns {Promise<Array>} Liste des joueurs détectés avec nom et score
+ * Processes a BBS ranking screenshot and extracts names and scores
+ * @param {string} base64Image - Base64 image
+ * @param {string} [screenshotterId] - Screenshotter id (selects its zone configuration)
+ * @returns {Promise<Array>} Detected players with name and score
  */
 export const processGuildRankingScreenshot = async (base64Image, screenshotterId) => {
   try {
@@ -249,10 +246,8 @@ export const processGuildRankingScreenshot = async (base64Image, screenshotterId
     
     logger.info(`🔍 Début du traitement OCR (profil: ${config.label})...`);
     
-    // Convertir base64 en buffer
     const imageBuffer = base64ToBuffer(base64Image);
     
-    // Obtenir les dimensions de l'image
     const metadata = await sharp(imageBuffer).metadata();
     const { width, height } = metadata;
     
@@ -260,25 +255,24 @@ export const processGuildRankingScreenshot = async (base64Image, screenshotterId
     
     const results = [];
     
-    // Traiter chaque ligne (max 5 joueurs par screenshot)
+    // Process each row (at most 5 players per screenshot)
     for (let i = 0; i < playerRows.length; i++) {
       const row = playerRows[i];
       
       logger.info(`\n🔎 Traitement ligne ${i + 1}...`);
       
-      // Vérifier si la ligne contient du texte
       const hasContent = await hasVisibleText(imageBuffer, row.name, width, height);
       
       if (!hasContent) {
         logger.info(`⏭️  Ligne ${i + 1} vide, arrêt du traitement`);
-        break; // Arrêter si ligne vide (fin du classement)
+        break; // Stop at an empty row (end of the ranking)
       }
       
-      // OCR sur le nom du joueur (eng+jpn+chi_sim pour supporter les pseudos en kanji/kana/hanzi)
+      // Player name OCR (eng+jpn+chi_sim to support kanji/kana/hanzi names)
       const nameBuffer = await preprocessRegion(imageBuffer, row.name, width, height);
       const nameText = await performOCR(nameBuffer, 'eng+jpn+chi_sim');
       
-      // OCR sur le score
+      // Score OCR
       const scoreBuffer = await preprocessRegion(imageBuffer, row.score, width, height);
       const scoreText = await performOCR(scoreBuffer, 'eng', {
         tessedit_char_whitelist: '0123456789,'
@@ -287,7 +281,7 @@ export const processGuildRankingScreenshot = async (base64Image, screenshotterId
       logger.info(`  👤 Nom détecté: "${nameText}"`);
       logger.info(`  🎯 Score brut: "${scoreText}"`);
       
-      // Nettoyer et parser
+      // Clean and parse
       const cleanedName = cleanPlayerNameOCR(nameText);
       const parsedScore = parseScore(scoreText);
       
@@ -316,9 +310,9 @@ export const processGuildRankingScreenshot = async (base64Image, screenshotterId
 }
 
 /**
- * Traite plusieurs screenshots en parallèle
- * @param {Array} screenshots - Liste des screenshots à traiter
- * @param {string} [screenshotterId] - Identifiant du screenshotter
+ * Processes several screenshots in parallel
+ * @param {Array} screenshots - Screenshots to process
+ * @param {string} [screenshotterId] - Screenshotter id
  */
 export const processBatchScreenshots = async (screenshots, screenshotterId) => {
   const results = await Promise.all(

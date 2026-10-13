@@ -1,6 +1,6 @@
 import { logger } from './logger.js';
 /**
- * Helpers partagés pour les routes characters.
+ * Helpers shared by the characters routes.
  */
 
 export const convertDateToFormat = (dateValue) => {
@@ -83,10 +83,10 @@ export const reorderCharactersByReleaseDate = async (db) => {
 
 const STAT_KEYS = ['end', 'atk', 'def', 'cct', 'pre'];
 
-// Les stats sont stockées en texte ("12 345") : on garde les chiffres pour comparer.
+// Stats are stored as text ("12 345"): keep the digits to compare them.
 export const parseStat = (value) => parseInt(String(value ?? '').replace(/[^\d]/g, ''), 10) || 0;
 
-// Valeur maximale de chaque stat parmi les personnages, pour situer un personnage sur une échelle
+// Maximum value of each stat among characters, to place a character on a scale
 export const computeStatMax = (docs) => Object.fromEntries(
   STAT_KEYS.map((key) => [key, docs.reduce((max, doc) => Math.max(max, parseStat(doc.stats?.[key])), 0)])
 );

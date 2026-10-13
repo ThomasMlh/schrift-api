@@ -1,14 +1,14 @@
 import { logger } from './logger.js';
 
 /**
- * Appels HTTP synchrones vers le bot Discord, contrairement à notifyDiscord.js qui est
- * fire-and-forget. Utilisé pour lister les salons/membres et envoyer un message composé
- * depuis le site — des opérations dont l'appelant a besoin du résultat (ou de l'erreur).
+ * Synchronous HTTP calls to the Discord bot, unlike notifyDiscord.js which is fire-and-forget. Used
+ * to list channels/members and send a message composed on the site, operations whose caller needs the
+ * result (or the error).
  *
- * Variables d'environnement :
- *   BOT_WEBHOOK_URL    — URL de base du bot (ex: http://localhost:8080)
- *   BOT_WEBHOOK_SECRET — secret partagé, envoyé en Bearer token. Le bot refuse ces deux
- *                        routes (503) tant qu'il n'a pas le même secret configuré.
+ * Environment variables:
+ *   BOT_WEBHOOK_URL    - bot base URL (e.g. http://localhost:8080)
+ *   BOT_WEBHOOK_SECRET - shared secret, sent as a Bearer token. The bot rejects these routes (503)
+ *                        until it has the same secret configured.
  */
 const botUrl = (path) => `${(process.env.BOT_WEBHOOK_URL || 'http://localhost:8080').replace(/\/$/, '')}${path}`;
 
@@ -17,12 +17,12 @@ const authHeaders = () => ({
   ...(process.env.BOT_WEBHOOK_SECRET && { Authorization: `Bearer ${process.env.BOT_WEBHOOK_SECRET}` }),
 });
 
-// Erreur avec .statusCode, cohérent avec le reste de l'API (cf. podiumService.js et consorts) :
-// une route appelante peut la laisser remonter telle quelle via sendStatusCodeError.
+// Error carrying .statusCode, consistent with the rest of the API (see podiumService): a calling
+// route can pass it through sendStatusCodeError as is.
 const botError = (status, message) => Object.assign(new Error(message), { statusCode: status >= 400 && status < 500 ? status : 502 });
 
 /**
- * Liste les salons textuels visibles par le bot, avec les membres ayant accès à chacun.
+ * Lists the text channels visible to the bot, with the members who can access each one.
  * @returns {Promise<Array<{id, name, guild_id, guild_name, members: Array<{id, username, display_name}>}>>}
  */
 export const listDiscordChannels = async () => {
@@ -44,7 +44,7 @@ export const listDiscordChannels = async () => {
 };
 
 /**
- * Liste les emojis custom (disponibles) des serveurs où se trouve le bot.
+ * Lists the available custom emojis of the servers the bot is in.
  * @returns {Promise<Array<{id, name, animated, url, guild_id}>>}
  */
 export const listDiscordEmojis = async () => {
@@ -66,7 +66,7 @@ export const listDiscordEmojis = async () => {
 };
 
 /**
- * Envoie un message à un salon via le bot.
+ * Sends a message to a channel through the bot.
  * @param {{channel_id: string, content: string, mention_user_ids?: string[]}} params
  * @returns {Promise<{status: string, message_id: string, channel: string}>}
  */
@@ -91,11 +91,11 @@ export const sendDiscordMessage = async ({ channel_id, content, mention_user_ids
   return res.json();
 };
 
-// La synchronisation lit le profil Discord de chaque joueur : elle peut prendre une à deux minutes.
+// The sync reads every player's Discord profile: it can take one to two minutes.
 const SYNC_PROFILES_TIMEOUT_MS = 180_000;
 
 /**
- * Lance la synchronisation des bannières, avatars et pseudos Discord des users par le bot.
+ * Asks the bot to sync users' Discord banners, avatars and names.
  * @returns {Promise<{total, updated, unchanged, null_set, missing_on_server, lookup_errors,
  *   patch_errors, servers: string[], changed_players: Array<{name, discord_id, changes: string[]}>}>}
  */

@@ -4,15 +4,14 @@ export const getUserDisplayName = (user, fallback = 'Inconnu') =>
   user?.bbs_name || user?.global_name || user?.username || fallback;
 
 /**
- * Normalise un nom pour la comparaison
- * Enlève les caractères spéciaux, accents, espaces
+ * Normalizes a name for comparison (removes special characters, accents and spaces)
  */
 export const normalizeName = (name) => {
   if (!name) return '';
   
   return name
     .toLowerCase()
-    .replace(/[†|_\s-]/g, '') // Enlever †, |, _, espaces, tirets
+    .replace(/[†|_\s-]/g, '') // Remove †, |, _, spaces and dashes
     .replace(/[ôöò]/g, 'o')
     .replace(/[éèê]/g, 'e')
     .replace(/[àâä]/g, 'a')
@@ -24,8 +23,7 @@ export const normalizeName = (name) => {
 }
 
 /**
- * Calcule la similarité entre deux chaînes (0 à 1)
- * Utilise la distance de Levenshtein normalisée
+ * Similarity between two strings (0 to 1), based on the normalized Levenshtein distance
  */
 export const calculateSimilarity = (str1, str2) => {
   if (!str1 || !str2) return 0;
@@ -38,10 +36,10 @@ export const calculateSimilarity = (str1, str2) => {
 }
 
 /**
- * Trouve le meilleur match pour un nom détecté parmi une liste d'utilisateurs
- * @param {string} detectedName - Nom détecté par OCR
- * @param {Array} guildMembers - Liste des membres de la guilde avec bbs_name
- * @returns {Object} Résultat du matching avec user, confidence, alternatives
+ * Best match for an OCR-detected name among guild members
+ * @param {string} detectedName - Name detected by OCR
+ * @param {Array} guildMembers - Guild members with bbs_name
+ * @returns {Object} Match result with user, confidence and alternatives
  */
 export const findBestMatch = (detectedName, guildMembers) => {
   if (!detectedName || !guildMembers || guildMembers.length === 0) {
@@ -54,7 +52,7 @@ export const findBestMatch = (detectedName, guildMembers) => {
   
   const normalizedDetected = normalizeName(detectedName);
   
-  // 1. Tentative de match exact (case insensitive)
+  // 1. Exact match (case-insensitive)
   const exactMatch = guildMembers.find(
     m => m.bbs_name && m.bbs_name.toLowerCase() === detectedName.toLowerCase()
   );
@@ -67,7 +65,7 @@ export const findBestMatch = (detectedName, guildMembers) => {
     };
   }
   
-  // 2. Match après normalisation complète
+  // 2. Match after full normalization
   const normalizedMatch = guildMembers.find(
     m => m.bbs_name && normalizeName(m.bbs_name) === normalizedDetected
   );
@@ -80,9 +78,9 @@ export const findBestMatch = (detectedName, guildMembers) => {
     };
   }
   
-  // 3. Fuzzy matching avec Levenshtein
+  // 3. Fuzzy matching with Levenshtein
   const matches = guildMembers
-    .filter(m => m.bbs_name) // Uniquement ceux qui ont un bbs_name
+    .filter(m => m.bbs_name) // Only members with a bbs_name
     .map(member => {
       const normalizedBbsName = normalizeName(member.bbs_name);
       const similarity = calculateSimilarity(normalizedDetected, normalizedBbsName);
@@ -104,43 +102,40 @@ export const findBestMatch = (detectedName, guildMembers) => {
   
   const bestMatch = matches[0];
   
-  // Retourner le meilleur uniquement si confidence > 70%
+  // Only return the best match when confidence > 70%
   return {
     user: bestMatch.confidence > 0.70 ? bestMatch.user : null,
     confidence: bestMatch.confidence,
-    alternatives: matches.slice(1, 4).filter(m => m.confidence > 0.50) // Top 3 alternatives avec confidence > 50%
+    alternatives: matches.slice(1, 4).filter(m => m.confidence > 0.50) // Top 3 alternatives with confidence > 50%
   };
 }
 
 /**
- * Nettoie le texte OCR pour extraction du nom de joueur
- * Enlève les artifacts communs de l'OCR
+ * Cleans OCR text to extract a player name (removes common OCR artifacts)
  */
 export const cleanPlayerNameOCR = (ocrText) => {
   if (!ocrText) return '';
   
   return ocrText
-    .replace(/Gradus.*$/i, '') // Enlever "Gradus 1191" etc.
-    .replace(/Grade.*$/i, '')  // Anglais
-    .replace(/[|]/g, '')       // Barres verticales (artifacts)
-    .replace(/\s{2,}/g, ' ')   // Espaces multiples
+    .replace(/Gradus.*$/i, '') // Remove "Gradus 1191" etc.
+    .replace(/Grade.*$/i, '')  // English
+    .replace(/[|]/g, '')       // Vertical bars (artifacts)
+    .replace(/\s{2,}/g, ' ')   // Multiple spaces
     .trim();
 }
 
 /**
- * Parse un score depuis le texte OCR
- * Format attendu : "588,187,015" ou "588187015"
+ * Parses a score from OCR text
+ * Expected format: "588,187,015" or "588187015"
  */
 export const parseScore = (scoreText) => {
   if (!scoreText) {
     return { value: null, error: 'Texte vide' };
   }
   
-  // Enlever tout sauf les chiffres
   const digitsOnly = scoreText.replace(/[^0-9]/g, '');
   
-  // Validation : scores BBS typiques (6 à 11 chiffres pour être plus flexible)
-  // Les scores vont généralement de 100,000 à 99,999,999,999
+  // Typical BBS scores: 6 to 11 digits (100,000 to 99,999,999,999)
   if (digitsOnly.length < 6 || digitsOnly.length > 11) {
     return { 
       value: null, 
@@ -154,7 +149,7 @@ export const parseScore = (scoreText) => {
     return { value: null, error: 'Conversion en nombre impossible' };
   }
   
-  // Vérifier que le score est dans une plage raisonnable
+  // The score must be within a plausible range
   if (parsedValue < 100000 || parsedValue > 99999999999) {
     return { 
       value: null, 

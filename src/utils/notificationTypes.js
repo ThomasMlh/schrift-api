@@ -1,5 +1,5 @@
-// Liste canonique des types de notification envoyés au bot Discord via notifyDiscord().
-// Source de vérité utilisée pour valider les payloads de settings (guilde et global).
+// Canonical list of notification types sent to the Discord bot through notifyDiscord().
+// Source of truth used to validate the notification settings payloads (guild and global).
 export const NOTIFICATION_TYPES = [
   'scores',
   'podium_snapshot',

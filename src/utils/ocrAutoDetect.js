@@ -5,22 +5,19 @@ import path from 'path';
 import { cleanPlayerNameOCR, parseScore } from './nameMatching.js';
 import { logger } from './logger.js';
 
-// Dossier debug pour sauvegarder les crops (créé à la volée)
+// Debug folder for the crops (created on demand)
 const DEBUG_DIR = path.join(process.cwd(), 'debug_ocr');
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const base64ToBuffer = (base64String) => {
   const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
   return Buffer.from(base64Data, 'base64');
 }
 
-// ─── Preprocessing ────────────────────────────────────────────────────────────
 
 /**
- * Preprocessing pour le pass 1 (détection des scores)
- * On veut lire « Score personnel hebdomadaire : XXX,XXX,XXX »
- * → greyscale + normalize + sharpen suffit
+ * Preprocessing for pass 1 (score detection)
+ * Reads "Score personnel hebdomadaire : XXX,XXX,XXX": greyscale + normalize + sharpen is enough
  */
 const preprocessForScores = async (imageBuffer) => {
   const meta = await sharp(imageBuffer).metadata();
@@ -36,22 +33,22 @@ const preprocessForScores = async (imageBuffer) => {
 }
 
 /**
- * Preprocessing pour le pass 2 (lecture des pseudos)
+ * Preprocessing for pass 2 (player names)
  *
- * Les pseudos sont en texte BLANC / CLAIR (~250/255) sur fond bleu foncé
- * avec du bruit visuel (portraits, diamants, barres colorées).
+ * Names are WHITE / LIGHT text (~250/255) on a dark blue background with visual noise (portraits,
+ * diamonds, colored bars).
  *
- * Stratégie : 
+ * Steps:
  *   1. Greyscale
- *   2. Threshold HAUT (180) → seul le texte blanc survit, tout le reste = noir
- *   3. Negate → texte NOIR sur fond BLANC = parfait pour Tesseract
- *   4. Resize pour que le texte fasse une bonne taille
+ *   2. HIGH threshold (180): only white text survives, everything else turns black
+ *   3. Negate: BLACK text on a WHITE background, ideal for Tesseract
+ *   4. Resize so the text has a good size
  */
 const preprocessForName = async (cropBuffer) => {
   return sharp(cropBuffer)
     .greyscale()
-    .threshold(200)    // Très strict : seul le texte blanc pur (~240-255) survit
-    .negate()          // Blanc→noir, noir→blanc → texte noir sur fond blanc
+    .threshold(200)    // Very strict: only pure white text (~240-255) survives
+    .negate()          // Black text on a white background
     .resize(null, 200, { withoutEnlargement: false, kernel: sharp.kernel.lanczos3 })
     .sharpen({ sigma: 1.0 })
     .png()
@@ -59,7 +56,7 @@ const preprocessForName = async (cropBuffer) => {
 }
 
 /**
- * Sauvegarde un buffer PNG dans le dossier debug pour inspection.
+ * Saves a PNG buffer in the debug folder for inspection.
  */
 const saveDebug = async (name, buffer) => {
   try {
@@ -72,7 +69,7 @@ const saveDebug = async (name, buffer) => {
   }
 }
 
-// ─── Mots de l'interface à filtrer ────────────────────────────────────────────
+// Interface words to filter out
 
 const IGNORED_WORDS = new Set([
   'place', 'score', 'personnel', 'hebdomadaire', 'groupe', 'dans', 'ligue',
@@ -82,20 +79,17 @@ const IGNORED_WORDS = new Set([
   'ere', 'eme', 're', 'personnelle', 'personnels',
 ]);
 
-// ─── Fonction principale ──────────────────────────────────────────────────────
 
 /**
- * Détecte automatiquement les scores et pseudos dans un screenshot BBS.
+ * Automatically detects scores and player names in a BBS screenshot.
  *
- * Stratégie en 2 passes :
- *   Pass 1 — OCR global (eng) pour localiser les lignes « Score personnel
- *            hebdomadaire : XXX » et récupérer leurs bounding boxes.
- *   Pass 2 — Pour chaque score trouvé, on recadre la zone du pseudo (juste
- *            au-dessus du score, dans la moitié droite de l'image), on applique
- *            un preprocessing inversé, et on fait un petit OCR (eng+jpn) dédié.
+ * Two passes:
+ *   Pass 1 - global OCR (eng) to locate the "Score personnel hebdomadaire : XXX" lines and get their
+ *            bounding boxes.
+ *   Pass 2 - for each score, crop the name area (just above the score, in the right half of the
+ *            image), apply an inverted preprocessing and run a small dedicated OCR (eng+jpn).
  *
- * Cette approche résout le problème des pseudos mal lus sur l'image complète
- * (portraits, diamants, badges qui polluent l'OCR global).
+ * This fixes names misread on the full image (portraits, diamonds and badges polluting the global OCR).
  */
 export const processGuildRankingScreenshotAuto = async (base64Image) => {
   try {
@@ -106,12 +100,12 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
     const { width: origW, height: origH } = originalMeta;
     logger.info(`📐 Image originale : ${origW}×${origH}`);
 
-    // ── Pass 1 : Localiser les scores ─────────────────────────────────────
+    // Pass 1: locate the scores
 
     const processedBuffer = await preprocessForScores(imageBuffer);
     const processedMeta = await sharp(processedBuffer).metadata();
 
-    // Rapport d'échelle pour convertir les coordonnées processées → originales
+    // Scale ratio from processed to original coordinates
     const scaleX = origW / processedMeta.width;
     const scaleY = origH / processedMeta.height;
 
@@ -128,7 +122,7 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
 
     logger.info('📄 Texte brut pass 1 :\n' + (data.text || '(vide)') + '\n---');
 
-    // Extraire les lignes de score avec leurs bounding boxes
+    // Score lines with their bounding boxes
     const scoreEntries = findScoreLines(data);
 
     if (scoreEntries.length === 0) {
@@ -138,7 +132,7 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
 
     logger.info(`  → ${scoreEntries.length} scores localisés\n`);
 
-    // ── Pass 2 : Recadrer et OCR chaque pseudo ───────────────────────────
+    // Pass 2: crop and OCR each player name
 
     logger.info('🔎 Pass 2 : Détection des pseudos (crops individuels)...');
 
@@ -147,7 +141,7 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
     for (const entry of scoreEntries) {
       const { score, bboxProcessed } = entry;
 
-      // Convertir bbox du repère preprocessé vers l'image originale
+      // Bounding box from the processed image to the original image
       const bboxOrig = {
         x0: Math.round(bboxProcessed.x0 * scaleX),
         y0: Math.round(bboxProcessed.y0 * scaleY),
@@ -155,20 +149,20 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
         y1: Math.round(bboxProcessed.y1 * scaleY),
       };
 
-      // Hauteur de la ligne "Score personnel hebdomadaire" dans l'image originale
+      // Height of the "Score personnel hebdomadaire" line in the original image
       const scoreLineH = bboxOrig.y1 - bboxOrig.y0;
 
-      // Zone du pseudo : au-dessus du score, partie droite de l'image
-      // Le pseudo est sur UNE ligne, environ 1.5-2.5× la hauteur du texte de score
+      // Name area: above the score, right part of the image.
+      // The name is on ONE line, about 1.5-2.5× the height of the score text
       const nameH = Math.round(scoreLineH * 2.5);
       const crop = {
-        left:   Math.round(origW * 0.33),        // après le portrait (~33%)
-        top:    Math.max(0, bboxOrig.y0 - nameH), // juste au-dessus du score
-        width:  Math.round(origW * 0.35),          // zone pseudo (pas trop large)
-        height: Math.min(nameH, bboxOrig.y0),      // jusqu'au score
+        left:   Math.round(origW * 0.33),        // After the portrait (~33%)
+        top:    Math.max(0, bboxOrig.y0 - nameH), // Just above the score
+        width:  Math.round(origW * 0.35),          // Name area (not too wide)
+        height: Math.min(nameH, bboxOrig.y0),      // Up to the score
       };
 
-      // Bornes de sécurité
+      // Safety bounds
       crop.left   = Math.min(crop.left, origW - 10);
       crop.width  = Math.min(crop.width, origW - crop.left);
       crop.top    = Math.max(0, crop.top);
@@ -183,18 +177,18 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
       logger.info(`  🖼️  Score ${score.toLocaleString('fr-FR')} → crop name : left=${crop.left} top=${crop.top} w=${crop.width} h=${crop.height}`);
 
       try {
-        // Recadrer depuis l'image ORIGINALE (meilleure qualité)
+        // Crop from the ORIGINAL image (better quality)
         const nameCropRaw = await sharp(imageBuffer).extract(crop).png().toBuffer();
 
-        // Preprocessing inversé (negate) pour les pseudos
+        // Inverted preprocessing (negate) for names
         const nameCropProcessed = await preprocessForName(nameCropRaw);
 
-        // Sauvegarder les crops pour debug
+        // Save the crops for debugging
         await saveDebug(`score${players.length + 1}_raw`, nameCropRaw);
         await saveDebug(`score${players.length + 1}_processed`, nameCropProcessed);
 
-        // OCR du pseudo (eng+jpn pour supporter les noms japonais)
-        // PSM.SINGLE_LINE (7) : on attend UNE seule ligne de texte (le pseudo)
+        // Name OCR (eng+jpn to support Japanese names).
+        // PSM.SINGLE_LINE (7): a single line of text is expected (the name)
         const { data: nameData } = await Tesseract.recognize(nameCropProcessed, 'eng+jpn', {
           tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE,
           tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
@@ -215,7 +209,7 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
       }
     }
 
-    // Max 5 joueurs par screenshot
+    // At most 5 players per screenshot
     const result = players.slice(0, 5);
 
     logger.info(`\n🎯 Résultat final : ${result.length} joueurs`);
@@ -230,16 +224,15 @@ export const processGuildRankingScreenshotAuto = async (base64Image) => {
   }
 }
 
-// ─── Extraction des lignes de score ───────────────────────────────────────────
 
 /**
- * Cherche les lignes « Score personnel hebdomadaire : XXX » dans data.lines
- * Retourne un tableau de { score, bboxProcessed }
+ * Finds the "Score personnel hebdomadaire : XXX" lines in data.lines
+ * Returns an array of { score, bboxProcessed }
  */
 const findScoreLines = (data) => {
   const results = [];
 
-  // Pattern flexible : tolère OCR approximatif
+  // Flexible pattern, tolerant to approximate OCR
   const scoreRegex =
     /[Ss]c[o0]re\s*(?:personnel|personnet|personne[l!i])\s*(?:hebdomadaire|hebdomadalre|hebdomadatre|hebdomataire)\s*[:;]?\s*([\d][,.\d\s]*[\d])/;
 
@@ -264,26 +257,26 @@ const findScoreLines = (data) => {
     }
   }
 
-  // Si data.lines n'a pas tout trouvé, essayer via data.words
+  // When data.lines missed some, try data.words
   if (results.length < 5 && data.words && data.words.length > 0) {
     logger.info(`  ⚠️  Seulement ${results.length} scores via lines, tentative via words...`);
     const existingScores = new Set(results.map(r => r.score));
 
-    // Reconstruire le texte à partir des mots consécutifs et chercher le pattern
+    // Rebuild the line text from consecutive words and look for the pattern
     const words = data.words;
     for (let i = 0; i < words.length; i++) {
       const w = words[i];
       if (!w.text || !w.bbox) continue;
 
-      // Chercher un mot qui commence par "Score" ou "score"
+      // A word starting with "Score" or "score"
       if (!/^[Ss]c[o0]re$/i.test(w.text.trim())) continue;
 
-      // Concaténer les mots suivants (jusqu'à 8 mots après) pour former la ligne complète
+      // Join the following words (up to 8) to form the full line
       let lineText = w.text;
       let lastBbox = w.bbox;
       for (let j = i + 1; j < Math.min(words.length, i + 8); j++) {
         if (!words[j].text) break;
-        // Vérifier que le mot suivant est sur la même ligne (Y similaire)
+        // The next word must be on the same line (similar Y)
         if (Math.abs(words[j].bbox.y0 - w.bbox.y0) > (w.bbox.y1 - w.bbox.y0) * 1.5) break;
         lineText += ' ' + words[j].text;
         lastBbox = words[j].bbox;
@@ -297,7 +290,7 @@ const findScoreLines = (data) => {
 
       if (scoreResult?.value > 0 && !existingScores.has(scoreResult.value)) {
         logger.info(`  ✓ Score trouvé via words : ${scoreResult.value.toLocaleString('fr-FR')} (bbox y0=${w.bbox.y0})`);
-        // Utiliser la bbox qui couvre toute la ligne (du premier au dernier mot)
+        // Bounding box covering the whole line (first to last word)
         results.push({
           score: scoreResult.value,
           bboxProcessed: {
@@ -312,50 +305,49 @@ const findScoreLines = (data) => {
     }
   }
 
-  // Trier par Y (du haut vers le bas de l'image)
+  // Sort by Y (top to bottom of the image)
   results.sort((a, b) => a.bboxProcessed.y0 - b.bboxProcessed.y0);
 
   logger.info(`  → Total : ${results.length} scores trouvés`);
   return results;
 }
 
-// ─── Extraction du pseudo ─────────────────────────────────────────────────────
 
 /**
- * Extrait le pseudo d'un joueur depuis le texte OCR d'un crop de nom.
+ * Extracts a player name from the OCR text of a name crop.
  *
- * Le crop peut contenir :
- *   - Le pseudo (ce qu'on veut)
- *   - « Sous-chef », « Chef » (rôle guilde)
- *   - « Grade 1134 » (badge de grade)
- *   - Des artefacts OCR (diamants ◇, symboles…)
+ * The crop may contain:
+ *   - the name (what we want)
+ *   - "Sous-chef", "Chef" (guild role)
+ *   - "Grade 1134" (grade badge)
+ *   - OCR artifacts (diamonds ◇, symbols…)
  *
- * On filtre tout sauf le pseudo.
+ * Everything but the name is filtered out.
  */
 const extractPlayerName = (text) => {
   if (!text) return null;
 
-  // Nettoyer le texte brut
+  // Clean the raw text
   let cleaned = text
-    .replace(/\n/g, ' ')                          // une seule ligne
-    .replace(/[Gg]rade[r]?\s*[\d]+/g, '')          // retirer "Grade 1134"
-    .replace(/[◇◆♦♢◈⬥⬦○●□■△▲☆★]+/g, '')         // retirer symboles diamants
-    .replace(/\b\d+[eèère]+\s*place\b/gi, '')      // retirer "11e place"
-    .replace(/\b[0O]{3,}\b/g, '')                  // retirer "0000" / "OOOO" (diamants mal lus)
+    .replace(/\n/g, ' ')                          // Single line
+    .replace(/[Gg]rade[r]?\s*[\d]+/g, '')          // Remove "Grade 1134"
+    .replace(/[◇◆♦♢◈⬥⬦○●□■△▲☆★]+/g, '')         // Remove diamond symbols
+    .replace(/\b\d+[eèère]+\s*place\b/gi, '')      // Remove "11e place"
+    .replace(/\b[0O]{3,}\b/g, '')                  // Remove "0000" / "OOOO" (misread diamonds)
     .trim();
 
-  // Diviser en tokens (support unicode complet : latin, japonais, etc.)
+  // Split into tokens (full Unicode: Latin, Japanese, …)
   const tokens = cleaned.match(/[\p{L}\p{N}_'†-]+/gu) || [];
 
   if (tokens.length === 0) return null;
 
-  // Filtrer les tokens non-pseudo
+  // Drop non-name tokens
   const candidates = tokens.filter(token => {
     const lower = token.toLowerCase();
     if (IGNORED_WORDS.has(lower)) return false;
-    if (/^\d+$/.test(token)) return false;                      // nombres purs
+    if (/^\d+$/.test(token)) return false;                      // Pure numbers
     if (/^\d+[reè]+$/i.test(token)) return false;              // "1re", "2e"…
-    if (token.length <= 2 && /^[a-zA-Z]+$/.test(token)) return false; // bruit latin 2 chars
+    if (token.length <= 2 && /^[a-zA-Z]+$/.test(token)) return false; // 2-character Latin noise
     return true;
   });
 
@@ -363,10 +355,10 @@ const extractPlayerName = (text) => {
 
   logger.info(`    candidats pseudo : [${candidates.join(', ')}]`);
 
-  // Heuristique : le pseudo est le meilleur candidat
-  //   1. Priorité à la casse mixte (AeRo, MrMousse…) → typique pseudo gamer
-  //   2. Priorité aux tokens avec caractères non-ASCII (十香, 零Shiro…)
-  //   3. Sinon, le plus long
+  // Heuristic: the name is the best candidate
+  //   1. Mixed case first (AeRo, MrMousse…), typical of player names
+  //   2. Then tokens with non-ASCII characters (十香, 零Shiro…)
+  //   3. Otherwise the longest
   candidates.sort((a, b) => {
     const aMixed = /[a-z]/.test(a) && /[A-Z]/.test(a) ? 2 : 0;
     const bMixed = /[a-z]/.test(b) && /[A-Z]/.test(b) ? 2 : 0;
@@ -385,11 +377,10 @@ const extractPlayerName = (text) => {
   return candidates[0];
 }
 
-// ─── Fallback : parsing texte brut (sans bboxes) ─────────────────────────────
 
 /**
- * Fallback si data.lines n'a pas de bounding boxes.
- * Parse le texte brut pour trouver les lignes de score et les pseudos au-dessus.
+ * Fallback when data.lines has no bounding boxes.
+ * Parses the raw text to find the score lines and the names above them.
  */
 const fallbackParseText = (text) => {
   if (!text) return [];
@@ -409,7 +400,7 @@ const fallbackParseText = (text) => {
     const scoreResult = parseScore(rawScore);
     if (!scoreResult?.value) continue;
 
-    // Chercher le pseudo dans les 1-3 lignes précédentes
+    // Look for the name in the 1-3 previous lines
     let name = null;
     for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
       if (usedLines.has(j) || !lines[j]) continue;
@@ -424,7 +415,6 @@ const fallbackParseText = (text) => {
   return players;
 }
 
-// ─── Utilitaire ───────────────────────────────────────────────────────────────
 
 const makePlayer = (lineNumber, name, score, confidence) => {
   return {
@@ -441,10 +431,9 @@ const makePlayer = (lineNumber, name, score, confidence) => {
   };
 }
 
-// ─── Traitement batch ─────────────────────────────────────────────────────────
 
 /**
- * Traite plusieurs screenshots (séquentiellement pour éviter la surcharge mémoire).
+ * Processes several screenshots (sequentially to limit memory usage).
  */
 export const processBatchScreenshotsAuto = async (screenshots) => {
   logger.info(`\n🎯 Traitement batch de ${screenshots.length} screenshots (mode auto, 2 passes)`);
