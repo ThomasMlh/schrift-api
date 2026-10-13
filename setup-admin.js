@@ -1,5 +1,5 @@
-// Script pour configurer le mot de passe admin avec SHA-256
-// Usage: node setup-admin-sha256.js
+// Sets the admin password with a SHA-256 hash
+// Usage: npm run setup-admin (node setup-admin.js)
 
 import crypto from 'crypto';
 import { MongoClient } from 'mongodb';
@@ -36,7 +36,7 @@ async function setupAdmin() {
 
       console.log('🔄 Génération du hash SHA-256...');
       
-      // Même méthode que côté front-end
+      // Same method as the front end
       const salt = process.env.PASSWORD_SALT;
       const passwordHash = crypto.createHash('sha256').update(password + salt).digest('hex');
 

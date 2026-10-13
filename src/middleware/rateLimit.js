@@ -1,7 +1,7 @@
 import rateLimit from 'express-rate-limit';
 
-// Limite les endpoints d'authentification (échange de code Discord, refresh
-// de token) contre le brute-force et le flood : 20 tentatives / IP / 15 min.
+// Protects the authentication endpoints (Discord code exchange, token refresh) against brute force
+// and flooding: 20 attempts per IP per 15 min.
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,

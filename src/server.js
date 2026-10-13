@@ -14,14 +14,12 @@ const app = express();
 
 app.use(helmet());
 
-// Configuration des middlewares
-// 50mb couvre large les batches OCR (max 10 screenshots en base64, cf.
-// routes/ocr.js) ; 1000mb n'avait aucune justification et exposait l'API
-// à un épuisement mémoire via des bodies volumineux.
+// Body limit: 50mb comfortably covers OCR batches (at most 10 base64 screenshots, see routes/ocr.js)
+// without exposing the API to memory exhaustion through huge bodies.
 app.use(express.json({limit: '50mb'}));
 app.use(express.urlencoded({limit: '50mb', extended: true}));
 
-// Configuration CORS
+// CORS
 const allowedOrigins = process.env.NODE_ENV === 'production'
   ? ['https://www.bbs-schrift.fr', 'https://bbs-schrift.fr']
   : ['http://localhost:5173'];
@@ -59,35 +57,33 @@ const initDb = async () => {
       await client.connect();
       db = client.db('schrift-test');
     }
-    // Rendre la DB accessible aux routes via app.locals
+    // Expose the DB to routes through app.locals
     app.locals.db = db;
-    // Et aux modules hors requête Express (ex: notifyDiscord.js)
+    // and to modules outside the Express request cycle (e.g. notifyDiscord.js)
     setDb(db);
 
     logger.info('✅ Connecté à MongoDB');
   } catch (err) {
     logger.error('❌ Connexion MongoDB échouée:', err.message);
-    // si la DB est indisponsable, on stoppe pour que Passenger relance
+    // Without a database, exit so Passenger restarts the app
     process.exit(1);
   }
 }
 initDb();
 
-// Route racine
 app.get('/', (_req, res) => {
   res.send('API Schrift est en cours d\'exécution');
 });
 
 app.use('/api', apiRoutes);
 
-// 404 pour toute route /api non gérée
+// 404 for any unhandled /api route
 app.use('/api', (_req, res) => {
   res.status(404).json({ success: false, message: 'Route introuvable' });
 });
 
-// Filet de sécurité : capture toute erreur non gérée par une route (throw
-// synchrone, rejet de Promise transmis via next(err), etc.) pour éviter de
-// laisser fuiter une stack trace ou un message d'erreur interne au client.
+// Safety net for errors not handled by a route (synchronous throw, rejected promise passed to
+// next(err), …), so no stack trace or internal error message leaks to the client.
 app.use((err, _req, res, _next) => {
   logger.error('❌ Erreur non gérée:', err);
   res.status(err.status || 500).json({ success: false, message: 'Erreur serveur interne' });
