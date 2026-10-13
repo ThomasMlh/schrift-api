@@ -7,8 +7,8 @@ import { sendStatusCodeError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
 
-// GET records personnels d'un joueur : meilleur score de chacun de ses comptes bbs sur chaque
-// killer. Public, comme les statistiques de la page joueur.
+// GET a player's personal records: best score of each of their bbs accounts on each killer.
+// Public, like the player page stats.
 router.get('/:userId/records', validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const user = await req.db.collection('users').findOne(
@@ -36,8 +36,8 @@ router.get('/:userId/records', validateObjectIdParam('userId', "Format d'ID util
   }
 });
 
-// GET succès d'un joueur : état de chaque succès pour chacun de ses comptes bbs, avec la rareté
-// de chaque palier. Public, comme les records.
+// GET a player's achievements: state of each achievement for each of their bbs accounts, with the
+// rarity of each tier. Public, like the records.
 router.get('/:userId/achievements', validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const user = await req.db.collection('users').findOne(

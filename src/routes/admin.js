@@ -7,10 +7,9 @@ import { sendStatusCodeError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
-// Middleware pour toutes les routes admin
 router.use(requireDb);
 
-// Route de connexion admin
+// POST admin login
 router.post('/login', async (req, res) => {
   try {
     const { password } = req.body;
@@ -54,12 +53,12 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Route pour créer/modifier le mot de passe admin
+// POST create or change the admin password
 router.post('/setup', async (req, res) => {
   try {
     const { password, setupKey } = req.body;
 
-    // Clé de sécurité pour éviter que n'importe qui puisse changer le mot de passe
+    // Setup key, so the password cannot be changed by anyone
     if (setupKey !== process.env.ADMIN_SETUP_KEY) {
       return res.status(403).json({ success: false, message: 'Clé de configuration invalide' });
     }
@@ -68,7 +67,7 @@ router.post('/setup', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Mot de passe trop court (min 6 caractères)' });
     }
 
-    // Générer le hash SHA-256 déterministe (comme le front-end)
+    // Deterministic SHA-256 hash (same as the front end)
     const salt = process.env.PASSWORD_SALT || 'schrift-app-salt-2025';
     const passwordHash = crypto.createHash('sha256').update(password + salt).digest('hex');
 
@@ -84,7 +83,7 @@ router.post('/setup', async (req, res) => {
   }
 });
 
-// Vérification de la santé du bot Discord
+// GET Discord bot health
 router.get('/bot-health', requireAdmin, async (req, res) => {
   try {
     const healthUrl = `${process.env.BOT_WEBHOOK_URL || 'http://localhost:8080'}/health`;
@@ -107,7 +106,7 @@ router.get('/bot-health', requireAdmin, async (req, res) => {
   }
 });
 
-// Synchronise bannières, avatars et pseudos Discord des joueurs (bouton « Outils » de l'admin)
+// POST resync players' Discord banners, avatars and names (admin "Tools" button)
 router.post('/sync-profiles', requireAdmin, async (req, res) => {
   try {
     const result = await syncDiscordProfiles();

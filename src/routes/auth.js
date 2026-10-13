@@ -8,12 +8,12 @@ import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
-// Cache pour les tokens Discord (en mémoire)
+// In-memory Discord token cache
 const tokenCache = new Map();
-// Cache pour les données utilisateur récentes (évite les appels API répétés)
+// Recent user data cache (avoids repeated Discord API calls)
 const userDataCache = new Map();
 
-// Fonction pour nettoyer le cache des tokens expirés
+// Drops expired tokens from the cache
 const cleanExpiredTokens = () => {
     const now = Date.now();
     for (const [discordId, tokenData] of tokenCache.entries()) {
@@ -21,7 +21,7 @@ const cleanExpiredTokens = () => {
             tokenCache.delete(discordId);
         }
     }
-    // Nettoyer aussi le cache des données utilisateur (garde 5 minutes)
+    // User data is kept for 5 minutes
     for (const [discordId, userData] of userDataCache.entries()) {
         if (userData.cached_at + (5 * 60 * 1000) <= now) {
             userDataCache.delete(discordId);
@@ -29,13 +29,12 @@ const cleanExpiredTokens = () => {
     }
 };
 
-// Nettoyer le cache toutes les 10 minutes
+// Clean the cache every 10 minutes
 setInterval(cleanExpiredTokens, 10 * 60 * 1000);
 
-// Middleware pour toutes les routes auth
 router.use(requireDb);
 
-// Configuration Discord OAuth - Les variables seront définies après dotenv.config()
+// Discord OAuth configuration, read lazily (after dotenv.config())
 const getDiscordConfig = () => ({
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET,
@@ -45,8 +44,8 @@ const getDiscordConfig = () => ({
     DISCORD_GUILD_ID: process.env.DISCORD_GUILD_ID
 });
 
-// Échange code -> access token Discord. redirectUri optionnel : omis pour le flow
-// Activity (SDK embedded, pas de redirection navigateur), requis pour le flow web classique.
+// Exchanges a code for a Discord access token. redirectUri is omitted for the Activity flow
+// (embedded SDK, no browser redirect) and required for the web flow.
 const exchangeCodeForToken = async ({ code, redirectUri }) => {
     const { DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } = getDiscordConfig();
 
@@ -88,14 +87,13 @@ const exchangeCodeForToken = async ({ code, redirectUri }) => {
     return { ok: true, tokenData: await tokenResponse.json() };
 };
 
-// Tout ce qui suit l'obtention d'un access_token Discord valide : récupération des
-// infos utilisateur, vérifs ban/guild, upsert Mongo, émission JWT. Partagé entre le
-// flow web classique (/discord/callback) et le flow Activity (/discord/activity-callback).
+// Everything after obtaining a valid Discord access token: user info, ban/guild checks, Mongo
+// upsert and JWT issuance. Shared by the web flow (/discord/callback) and the Activity flow
+// (/discord/activity-callback).
 const completeDiscordLogin = async (req, tokenData) => {
     try {
         const { JWT_SECRET, ADMIN_DISCORD_IDS, DISCORD_GUILD_ID } = getDiscordConfig();
 
-        // Récupérer les informations de l'utilisateur avec plus de détails
         const userResponse = await fetch('https://discord.com/api/users/@me', {
             headers: {
                 'Authorization': `Bearer ${tokenData.access_token}`,
@@ -118,7 +116,7 @@ const completeDiscordLogin = async (req, tokenData) => {
 
         const userData = await userResponse.json();
 
-        // Mettre en cache le nouveau token (toujours faire l'échange initial)
+        // Cache the new token (the initial exchange always happens)
         tokenCache.set(userData.id, {
             access_token: tokenData.access_token,
             refresh_token: tokenData.refresh_token,
@@ -127,10 +125,9 @@ const completeDiscordLogin = async (req, tokenData) => {
         });
         logger.info('💾 Token Discord mis en cache pour', userData.username);
 
-        // Utiliser le token pour les appels API subséquents
         const activeToken = tokenData.access_token;
 
-        // Récupérer les connexions et guildes (avec cache pour éviter les appels répétés)
+        // Connections and guilds, cached to avoid repeated calls
         let connections = [];
         let guilds = [];
         
@@ -138,12 +135,11 @@ const completeDiscordLogin = async (req, tokenData) => {
         const now = Date.now();
         
         if (cachedUserData && (cachedUserData.cached_at + (5 * 60 * 1000)) > now) {
-            // Utiliser les données en cache si elles ont moins de 5 minutes
+            // Use cached data when it is less than 5 minutes old
             logger.info('🔄 Utilisation des données utilisateur en cache pour', userData.username);
             connections = cachedUserData.connections;
             guilds = cachedUserData.guilds;
         } else {
-            // Récupérer les nouvelles données
             try {
                 const connectionsResponse = await fetch('https://discord.com/api/users/@me/connections', {
                     headers: {
@@ -167,7 +163,6 @@ const completeDiscordLogin = async (req, tokenData) => {
                 guilds = await guildsResponse.json();
             }
 
-            // Mettre en cache les données utilisateur
             userDataCache.set(userData.id, {
                 connections,
                 guilds,
@@ -176,12 +171,11 @@ const completeDiscordLogin = async (req, tokenData) => {
             logger.info('💾 Données utilisateur mises en cache pour', userData.username);
         }
 
-        // Vérifier si l'utilisateur est administrateur
         const isAdmin = ADMIN_DISCORD_IDS.includes(userData.id);
 
         const existingUser = await req.db.collection('users').findOne({ discord_id: userData.id });
 
-        // 1. Vérifier si l'utilisateur est banni
+        // 1. Banned users are rejected
         if (existingUser?.is_banned) {
             logger.warn('⛔ Utilisateur banni:', userData.username);
             return {
@@ -195,7 +189,7 @@ const completeDiscordLogin = async (req, tokenData) => {
             };
         }
 
-        // 2. Vérifier si l'utilisateur fait partie de la guild requise
+        // 2. The user must be a member of the required Discord server
         const isAuthorized = DISCORD_GUILD_ID
             ? guilds.some(g => g.id === DISCORD_GUILD_ID)
             : true;
@@ -219,7 +213,7 @@ const completeDiscordLogin = async (req, tokenData) => {
 
         let guildeInfo = null;
         if (playerInfo && playerInfo.guilde) {
-            // Chercher la guilde par son name
+            // Look the guild up by name
             const extractGuildName = playerInfo.guilde.split(' ')[1];
             guildeInfo = await req.db.collection('guildes').findOne({
                 name: extractGuildName
@@ -231,9 +225,9 @@ const completeDiscordLogin = async (req, tokenData) => {
             roleInfo = playerInfo.statut.toLowerCase();
         }
 
-        // Le compte bbs "principal" garde la sémantique historique : une fois rattaché (manuellement
-        // ou via le roster externe), il n'est plus jamais écrasé par playerInfo aux logins suivants.
-        // Les comptes alt (bbs_accounts au-delà du principal) ne sont gérés que via l'admin (users.js).
+        // The "main" bbs account keeps its historical meaning: once linked (manually or from the external
+        // roster) it is never overwritten by playerInfo on later logins. Alt accounts are only managed from
+        // the admin (users routes).
         const bbsId = existingUser?.bbs_id || playerInfo?.id_bbs || null;
         const bbsName = existingUser?.bbs_name || playerInfo?.pseudo_bbs || null;
         const guildeId = existingUser?.guilde_id || guildeInfo?._id?.toString() || null;
@@ -241,8 +235,7 @@ const completeDiscordLogin = async (req, tokenData) => {
         const bbsAccounts = upsertPrimaryAccount(existingUser?.bbs_accounts, { bbsId, bbsName, guildeId, role });
         const mirror = deriveMirrorFields(bbsAccounts);
 
-        // Créer ou mettre à jour l'utilisateur en base de données
-        // Note: les tokens Discord ne sont PAS stockés en DB (sécurité)
+        // Create or update the user. Discord tokens are NOT stored in the database.
         const user = {
             discord_id: userData.id,
             username: userData.username,
@@ -268,17 +261,16 @@ const completeDiscordLogin = async (req, tokenData) => {
             last_login: new Date()
         };
 
-        // Upsert utilisateur
         await req.db.collection('users').updateOne(
             { discord_id: userData.id },
             { $set: user },
             { upsert: true }
         );
 
-        // Récupérer l'utilisateur mis à jour pour avoir son _id
+        // Re-read the user to get its _id
         const savedUser = await req.db.collection('users').findOne({ discord_id: userData.id });
 
-        // Créer un JWT (payload minimal, les infos supplémentaires sont en DB)
+        // JWT with a minimal payload (the rest lives in the database)
         const jwtPayload = {
             _id: savedUser._id,
             discord_id: userData.id,
@@ -291,7 +283,7 @@ const completeDiscordLogin = async (req, tokenData) => {
         const jwtToken = jwt.sign(jwtPayload, JWT_SECRET, { expiresIn: '24h' });
         const refreshToken = jwt.sign({ _id: savedUser._id, discord_id: userData.id, type: 'refresh' }, JWT_SECRET, { expiresIn: '7d' });
 
-        // Stocker le refresh token hashé en DB
+        // Store the hashed refresh token
         const crypto = await import('crypto');
         const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
         await req.db.collection('users').updateOne(
@@ -322,7 +314,7 @@ const completeDiscordLogin = async (req, tokenData) => {
     }
 };
 
-// Route pour échanger le code d'autorisation contre un token (flow web classique, redirection navigateur)
+// POST exchange an authorization code for a token (web flow, browser redirect)
 router.post('/discord/callback', authLimiter, async (req, res) => {
     const { code } = req.body;
     const { DISCORD_REDIRECT_URI } = getDiscordConfig();
@@ -331,7 +323,7 @@ router.post('/discord/callback', authLimiter, async (req, res) => {
         return res.status(400).json({ success: false, message: 'Code d\'autorisation manquant' });
     }
 
-    // Toujours utiliser la redirect_uri configurée côté serveur (sécurité)
+    // Always use the server-side redirect_uri
     const exchange = await exchangeCodeForToken({ code, redirectUri: DISCORD_REDIRECT_URI });
     if (!exchange.ok) {
         return res.status(exchange.status).json(exchange.body);
@@ -341,8 +333,8 @@ router.post('/discord/callback', authLimiter, async (req, res) => {
     return res.status(result.ok ? 200 : result.status).json(result.body);
 });
 
-// Route pour échanger le code d'autorisation contre un token (flow Discord Activity, SDK embedded).
-// Pas de redirect_uri : le code vient de discordSdk.commands.authorize(), pas d'une redirection navigateur.
+// POST exchange an authorization code for a token (Discord Activity flow, embedded SDK).
+// No redirect_uri: the code comes from discordSdk.commands.authorize(), not a browser redirect.
 router.post('/discord/activity-callback', authLimiter, async (req, res) => {
     const { code } = req.body;
 
@@ -360,14 +352,14 @@ router.post('/discord/activity-callback', authLimiter, async (req, res) => {
         return res.status(result.status).json(result.body);
     }
 
-    // Nécessaire côté client pour discordSdk.commands.authenticate({ access_token })
+    // Needed by the client for discordSdk.commands.authenticate({ access_token })
     return res.status(200).json({
         ...result.body,
         discord_access_token: exchange.tokenData.access_token
     });
 });
 
-// Route pour rafraîchir le JWT via refresh token
+// POST refresh the JWT with a refresh token
 router.post('/refresh', authLimiter, async (req, res) => {
     try {
         const { refreshToken } = req.body;
@@ -388,7 +380,7 @@ router.post('/refresh', authLimiter, async (req, res) => {
             return res.status(401).json({ success: false, message: 'Token invalide' });
         }
 
-        // Vérifier que le refresh token correspond à celui en DB
+        // The refresh token must match the stored one
         const crypto = await import('crypto');
         const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
         const user = await req.db.collection('users').findOne({ discord_id: decoded.discord_id, refresh_token_hash: refreshTokenHash });
@@ -397,7 +389,6 @@ router.post('/refresh', authLimiter, async (req, res) => {
             return res.status(401).json({ success: false, message: 'Refresh token révoqué' });
         }
 
-        // Générer un nouveau JWT
         const newToken = jwt.sign({
             _id: user._id,
             discord_id: user.discord_id,
@@ -414,7 +405,7 @@ router.post('/refresh', authLimiter, async (req, res) => {
     }
 });
 
-// Route pour récupérer les informations de l'utilisateur connecté
+// GET the logged-in user's information
 router.get('/me', async (req, res) => {
     try {
         const { JWT_SECRET } = getDiscordConfig();
@@ -426,7 +417,6 @@ router.get('/me', async (req, res) => {
 
         const decoded = jwt.verify(token, JWT_SECRET);
 
-        // Récupérer les infos utilisateur depuis la base
         const user = await req.db.collection('users').findOne({ discord_id: decoded.discord_id });
 
         if (!user) {
@@ -463,7 +453,7 @@ router.get('/me', async (req, res) => {
     }
 });
 
-// Route pour se déconnecter
+// POST logout
 router.post('/logout', async (req, res) => {
     try {
         const { JWT_SECRET } = getDiscordConfig();
@@ -471,8 +461,7 @@ router.post('/logout', async (req, res) => {
 
         if (token) {
             const decoded = jwt.verify(token, JWT_SECRET);
-            // Optionnel: marquer le token comme invalide en base (blacklist)
-            // ou mettre à jour la dernière déconnexion
+            // Record the logout time and revoke the refresh token
             await req.db.collection('users').updateOne(
                 { discord_id: decoded.discord_id },
                 { $set: { last_logout: new Date(), refresh_token_hash: null } }
@@ -481,12 +470,12 @@ router.post('/logout', async (req, res) => {
 
         res.json({ success: true, message: 'Déconnexion réussie' });
     } catch (error) {
-        // Même si le token est invalide, on confirme la déconnexion
+        // Logout is confirmed even when the token is invalid
         res.json({ success: true, message: 'Déconnexion réussie' });
     }
 });
 
-// Routes de debug (désactivées en production)
+// Debug routes (disabled in production)
 if (process.env.NODE_ENV !== 'production') {
     router.post('/debug-token', async (req, res) => {
         try {

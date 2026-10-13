@@ -17,8 +17,8 @@ import { attachTopAchievements } from '../../services/podiumService/achievementB
 
 const router = express.Router();
 
-// Route pour créer un utilisateur "placeholder" (ex: arrivée sur le serveur Discord), appelée par le bot.
-// Idempotente : si le discord_id existe déjà, ne fait rien et renvoie l'utilisateur existant.
+// POST create a placeholder user (e.g. on joining the Discord server), called by the bot.
+// Idempotent: when the discord_id already exists, returns the existing user.
 router.post('/', requireAdmin, async (req, res) => {
   try {
     const { discord_id, username, global_name, avatar, banner, discriminator } = req.body;
@@ -34,7 +34,7 @@ router.post('/', requireAdmin, async (req, res) => {
       return res.json({ success: true, created: false, message: 'Utilisateur déjà existant', user: existingUser });
     }
 
-    // Tentative de rattachement à un joueur/guilde connus (même logique que le login Discord)
+    // Try to link a known player/guild (same logic as the Discord login)
     let playerInfo = null;
     if (players.joueurs && Array.isArray(players.joueurs)) {
       playerInfo = players.joueurs.find(p => p.id_discord === discordId);
@@ -84,8 +84,8 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
-// Route pour créer manuellement un joueur SANS discord_id (admin seulement) : cas rare d'un joueur
-// sans compte Discord, à qui on veut quand même pouvoir rattacher un compte bbs et saisir des scores.
+// POST manually create a player WITHOUT a discord_id (admin only): rare case of a player without a
+// Discord account who still needs a bbs account and scores.
 router.post('/manual', requireAdmin, async (req, res) => {
   try {
     const { bbs_id, bbs_name, guilde_id, role } = req.body;
@@ -132,31 +132,28 @@ router.post('/manual', requireAdmin, async (req, res) => {
   }
 });
 
-// Route pour récupérer tous les utilisateurs avec pagination (accessible à tous)
+// GET users with pagination (public)
 router.get('/', async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
 
-    // Paramètres de filtrage optionnels
     const { guilde_id, role, search, is_banned } = req.query;
 
-    // Construire la requête de filtrage
     const query = {};
 
-    // Filtre par statut de bannissement
     if (is_banned === 'true') {
       query.is_banned = true;
     } else if (is_banned === 'false') {
       query.is_banned = { $ne: true };
     }
 
-    // $and accumule les conditions $or indépendantes (guilde/rôle, recherche) : les combiner en
-    // écrivant plusieurs fois query.$or les écraserait entre elles (un seul $or par niveau).
+    // $and collects the independent $or conditions (guild/role, search): writing query.$or several
+    // times would overwrite them (one $or per level).
     const andConditions = [];
 
-    // Filtre par guilde et/ou rôle — matche soit le compte principal (champs miroir), soit
-    // n'importe quel compte bbs (alt compris) ayant CETTE guilde ET CE rôle ensemble ($elemMatch
-    // pour corréler les deux conditions sur le même compte, pas deux comptes différents).
+    // Guild and/or role filter: matches either the main account (mirror fields) or any bbs account
+    // (alts included) holding THIS guild AND THIS role ($elemMatch ties both conditions to the same
+    // account).
     const guildeIdTrim = guilde_id && guilde_id.trim();
     const roleTrim = role && role.trim();
     if (guildeIdTrim || roleTrim) {
@@ -167,7 +164,7 @@ router.get('/', async (req, res) => {
       andConditions.push({ $or: [mirrorMatch, { bbs_accounts: { $elemMatch: accountMatch } }] });
     }
 
-    // Filtre par recherche textuelle (nom d'utilisateur, nom global, ou n'importe quel compte bbs — alt compris)
+    // Text search on username, global name or any bbs account (alts included)
     if (search && search.trim()) {
       const searchTerm = escapeRegex(search.trim());
       andConditions.push({
@@ -212,8 +209,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Route pour récupérer les comptes bbs sans guilde avec pagination (un élément par compte,
-// pas par user — un alt sans guilde apparaît même si le compte principal du même user en a une)
+// GET guildless bbs accounts with pagination (one item per account, not per user: a guildless alt
+// is listed even when the same user's main account has a guild)
 router.get('/without-guild', async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
@@ -235,9 +232,8 @@ router.get('/without-guild', async (req, res) => {
   }
 });
 
-// Route pour récupérer la liste des comptes bbs (tous users confondus, un élément par compte) —
-// utilisée par la liste publique des joueurs. Un même user peut apparaître plusieurs fois (une
-// ligne par compte), chacune avec sa propre guilde/rôle, cohérent avec le classement/rosters.
+// GET every bbs account (all users, one item per account), used by the public player list. A user
+// may appear several times, each account with its own guild/role, consistent with rankings/rosters.
 router.get('/accounts', async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
@@ -250,7 +246,7 @@ router.get('/accounts', async (req, res) => {
       skip,
       limit
     });
-    // Succès le plus rare de chaque compte, affiché à côté du pseudo (comme sur le podium)
+    // Rarest achievement of each account, shown next to the name (as on the podium)
     await attachTopAchievements(req.db, accounts);
 
     res.json({
@@ -269,7 +265,7 @@ router.get('/accounts', async (req, res) => {
   }
 });
 
-// Route pour récupérer un utilisateur spécifique
+// GET a user by id
 router.get('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
@@ -299,8 +295,8 @@ router.patch('/:userId', requireAdmin, validateObjectIdParam('userId', "Format d
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
-    // bbs_id/bbs_name/guilde_id/role ciblent ici le compte bbs PRINCIPAL (miroir racine) ;
-    // la gestion des comptes alt passe par les routes /:userId/accounts/*.
+    // bbs_id/bbs_name/guilde_id/role target the MAIN bbs account (root mirror) here; alt accounts are
+    // managed through the /:userId/accounts/* routes.
     const touchesPrimaryAccount = ['bbs_id', 'bbs_name', 'guilde_id', 'role'].some(f => f in updates);
     if (touchesPrimaryAccount) {
       const primary = (userBefore.bbs_accounts || []).find(a => a.is_primary) || null;
@@ -334,7 +330,7 @@ router.patch('/:userId', requireAdmin, validateObjectIdParam('userId', "Format d
 
     const updatedUser = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
 
-    // Notification Discord si la guilde a changé — attendue avant la réponse.
+    // Discord notification when the guild changed, awaited before responding.
     if ('guilde_id' in updates && updates.guilde_id !== userBefore.guilde_id) {
       await notifyGuildChange(req.db, userBefore, updates.guilde_id || null).catch(e =>
         logger.error('[users/patch] Erreur notification Discord:', e.message)

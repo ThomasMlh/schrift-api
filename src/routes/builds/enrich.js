@@ -1,19 +1,17 @@
 import { ObjectId } from 'mongodb';
 import { USER_BUILD } from '../../utils/projections.js';
 
-// Enrichissement partagé par toutes les routes builds (create/crud/update) :
-// un build stocké ne contient que des ObjectId (user_id, rotation_id,
-// team[].id_character, ...), ces helpers y greffent les documents complets
-// pour la réponse API.
+// Enrichment shared by every builds route (create/crud/update): a stored build only holds ids
+// (user_id, rotation_id, team[].id_character, …); these helpers attach the full documents for the
+// API response.
 
-// Helper function pour enrichir avec les données utilisateur
 export const enrichWithUser = async (build, db) => {
   if (!build || !build.user_id) return build;
 
   try {
     let user;
 
-    // Essayer d'abord comme ObjectId MongoDB
+    // Try a MongoDB ObjectId first
     if (ObjectId.isValid(build.user_id)) {
       user = await db.collection('users').findOne(
         { _id: new ObjectId(build.user_id) },
@@ -21,7 +19,7 @@ export const enrichWithUser = async (build, db) => {
       );
     }
 
-    // Sinon, essayer comme discord_id
+    // Otherwise treat it as a discord_id
     if (!user) {
       user = await db.collection('users').findOne(
         { discord_id: build.user_id },
@@ -41,7 +39,6 @@ export const enrichWithUser = async (build, db) => {
   }
 };
 
-// Helper function pour enrichir avec les données de la rotation
 export const enrichWithRotation = async (build, db) => {
   if (!build || !build.rotation_id) return build;
 
@@ -63,7 +60,6 @@ export const enrichWithRotation = async (build, db) => {
   }
 };
 
-// Helper function pour enrichir une team avec les données des personnages
 export const enrichTeamWithCharacters = async (team, db) => {
   if (!team || !Array.isArray(team)) return [];
 
@@ -75,13 +71,12 @@ export const enrichTeamWithCharacters = async (team, db) => {
       continue;
     }
 
-    // Récupérer les infos du personnage principal
     const character = await db.collection('characters').findOne(
       { _id: new ObjectId(member.id_character) },
       { projection: { name: 1, image: 1, rarity: 1, element: 1, affinity: 1 } }
     );
 
-    // Enrichir les links avec soul_traits
+    // Links, with their soul traits
     const enrichedLinks = [];
     if (Array.isArray(member.links)) {
       for (const link of member.links) {
@@ -102,7 +97,6 @@ export const enrichTeamWithCharacters = async (team, db) => {
       }
     }
 
-    // Enrichir les skills
     const enrichedSkills = [];
     if (Array.isArray(member.skills)) {
       for (const skillId of member.skills) {
@@ -115,13 +109,12 @@ export const enrichTeamWithCharacters = async (team, db) => {
             enrichedSkills.push(skill);
           }
         } catch (error) {
-          // Skip invalid skill IDs
+          // Skip invalid skill ids
           continue;
         }
       }
     }
 
-    // Enrichir les accessories
     const enrichedAccessories = [];
     if (Array.isArray(member.accessories)) {
       for (const accessory of member.accessories) {
@@ -144,7 +137,7 @@ export const enrichTeamWithCharacters = async (team, db) => {
             subeffect: subeffectDoc || null
           });
         } catch (error) {
-          // Skip invalid accessory IDs
+          // Skip invalid accessory ids
           continue;
         }
       }

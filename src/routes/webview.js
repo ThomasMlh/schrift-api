@@ -5,25 +5,24 @@ import { logger } from '../utils/logger.js';
 const router = express.Router();
 
 /**
- * Proxy des WebViews de Bleach Brave Souls (annonces, historique, aide…).
+ * Proxy for the Bleach Brave Souls web views (announcements, history, help…).
  *
- * Le HTML est rendu par game-gl.bleach-bravesouls.com et necessite :
- *   - un cookie X-WEB-VIEW-TOKEN valide (verrou du contenu, expire)
- *   - des en-tetes statiques (monde, appareil, plateforme, langue…)
- * Les assets (CSS/JS/images) sont publics sur le CDN Akamai : le navigateur
- * les charge directement, on ne proxifie donc QUE le document HTML.
+ * The HTML is rendered by game-gl.bleach-bravesouls.com and requires:
+ *   - a valid X-WEB-VIEW-TOKEN cookie (content lock, expires)
+ *   - static headers (world, device, platform, language…)
+ * Assets (CSS/JS/images) are public on the Akamai CDN and loaded directly by the browser, so ONLY
+ * the HTML document is proxied.
  *
- * Le token (capture depuis le jeu) est PERSISTE dans MongoDB (collection
- * webview_config, doc _id="default") et mis a jour via
- *   PUT /api/webview/_admin/token  (admin).
+ * The token (captured from the game) is PERSISTED in MongoDB (webview_config collection,
+ * _id="default") and updated through PUT /api/webview/_admin/token (admin).
  */
 
 const APP_HOST = 'game-gl.bleach-bravesouls.com';
 const COLLECTION = 'webview_config';
 const CONFIG_ID = 'default';
 
-// Routes webview autorisees (1er segment). Tout le reste est refuse pour eviter
-// un proxy ouvert vers l'API compte (player/*, etc.).
+// Allowed web view routes (first segment). Everything else is rejected to avoid an open proxy to
+// the account API (player/*, etc.).
 const ALLOWED_PREFIXES = new Set([
   'news', 'help', 'information',
   'evolved_character_list', 'team_battle_reward', 'gacha_rate', 'static',
@@ -31,7 +30,7 @@ const ALLOWED_PREFIXES = new Set([
 
 const SUPPORTED_LANGS = new Set(['fr', 'en', 'ja', 'ko', 'th']);
 
-// Champs stables (non secrets) : valeurs par defaut, surchargees par Mongo.
+// Stable, non-secret fields: defaults, overridden by Mongo.
 const DEFAULTS = {
   world: process.env.BBS_WORLD || 'gl',
   bundleVersion: process.env.BBS_BUNDLE_VERSION || '18.0.10',
@@ -46,7 +45,7 @@ const DEFAULTS = {
   deviceId: process.env.BBS_DEVICE_ID || '',
 };
 
-/** Config effective = defauts + document Mongo. */
+/** Effective config = defaults + Mongo document. */
 const getConfig = async (db) => {
   const doc = await db.collection(COLLECTION).findOne({ _id: CONFIG_ID });
   return { ...DEFAULTS, ...(doc || {}) };
@@ -67,20 +66,19 @@ const appHeaders = (cfg, lang) => ({
 
 const BASE = '/api/webview';
 
-/** Reecrit les liens de navigation internes pour rester dans le proxy. */
+/** Rewrites internal navigation links so they stay within the proxy. */
 const rewriteHtml = (html, lang) => html.replace(/Transition\('\/([^']*)'\)/g, (_m, path) => {
   const sep = path.includes('?') ? '&' : '?';
   return `Transition('${BASE}/${path}${sep}lang=${lang}')`;
 });
 
-/** Heuristique : le contenu verrouille par le token est-il present ? */
+/** Heuristic: is the token-locked content present? */
 const looksAuthenticated = (html) =>
   /news-view-title|_news-index-flick-item|_news-history|common-main-img/.test(html);
 
 router.use(requireDb);
 
-// ----------------------------------------------------------------- admin
-// Enregistre / met a jour le token (persiste dans Mongo).
+// PUT save or update the token (persisted in Mongo)
 router.put('/_admin/token', requireAdmin, express.json(), async (req, res) => {
   const { token, deviceId, world, bundleVersion, userAgent } = req.body || {};
   if (!token || typeof token !== 'string') {
@@ -96,7 +94,7 @@ router.put('/_admin/token', requireAdmin, express.json(), async (req, res) => {
     { _id: CONFIG_ID }, { $set: set }, { upsert: true },
   );
 
-  // verif live immediate pour dire tout de suite si le token est bon
+  // Live check, to report right away whether the token works
   const cfg = await getConfig(req.db);
   let authenticated = null;
   try {
@@ -114,7 +112,7 @@ router.put('/_admin/token', requireAdmin, express.json(), async (req, res) => {
   });
 });
 
-// Etat du token + verification live.
+// GET token status with a live check
 router.get('/_admin/status', requireAdmin, async (req, res) => {
   const cfg = await getConfig(req.db);
   const mask = (t) => (t ? `${t.slice(0, 6)}…(${t.length})` : '(vide)');
@@ -141,8 +139,7 @@ router.get('/_admin/status', requireAdmin, async (req, res) => {
   });
 });
 
-// ----------------------------------------------------------------- proxy
-// Express 5 : wildcard nomme (req.params.splat = tableau de segments)
+// Proxy. Express 5 named wildcard (req.params.splat is an array of segments)
 router.get('/*splat', async (req, res) => {
   const cfg = await getConfig(req.db);
   if (!cfg.token || !cfg.deviceId) {

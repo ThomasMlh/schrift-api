@@ -9,7 +9,7 @@ import { sendStatusCodeError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
 
-// Exécuter un draft : retirer puis réassigner des joueurs en bulk
+// POST run a draft: remove then reassign players in bulk
 router.post('/draft', requireAdmin, async (req, res) => {
   try {
     const { moves } = req.body;
@@ -21,7 +21,6 @@ router.post('/draft', requireAdmin, async (req, res) => {
       });
     }
 
-    // Valider chaque mouvement
     for (const move of moves) {
       if (!move.userId) {
         return res.status(400).json({
@@ -43,7 +42,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
       }
     }
 
-    // Vérifier que toutes les guildes cibles existent (hors retraits)
+    // Every target guild must exist (removals excluded)
     const targetGuildIds = [...new Set(moves.filter(m => m.toGuildId).map(m => m.toGuildId))];
     let guilds = [];
     if (targetGuildIds.length > 0) {
@@ -59,7 +58,6 @@ router.post('/draft', requireAdmin, async (req, res) => {
       }
     }
 
-    // Vérifier que tous les utilisateurs existent
     const userIds = moves.map(m => m.userId);
     const users = await req.db.collection('users').find({
       _id: { $in: userIds.map(id => new ObjectId(id)) }
@@ -73,8 +71,8 @@ router.post('/draft', requireAdmin, async (req, res) => {
     }
     const userMap = new Map(users.map(u => [u._id.toString(), u]));
 
-    // Résoudre, pour chaque mouvement, le compte bbs concerné (bbsId fourni, sinon le compte
-    // principal) et mémoriser son état d'origine (guilde/rôle) pour le rollback et les notifs.
+    // Resolve each move's bbs account (bbsId when given, otherwise the main account) and remember its
+    // original guild/role for rollback and notifications.
     const resolvedMoves = [];
     for (const move of moves) {
       const user = userMap.get(move.userId);
@@ -95,7 +93,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
       });
     }
 
-    // Étape 1 : Retirer chaque compte concerné de sa guilde
+    // Step 1: remove each account from its guild
     for (const move of resolvedMoves) {
       const user = userMap.get(move.userId);
       const bbsAccounts = move.bbsId
@@ -108,7 +106,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
       );
     }
 
-    // Étape 2 : Calculer les effectifs finaux par guilde (comptes, pas users) pour vérifier la limite de 20
+    // Step 2: final headcount per guild (accounts, not users) to enforce the 20-member limit
     const guildCounts = {};
     for (const guildId of targetGuildIds) {
       const rows = await req.db.collection('users').aggregate([
@@ -120,12 +118,11 @@ router.post('/draft', requireAdmin, async (req, res) => {
       guildCounts[guildId] = rows[0]?.count || 0;
     }
 
-    // Vérifier que chaque guilde ne dépassera pas 20 membres (ignorer les retraits)
     for (const move of resolvedMoves) {
       if (!move.toGuildId) continue;
       guildCounts[move.toGuildId] = (guildCounts[move.toGuildId] || 0) + 1;
       if (guildCounts[move.toGuildId] > 20) {
-        // Rollback : remettre chaque compte dans sa guilde/rôle d'origine
+        // Rollback: put every account back in its original guild/role
         for (const m of resolvedMoves) {
           if (!m.bbsId || !m.originalGuildeId) continue;
           const user = userMap.get(m.userId);
@@ -144,7 +141,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
       }
     }
 
-    // Étape 3 : Réassigner chaque compte dans sa nouvelle guilde (ou laisser sans guilde)
+    // Step 3: assign each account to its new guild (or leave it guildless)
     const results = [];
     for (const move of resolvedMoves) {
       const user = userMap.get(move.userId);
@@ -159,7 +156,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
           { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
         );
       }
-      // Si toGuildId est null, le compte reste sans guilde (déjà retiré à l'étape 1)
+      // A null toGuildId leaves the account guildless (already removed in step 1)
       results.push({
         userId: move.userId,
         username: move.bbsName || getUserDisplayName(user),
@@ -170,9 +167,9 @@ router.post('/draft', requireAdmin, async (req, res) => {
       });
     }
 
-    // Notifications Discord par guilde concernée — attendues avant la réponse.
+    // Discord notifications per affected guild, awaited before responding.
     try {
-      // Récupérer les guildes sources (pas forcément dans `guilds` qui ne contient que les cibles)
+      // Source guilds (`guilds` only holds the targets)
       const sourceGuildeIds = [...new Set(resolvedMoves.map(m => m.originalGuildeId).filter(Boolean))];
       const missingIds = sourceGuildeIds.filter(id => !guilds.find(g => g._id.toString() === id));
       const allGuildes = [...guilds];

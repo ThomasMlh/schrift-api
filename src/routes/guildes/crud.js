@@ -11,7 +11,7 @@ import { sendServerError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
 
-// Récupérer toutes les guildes
+// GET every guild
 router.get('/', async (req, res) => {
   try {
     const includeDisabled = req.query.include_disabled === 'true';
@@ -24,7 +24,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Récupérer une guilde par ID
+// GET a guild by id
 router.get('/:id', async (req, res) => {
   try {
     const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(req.params.id) });
@@ -37,7 +37,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Ajouter une guilde
+// POST create a guild
 router.post('/', requireAdmin, async (req, res) => {
   try {
     const { name } = req.body;
@@ -46,9 +46,8 @@ router.post('/', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Le nom de la guilde est requis' });
     }
 
-    // Vérifier si une guilde avec ce nom existe déjà
     const existingGuilde = await req.db.collection('guildes').findOne({
-      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') } // Insensible à la casse
+      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') } // Case-insensitive
     });
 
     if (existingGuilde) {
@@ -60,10 +59,10 @@ router.post('/', requireAdmin, async (req, res) => {
 
     const result = await req.db.collection('guildes').insertOne({
       ...req.body,
-      name: name.trim() // Nettoyer le nom
+      name: name.trim()
     });
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       await notifyDiscord('guild_change', {
         action: 'create',
@@ -83,8 +82,8 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
-// Renommer une guilde (admin) ou modifier ses salons et notifications (admin, ou chef/sous-chef
-// de cette guilde, sans pouvoir la renommer)
+// PUT rename a guild (admin), or update its channels and notifications (admin, or a leader/officer
+// of this guild, who cannot rename it)
 router.put('/:id', requireScoresAccess, async (req, res) => {
   try {
     const { name } = req.body;
@@ -109,7 +108,7 @@ router.put('/:id', requireScoresAccess, async (req, res) => {
       }
     }
 
-    // Vérifier si une autre guilde avec ce nom existe déjà (excluant la guilde actuelle)
+    // Another guild with this name (excluding the current one)
     const existingGuilde = await req.db.collection('guildes').findOne({
       name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
       _id: { $ne: new ObjectId(guildeId) }
@@ -141,7 +140,7 @@ router.put('/:id', requireScoresAccess, async (req, res) => {
       { $set: updateFields }
     );
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     if (currentGuilde && currentGuilde.name !== name.trim()) {
       try {
         await notifyDiscord('guild_change', {
@@ -160,10 +159,9 @@ router.put('/:id', requireScoresAccess, async (req, res) => {
   }
 });
 
-// Envoie une notification de test au channel fourni (pas forcément celui déjà enregistré en
-// base — sert à vérifier un ID de channel avant de sauvegarder). Contrairement à
-// notifyDiscord() (non bloquant, jamais d'erreur remontée), on attend et on renvoie le
-// résultat réel : c'est tout l'intérêt d'un bouton de test.
+// POST send a test notification to the given channel (not necessarily the saved one, so a channel
+// id can be checked before saving). Unlike notifyDiscord() (fire-and-forget, never throws), the
+// real result is awaited and returned: that is the point of a test button.
 router.post('/:id/test-notification', requireScoresAccess, async (req, res) => {
   try {
     const guildeId = req.params.id;
@@ -211,7 +209,7 @@ router.post('/:id/test-notification', requireScoresAccess, async (req, res) => {
   }
 });
 
-// Activer/Désactiver une guilde
+// PATCH enable or disable a guild
 router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
   try {
     const guildeId = req.params.id;
@@ -222,7 +220,7 @@ router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
 
     const newDisabledState = !guilde.disabled;
 
-    // Si on désactive la guilde, retirer tous les membres (comptes bbs rattachés à cette guilde)
+    // Disabling a guild removes every member (bbs accounts attached to it)
     if (newDisabledState) {
       const affectedUsers = await req.db.collection('users').find({ "bbs_accounts.guilde_id": guildeId }).toArray();
       for (const u of affectedUsers) {
@@ -243,7 +241,7 @@ router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
 
     const action = newDisabledState ? 'désactivée' : 'réactivée';
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       const toggler = await req.db.collection('users').findOne(
         { _id: new ObjectId(req.user._id) },
@@ -269,7 +267,7 @@ router.patch('/:id/toggle-disable', requireAdmin, async (req, res) => {
   }
 });
 
-// Supprimer une guilde
+// DELETE a guild
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(req.params.id) });
@@ -279,7 +277,7 @@ router.delete('/:id', requireAdmin, async (req, res) => {
 
     await req.db.collection('guildes').deleteOne({ _id: new ObjectId(req.params.id) });
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       await notifyDiscord('guild_change', {
         action: 'delete',

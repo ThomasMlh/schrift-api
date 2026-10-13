@@ -8,9 +8,8 @@ const router = express.Router();
 
 router.use(requireDb);
 
-// Résout les salons Discord enregistrés (chefs + général) pour les guildes qu'un
-// chef/sous-chef gère, pour limiter sa vue/ses envois à ces salons-là uniquement.
-// Un admin (hasFullAccess) n'a pas besoin de cette résolution : il voit/écrit partout.
+// Resolves the registered Discord channels (leaders + general) of the guilds a leader/officer
+// manages, to restrict what they can see and post to. Admins (hasFullAccess) skip this.
 const getAllowedChannelIds = async (db, guildIds) => {
   if (!guildIds || guildIds.length === 0) return new Set();
   const guildes = await db.collection('guildes').find(
@@ -26,9 +25,9 @@ const getAllowedChannelIds = async (db, guildIds) => {
   return ids;
 };
 
-// GET liste des salons Discord accessibles à l'utilisateur, avec leurs membres.
-// Admin : tous les salons que le bot voit. Chef/sous-chef : uniquement les salons
-// (chefs + général) de la ou des guildes qu'il gère.
+// GET the Discord channels available to the user, with their members.
+// Admin: every channel the bot sees. Leader/officer: only the channels (leaders + general) of
+// their guild(s).
 router.get('/channels', requireScoresAccess, async (req, res) => {
   try {
     const channels = await listDiscordChannels();
@@ -45,9 +44,9 @@ router.get('/channels', requireScoresAccess, async (req, res) => {
   }
 });
 
-// GET emojis custom utilisables dans les messages. Admin : ceux de tous les serveurs où est le
-// bot. Chef/sous-chef : uniquement ceux des serveurs Discord contenant un de ses salons autorisés
-// (même périmètre que GET /channels).
+// GET custom emojis usable in messages. Admin: those of every server the bot is in.
+// Leader/officer: only those of servers holding one of their allowed channels (same scope as
+// GET /channels).
 router.get('/emojis', requireScoresAccess, async (req, res) => {
   try {
     const emojis = await listDiscordEmojis();
@@ -69,8 +68,8 @@ router.get('/emojis', requireScoresAccess, async (req, res) => {
   }
 });
 
-// POST envoyer un message à un salon Discord via le bot.
-// Admin : n'importe quel salon. Chef/sous-chef : uniquement les salons de sa/ses guildes.
+// POST send a message to a Discord channel through the bot.
+// Admin: any channel. Leader/officer: only their guild channels.
 router.post('/messages', requireScoresAccess, async (req, res) => {
   try {
     const { channel_id, content, mention_user_ids } = req.body;

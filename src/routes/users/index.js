@@ -6,12 +6,9 @@ import accountsRouter from './accounts.js';
 import moderationRouter from './moderation.js';
 import recordsRouter from './records.js';
 
-// Découpé depuis un unique users.js de 930 lignes (17 routes) en 4 modules
-// par thème. Montage sans préfixe : les chemins exposés sous /api/users sont
-// identiques à avant la découpe. crud.js garde GET /without-guild et
-// GET /accounts avant GET /:userId dans le MÊME fichier (ordre interne
-// préservé), donc aucune contrainte d'ordre entre modules ici contrairement
-// à guildes/index.js.
+// User routes split by theme, mounted without a prefix. crud.js declares GET /without-guild and
+// GET /accounts before GET /:userId in the same file, so there is no ordering constraint between
+// modules (unlike guildes/index.js).
 const router = express.Router();
 
 router.use(requireDb);

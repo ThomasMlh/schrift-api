@@ -12,9 +12,8 @@ import { sendServerError, sendStatusCodeError } from '../../utils/httpErrors.js'
 
 const router = express.Router();
 
-// Récupérer les membres (comptes bbs) d'une guilde — un même user peut apparaître plusieurs fois
-// s'il a plusieurs comptes rattachés à cette guilde (ce qui ne devrait pas arriver en pratique,
-// une guilde n'ayant qu'un roster de jeu, mais reste possible si plusieurs alts y sont rattachés).
+// GET a guild's members (bbs accounts). A user may appear more than once if several of their
+// accounts are attached to this guild (unusual, but possible with alts).
 router.get('/:id/membres', async (req, res) => {
   try {
     const guildeId = req.params.id;
@@ -25,8 +24,8 @@ router.get('/:id/membres', async (req, res) => {
   }
 });
 
-// Assigner un utilisateur à une guilde avec un rôle
-// bbs_id optionnel : cible ce compte précis ; par défaut, le compte principal du user.
+// POST assign a user to a guild with a role.
+// Optional bbs_id targets that account; defaults to the user's main account.
 router.post('/:id/assign-member', requireAdmin, async (req, res) => {
   try {
     const guildeId = req.params.id;
@@ -49,7 +48,7 @@ router.post('/:id/assign-member', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Compte bbs introuvable pour cet utilisateur' });
     }
 
-    // Vérifier les contraintes de rôle (au niveau des comptes, pas des users)
+    // Role constraints apply per account, not per user
     await assertRoleAvailable(req.db, guildeId, role, targetAccount?.bbs_id);
 
     const bbsAccounts = bbs_id
@@ -63,7 +62,7 @@ router.post('/:id/assign-member', requireAdmin, async (req, res) => {
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
       await notifyDiscord('guild_member_change', {
@@ -84,8 +83,8 @@ router.post('/:id/assign-member', requireAdmin, async (req, res) => {
   }
 });
 
-// Retirer un membre d'une guilde. bbs_id optionnel (query) : cible ce compte précis ;
-// par défaut, le compte rattaché à cette guilde (ou le principal en dernier recours).
+// DELETE remove a member from a guild. Optional bbs_id (query) targets that account; defaults to
+// the account attached to this guild (or the main account as a last resort).
 router.delete('/:id/members/:userId', requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
@@ -112,7 +111,7 @@ router.delete('/:id/members/:userId', requireAdmin, async (req, res) => {
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
       await notifyDiscord('guild_member_change', {
@@ -132,7 +131,7 @@ router.delete('/:id/members/:userId', requireAdmin, async (req, res) => {
   }
 });
 
-// Retirer un membre d'une guilde (variante FR). bbs_id optionnel (body) : cible ce compte précis.
+// DELETE remove a member from a guild (French path variant). Optional bbs_id (body) targets that account.
 router.delete('/:guildeId/membres/:userId', requireAdmin, async (req, res) => {
   try {
     const guildeId = req.params.guildeId;
@@ -165,7 +164,7 @@ router.delete('/:guildeId/membres/:userId', requireAdmin, async (req, res) => {
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
       await notifyDiscord('guild_member_change', {
@@ -187,14 +186,14 @@ router.delete('/:guildeId/membres/:userId', requireAdmin, async (req, res) => {
   }
 });
 
-// Ajouter un membre à une guilde (création d'un user complet — legacy/admin, cas rare)
+// POST add a member to a guild by creating a full user (legacy admin path, rarely used)
 router.post('/:id/membres', requireAdmin, async (req, res) => {
   try {
     const guildeId = req.params.id;
     const role = req.body.role || 'membre';
     const { discord_id, bbs_id, bbs_name } = req.body;
 
-    // Vérifications si le membre existe déjà dans cette guilde via un compte bbs
+    // Is the member already in this guild through a bbs account?
     const existing = await req.db.collection('users').findOne({
       discord_id,
       "bbs_accounts.guilde_id": guildeId
@@ -203,7 +202,7 @@ router.post('/:id/membres', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Le membre existe déjà dans cette guilde' });
     }
 
-    // Vérification des contraintes de rôle (au niveau des comptes, pas des users)
+    // Role constraints apply per account, not per user
     await assertRoleAvailable(req.db, guildeId, role, bbs_id);
 
     const bbsAccounts = upsertPrimaryAccount([], { bbsId: bbs_id, bbsName: bbs_name, guildeId, role });
@@ -212,7 +211,7 @@ router.post('/:id/membres', requireAdmin, async (req, res) => {
     const membre = { ...req.body, bbs_accounts: bbsAccounts, ...mirror };
     await req.db.collection('users').insertOne(membre);
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
       await notifyDiscord('guild_member_change', {

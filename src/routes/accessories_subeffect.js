@@ -5,18 +5,15 @@ import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
-// Middleware pour toutes les routes accessories_subeffect
 router.use(requireDb);
 
-// GET tous les accessories_subeffect (sans pagination, avec recherche optionnelle)
+// GET every accessory sub-effect (no pagination, optional name search)
 router.get('/', async (req, res) => {
   try {
     const { search } = req.query;
 
-    // Construction de la requête
     const query = {};
 
-    // Filtre par recherche sur le nom
     if (search && search.trim()) {
       query.name = { $regex: search.trim(), $options: 'i' };
     }
@@ -40,7 +37,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET un accessories_subeffect par ID
+// GET a sub-effect by id
 router.get('/:id', async (req, res) => {
   try {
     const subeffect = await req.db.collection('accessories_subeffect').findOne({
@@ -67,12 +64,11 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT mettre à jour un accessories_subeffect
+// PUT update a sub-effect
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const { name } = req.body;
 
-    // Validation
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
@@ -80,7 +76,6 @@ router.put('/:id', requireAdmin, async (req, res) => {
       });
     }
 
-    // Vérifier que l'accessories_subeffect existe
     const existingSubeffect = await req.db.collection('accessories_subeffect').findOne({
       _id: new ObjectId(req.params.id)
     });
@@ -92,7 +87,6 @@ router.put('/:id', requireAdmin, async (req, res) => {
       });
     }
 
-    // Mettre à jour l'accessories_subeffect
     const result = await req.db.collection('accessories_subeffect').updateOne(
       { _id: new ObjectId(req.params.id) },
       { $set: { name: name.trim() } }
@@ -105,7 +99,6 @@ router.put('/:id', requireAdmin, async (req, res) => {
       });
     }
 
-    // Récupérer l'accessories_subeffect mis à jour
     const updatedSubeffect = await req.db.collection('accessories_subeffect').findOne({
       _id: new ObjectId(req.params.id)
     });
@@ -124,7 +117,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE supprimer un accessories_subeffect
+// DELETE a sub-effect
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const result = await req.db.collection('accessories_subeffect').deleteOne({

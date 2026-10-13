@@ -11,13 +11,12 @@ import { removeScreenshot } from '../../services/buildScreenshots.js';
 
 const router = express.Router();
 
-// GET /builds - Récupérer tous les builds avec filtres et pagination
+// GET /builds - builds with filters and pagination
 router.get('/', async (req, res) => {
   try {
     const { rotation_id, isValid, character_id } = req.query;
     const { page, limit, skip } = parsePaginationParams(req.query, 20, 100);
 
-    // Construction du filtre
     const filter = {};
 
     if (rotation_id) {
@@ -39,7 +38,7 @@ router.get('/', async (req, res) => {
       .limit(limit)
       .toArray();
 
-    // Batch-load users et rotations pour éviter N requêtes par item
+    // Batch-load users and rotations to avoid one query per build
     const userIds = [...new Set(builds.map(b => b.user_id).filter(id => id && ObjectId.isValid(id)))];
     const userMap = new Map();
     if (userIds.length > 0) {
@@ -92,7 +91,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /builds/:id - Récupérer un build spécifique
+// GET /builds/:id - a single build
 router.get('/:id', validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -107,7 +106,6 @@ router.get('/:id', validateObjectIdParam('id'), async (req, res) => {
       });
     }
 
-    // Enrichir la team avec les données des personnages et utilisateur
     const enrichedTeam = await enrichTeamWithCharacters(build.team, req.db);
     const enrichedBuild = await enrichWithUser(build, req.db);
     const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
@@ -128,7 +126,7 @@ router.get('/:id', validateObjectIdParam('id'), async (req, res) => {
   }
 });
 
-// DELETE /builds/:id - Supprimer un build
+// DELETE /builds/:id - delete a build
 router.delete('/:id', requireAdmin, validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -146,10 +144,10 @@ router.delete('/:id', requireAdmin, validateObjectIdParam('id'), async (req, res
       });
     }
 
-    // La capture du build n'a plus de raison d'être sur le bucket
+    // The build's screenshot is no longer needed on the bucket
     await removeScreenshot(buildToDelete?.screenshot);
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       const enrichedBuild = await enrichWithUser(buildToDelete, req.db);
       const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);

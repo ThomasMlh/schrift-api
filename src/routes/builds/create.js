@@ -9,17 +9,16 @@ import { parseBuildResult } from './result.js';
 
 const router = express.Router();
 
-// POST /builds - Créer une nouvelle team
+// POST /builds - create a build
 router.post('/', optionalAuth, async (req, res) => {
   try {
     const { rotation_id, description, team } = req.body;
 
-    // Récupérer le user_id depuis le token et trouver l'_id MongoDB
+    // Resolve the author's MongoDB _id from the token
     let user_id = null;
     if (req.user?.userId || req.user?.discord_id) {
       const userIdentifier = req.user?.userId || req.user?.discord_id;
 
-      // Chercher l'utilisateur pour récupérer son _id MongoDB
       let user;
       if (ObjectId.isValid(userIdentifier)) {
         user = await req.db.collection('users').findOne({ _id: new ObjectId(userIdentifier) });
@@ -32,13 +31,13 @@ router.post('/', optionalAuth, async (req, res) => {
       }
     }
 
-    // Résultat facultatif (score, chronos)
+    // Optional result (score, times)
     const { values: buildResult, error: resultError } = parseBuildResult(req.body);
     if (resultError) {
       return res.status(400).json({ success: false, message: resultError });
     }
 
-    // Validation des champs obligatoires
+    // Required fields
     if (!rotation_id) {
       return res.status(400).json({
         success: false,
@@ -53,7 +52,6 @@ router.post('/', optionalAuth, async (req, res) => {
       });
     }
 
-    // Vérifier que la rotation existe
     try {
       const rotation = await req.db.collection('rotations').findOne({
         _id: new ObjectId(rotation_id)
@@ -72,7 +70,7 @@ router.post('/', optionalAuth, async (req, res) => {
       });
     }
 
-    // Validation de la structure de la team
+    // Team structure
     for (const member of team) {
       if (!member.id_character) {
         return res.status(400).json({
@@ -88,7 +86,6 @@ router.post('/', optionalAuth, async (req, res) => {
         });
       }
 
-      // Vérifier que le personnage existe
       try {
         const character = await req.db.collection('characters').findOne({
           _id: new ObjectId(member.id_character)
@@ -107,7 +104,6 @@ router.post('/', optionalAuth, async (req, res) => {
         });
       }
 
-      // Valider les links si présents
       if (member.links && Array.isArray(member.links)) {
         if (member.links.length > 3) {
           return res.status(400).json({
@@ -124,7 +120,6 @@ router.post('/', optionalAuth, async (req, res) => {
             });
           }
 
-          // Vérifier que le personnage du link existe
           try {
             const linkCharacter = await req.db.collection('characters').findOne({
               _id: new ObjectId(link.id_character)
@@ -145,7 +140,7 @@ router.post('/', optionalAuth, async (req, res) => {
         }
       }
 
-      // Valider les skills si présents (max 2 skills par personnage)
+      // At most 2 skills per character
       if (member.skills && Array.isArray(member.skills)) {
         if (member.skills.length > 2) {
           return res.status(400).json({
@@ -155,7 +150,6 @@ router.post('/', optionalAuth, async (req, res) => {
         }
 
         for (const skillId of member.skills) {
-          // Vérifier que le skill existe
           try {
             const skill = await req.db.collection('skills').findOne({
               _id: new ObjectId(skillId)
@@ -176,7 +170,7 @@ router.post('/', optionalAuth, async (req, res) => {
         }
       }
 
-      // Valider les accessories si présents (max 3 accessories par personnage)
+      // At most 3 accessories per character
       if (member.accessories && Array.isArray(member.accessories)) {
         if (member.accessories.length > 3) {
           return res.status(400).json({
@@ -193,7 +187,6 @@ router.post('/', optionalAuth, async (req, res) => {
             });
           }
 
-          // Vérifier que l'accessory existe
           try {
             const accessoryDoc = await req.db.collection('accessories').findOne({
               _id: new ObjectId(accessory.id_accessory)
@@ -212,7 +205,6 @@ router.post('/', optionalAuth, async (req, res) => {
             });
           }
 
-          // Vérifier le subeffect si présent
           if (accessory.id_subeffect) {
             try {
               const subeffect = await req.db.collection('accessories_subeffect').findOne({
@@ -236,11 +228,10 @@ router.post('/', optionalAuth, async (req, res) => {
       }
     }
 
-    // Créer le build
     const newBuild = {
       rotation_id: rotation_id,
       description: description || '',
-      isValid: false, // Toujours false par défaut
+      isValid: false, // Builds are validated by an admin
       user_id: user_id,
       team: team,
       score: buildResult.score ?? null,
@@ -253,7 +244,6 @@ router.post('/', optionalAuth, async (req, res) => {
 
     const result = await req.db.collection('builds').insertOne(newBuild);
 
-    // Récupérer le build créé avec enrichissement
     const createdBuild = await req.db.collection('builds').findOne({
       _id: result.insertedId
     });
@@ -262,7 +252,7 @@ router.post('/', optionalAuth, async (req, res) => {
     const enrichedBuild = await enrichWithUser(createdBuild, req.db);
     const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       const rotation = enrichedWithRotation.rotation;
       await notifyDiscord('build_proposal', {

@@ -12,7 +12,7 @@ import { sendServerError, sendStatusCodeError } from '../../utils/httpErrors.js'
 
 const router = express.Router();
 
-// POST transfert de scores d'une rotation vers une autre
+// POST move the scores of a rotation to another rotation
 router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
   try {
     const { cycle_id, source_rotation_id, target_rotation_id, dry_run } = req.body;
@@ -32,7 +32,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
       });
     }
 
-    // Chef/Sous-chef : restreindre à une guilde qu'ils gèrent
+    // Leaders/officers are restricted to a guild they manage
     if (!req.user.hasFullAccess) {
       const allowedGuildIds = req.user.allowedGuildIds || [];
       if (guild_id) {
@@ -67,7 +67,6 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
     const targetIndex = rotationIndexMap.get(target_rotation_id);
     const parityChanged = (sourceIndex % 2) !== (targetIndex % 2);
 
-    // Filtre des scores source
     const sourceFilter = { rotation_id: source_rotation_id, cycle_id };
     if (guild_id) sourceFilter.guild_id = guild_id;
 
@@ -80,7 +79,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
       });
     }
 
-    // Détection des conflits (scores existants sur la cible) — pour affichage uniquement, pas bloquant
+    // Conflicts (existing scores on the target), reported only, not blocking
     const conflicts = [];
     for (const score of sourceScores) {
       const existing = await req.db.collection("scores").findOne({
@@ -102,14 +101,13 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
       }
     }
 
-    // Calcul du nouveau score pour chaque entrée selon l'index de la rotation cible
+    // New score of each entry, depending on the target rotation index
     const computeNewScore = async (score) => {
       if (targetIndex > 0 && targetIndex % 2 === 1) {
         const previousRotationId = cycle.rotations[targetIndex - 1].rotation_id;
 
-        // Cas particulier : la source EST la rotation de base précédente de la cible.
-        // Après transfert, cette rotation sera vide → pas de base disponible → score = raw_score.
-        // (Sans ce check, on calculerait raw_score - raw_score = 0.)
+        // Special case: the source IS the target's previous base rotation. After the transfer that rotation
+        // is empty, so there is no base and score = raw_score (otherwise raw_score - raw_score = 0).
         if (previousRotationId !== source_rotation_id) {
           const prevScore = await req.db.collection("scores").findOne({
             bbs_id: score.bbs_id,
@@ -124,13 +122,13 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
           }
         }
 
-        // Aucune base précédente utilisable → score = raw_score
+        // No usable previous base: score = raw_score
         return { score: score.raw_score, isDifferential: true };
       }
       return { score: score.raw_score, isDifferential: false };
     };
 
-    // DRY RUN : retourner l'aperçu sans rien modifier
+    // Dry run: return the preview without changing anything
     if (dry_run) {
       const preview = [];
       for (const score of sourceScores) {
@@ -157,17 +155,17 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
         parityChanged,
         sourceIndex,
         targetIndex,
-        conflicts,         // Avertissements (scores qui seront écrasés)
+        conflicts,         // Warnings (scores that will be overwritten)
         preview
       });
     }
 
-    // TRANSFERT RÉEL : mise à jour en place, écrasement des conflits
+    // Actual transfer: in-place update, conflicts are overwritten
     let overwrittenCount = 0;
     for (const score of sourceScores) {
       const { score: newScore, isDifferential } = await computeNewScore(score);
 
-      // S'il existe un score sur la cible pour ce joueur, le supprimer d'abord
+      // Delete the player's existing score on the target first
       const existingTarget = await req.db.collection("scores").findOne({
         bbs_id: score.bbs_id,
         cycle_id,
@@ -179,7 +177,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
         await recordScoreChange(req.db, { action: 'delete', source: 'transfer_rotation', before: existingTarget, user: req.user });
       }
 
-      // Mettre à jour le score source en place (change rotation_id + recalcul)
+      // Update the source score in place (new rotation_id + recomputation)
       const transferUpdate = {
         rotation_id: target_rotation_id,
         score: newScore,
@@ -190,7 +188,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
       await recordScoreChange(req.db, { action: 'transfer_rotation', before: score, after: transferUpdate, user: req.user });
     }
 
-    // Si la rotation cible est une base (index pair), recalculer les différentiels suivants
+    // A base target rotation (even index) triggers a recomputation of the following differentials
     let recalculatedCount = 0;
     if (targetIndex % 2 === 0) {
       const bbsIds = [...new Set(sourceScores.map(s => s.bbs_id))];
@@ -200,7 +198,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
       }
     }
 
-    // --- Notification Discord par guilde (non bloquante) ---
+    // Discord notification per guild (non-blocking)
     try {
       const submitter = req.user?._id
         ? await req.db.collection("users").findOne(
@@ -219,7 +217,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
         ? `#${targetIndex + 1} — ${targetRotation.killer} ${targetRotation.attack === "R" ? "🔴" : targetRotation.attack === "B" ? "🔵" : "⚪"}`
         : `Rotation #${targetIndex + 1}`;
 
-      // Grouper les scores par guilde pour envoyer une notif par guilde
+      // One notification per guild
       const guildIds = [...new Set(sourceScores.map(s => s.guild_id))];
       for (const gId of guildIds) {
         const guild = await req.db.collection("guildes").findOne({ _id: new ObjectId(gId) });
@@ -261,13 +259,11 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
   }
 });
 
-// PUT réattribuer un score à un autre compte bbs (ex: score saisi sous le mauvais membre du
-// roster faute de mieux, à corriger a posteriori). Contrairement à PUT /:id, le compte cible n'a
-// PAS besoin d'appartenir ACTUELLEMENT à la guilde du score — le transfert sert justement à
-// rattacher un score historique à un compte qui a depuis changé de guilde. guild_id, cycle_id et
-// rotation_id ne bougent jamais ; seuls user_id/bbs_id/bbs_name changent, et raw_score est
-// recalculé par rapport à l'historique du compte cible si la rotation transférée est différentielle
-// (le score affiché, lui, est préservé tel quel).
+// PUT reassign a score to another bbs account (e.g. a score entered under the wrong roster member).
+// Unlike PUT /:id, the target account does NOT need to CURRENTLY belong to the score's guild: the
+// point is to attach a past score to an account that has since changed guild. guild_id, cycle_id and
+// rotation_id never change; only user_id/bbs_id/bbs_name do, and raw_score is recomputed from the
+// target account's history when the rotation is differential (the displayed score is preserved).
 router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
   try {
     const { target_user_id, target_bbs_id } = req.body;
@@ -285,8 +281,7 @@ router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
       return res.status(400).json({ success: false, message: "Le compte cible doit être différent du compte source" });
     }
 
-    // Le score ne change pas de guilde pendant le transfert : les droits chef/sous-chef se
-    // vérifient donc uniquement sur la guilde du score existant.
+    // The score keeps its guild, so leader/officer rights are only checked on the existing score's guild.
     if (!req.user.hasFullAccess) {
       const allowedGuildIds = req.user.allowedGuildIds || [];
       if (!allowedGuildIds.includes(existingScore.guild_id)) {
@@ -301,8 +296,8 @@ router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
     if (!targetUser) {
       return res.status(404).json({ success: false, message: "Utilisateur cible non trouvé" });
     }
-    // Pas de contrôle de guilde ici (contrairement à resolveScoreAccounts) : un transfert vise
-    // justement un compte qui a pu quitter la guilde du score depuis.
+    // No guild check here (unlike resolveScoreAccounts): a transfer targets an account that may have
+    // left the score's guild since.
     const targetAccount = findAccount(targetUser, target_bbs_id);
     if (!targetAccount) {
       return res.status(400).json({ success: false, message: "Ce compte bbs n'appartient pas à l'utilisateur cible" });
@@ -329,8 +324,8 @@ router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
     const rotationIndexMap = buildRotationIndexMap(cycle);
     const currentRotationIndex = rotationIndexMap.get(existingScore.rotation_id);
 
-    // Recalcule raw_score par rapport à l'historique du compte CIBLE — le score affiché
-    // (existingScore.score) est préservé, seule sa provenance (raw_score) change de référentiel.
+    // Recompute raw_score from the TARGET account's history: the displayed score
+    // (existingScore.score) is preserved, only its raw_score reference changes.
     let calculatedRawScore = existingScore.score;
     let isDifferential = false;
     if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
@@ -356,8 +351,8 @@ router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
     await req.db.collection("scores").updateOne({ _id: existingScore._id }, { $set: updateData });
     await recordScoreChange(req.db, { action: 'transfer_account', before: existingScore, after: updateData, user: req.user });
 
-    // Le score de base a changé de compte : recalculer les différentiels suivants du compte
-    // cible (comme à la création) ET ceux qui suivaient encore l'ancien compte.
+    // The base score changed account: recompute the following differentials of the target account (as
+    // on creation) AND those still following the previous account.
     let recalculatedCount = 0;
     if (currentRotationIndex % 2 === 0) {
       const affectedTarget = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, existingScore.cycle_id, target_bbs_id);

@@ -6,7 +6,7 @@ import { CLEAR_SCORE_THRESHOLD } from '../utils/scoreThresholds.js';
 const router = express.Router();
 router.use(requireDb);
 
-// Statistiques globales de la communauté
+// GET community-wide statistics
 router.get('/community', async (req, res) => {
   try {
     const cycleId = req.query.cycle_id;
@@ -37,9 +37,9 @@ router.get('/community', async (req, res) => {
       totalMembers += activeAccountsCount;
     }
 
-    // Scores scopés par guilde (champ dénormalisé sur chaque score), pas par user : un score reste
-    // rattaché à la guilde active au moment de la saisie, même si le user a par ailleurs un autre
-    // compte dans une guilde désactivée depuis.
+    // Scores are scoped by guild (field stored on each score), not by user: a score stays attached to
+    // the guild active when it was entered, even if the user also has an account in a guild that was
+    // disabled since.
     const scoresQuery = { guild_id: { $in: activeGuildIds } };
     if (cycleId) scoresQuery.cycle_id = cycleId;
 

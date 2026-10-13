@@ -10,8 +10,8 @@ import { sendServerError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
 
-// Outils de suivi des scores pour chefs et admins. Périmètre : un chef/sous-chef ne voit que ses
-// guildes ; un admin voit tout (ou la guilde ?guild_id=).
+// Score monitoring tools for leaders and admins. Scope: a leader/officer only sees their guilds;
+// an admin sees everything (or the ?guild_id= guild).
 
 class ScopeError extends Error {
   constructor(status, message) {
@@ -21,8 +21,8 @@ class ScopeError extends Error {
 }
 
 /**
- * Guildes visibles pour la requête. `adminDefault` : 'active' = toutes les guildes actives,
- * 'all' = pas de restriction (null), quand l'admin ne précise pas de guilde.
+ * Guilds visible to the request. `adminDefault`: 'active' = every active guild, 'all' = no
+ * restriction (null), when the admin does not specify a guild.
  */
 const resolveGuildScope = async (req, { adminDefault = 'active' } = {}) => {
   const { guild_id } = req.query;
@@ -40,7 +40,7 @@ const resolveGuildScope = async (req, { adminDefault = 'active' } = {}) => {
   return guild_id ? [guild_id] : allowed;
 };
 
-// Une seule guilde : celle demandée (?guild_id=), ou la seule guilde gérée par le chef.
+// A single guild: the requested one (?guild_id=), or the only guild the leader manages.
 const resolveSingleGuild = async (req) => {
   const guildIds = await resolveGuildScope(req);
   if (!req.query.guild_id && guildIds.length !== 1) throw new ScopeError(400, 'guild_id requis');
@@ -52,7 +52,7 @@ const handleError = (res, err) => {
   return sendServerError(res, err);
 };
 
-// GET baisses de régime : membres dont les derniers scores sont nettement sous leur habitude.
+// GET declines: members whose latest scores are well below their usual level.
 router.get('/decline-alerts', requireScoresAccess, async (req, res) => {
   try {
     const guildIds = await resolveGuildScope(req);
@@ -63,8 +63,8 @@ router.get('/decline-alerts', requireScoresAccess, async (req, res) => {
   }
 });
 
-// GET repères de la saisie groupée (dernier score, habituel, base différentielle) des comptes donnés
-// sur une rotation d'un cycle. Ici et pas dans bulk.js : GET /:id (crud) la capturerait sinon.
+// GET bulk entry references (usual score, differential base) of the given accounts on a rotation of
+// a cycle. Declared here rather than in bulk.js, otherwise GET /:id (crud) would catch it.
 router.get('/bulk-context', requireScoresAccess, async (req, res) => {
   try {
     await resolveSingleGuild(req);
@@ -79,7 +79,7 @@ router.get('/bulk-context', requireScoresAccess, async (req, res) => {
   }
 });
 
-// GET scores à vérifier (probables erreurs de saisie) sur les cycles récents.
+// GET scores to review (probable typos) on recent cycles.
 router.get('/anomalies', requireScoresAccess, async (req, res) => {
   try {
     const guildIds = await resolveGuildScope(req);
@@ -90,7 +90,7 @@ router.get('/anomalies', requireScoresAccess, async (req, res) => {
   }
 });
 
-// POST marque un score comme vérifié (il ne remonte plus tant que sa valeur ne change pas).
+// POST mark a score as reviewed (it no longer shows up until its value changes).
 router.post('/:id/anomaly-review', requireScoresAccess, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) {
@@ -109,7 +109,7 @@ router.post('/:id/anomaly-review', requireScoresAccess, async (req, res) => {
   }
 });
 
-// GET scores manquants d'un cycle (cycle en cours par défaut) pour les membres actuels de la guilde.
+// GET missing scores of a cycle (current cycle by default) for the guild's current members.
 router.get('/missing', requireScoresAccess, async (req, res) => {
   try {
     const guildId = await resolveSingleGuild(req);
@@ -119,7 +119,7 @@ router.get('/missing', requireScoresAccess, async (req, res) => {
   }
 });
 
-// GET fiche de préparation d'une rotation (prochaine rotation du cycle en cours par défaut).
+// GET rotation preparation sheet (next rotation of the current cycle by default).
 router.get('/preparation', requireScoresAccess, async (req, res) => {
   try {
     const guildId = await resolveSingleGuild(req);
@@ -133,7 +133,7 @@ router.get('/preparation', requireScoresAccess, async (req, res) => {
   }
 });
 
-// GET historique des modifications de scores (filtres : guild_id, cycle_id, bbs_id, score_id, action).
+// GET score change history (filters: guild_id, cycle_id, bbs_id, score_id, action).
 router.get('/history', requireScoresAccess, async (req, res) => {
   try {
     const { cycle_id, bbs_id, score_id, action, page, limit } = req.query;

@@ -10,8 +10,8 @@ import { notifyGuildChange } from './notifications.js';
 
 const router = express.Router();
 
-// Route pour mettre à jour le rôle d'un utilisateur (admin seulement)
-// bbs_id optionnel : cible ce compte précis ; par défaut, le compte principal.
+// PUT update a user's role (admin only).
+// Optional bbs_id targets that account; defaults to the main account.
 router.put('/:userId/role', requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
@@ -21,10 +21,9 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Le rôle est requis' });
     }
 
-    // Récupérer l'utilisateur pour connaître sa guilde
     let user;
 
-    // Essayer d'abord comme ObjectId MongoDB, sinon comme discord_id
+    // Try a MongoDB ObjectId first, then a discord_id
     if (ObjectId.isValid(userId)) {
       user = await req.db.collection('users').findOne({ _id: new ObjectId(userId) });
     } else {
@@ -52,7 +51,7 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
       });
     }
 
-    // Vérifier les contraintes de rôle (au niveau des comptes, pas des users)
+    // Role constraints apply per account, not per user
     await assertRoleAvailable(req.db, guildeId, role, targetAccount?.bbs_id);
 
     const oldRole = targetAccount?.role || 'membre';
@@ -72,9 +71,8 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
-    // Notification Discord — attendue avant la réponse : sur Vercel (serverless), l'exécution
-    // peut être coupée dès la réponse envoyée, donc un appel non attendu après res.json() n'est
-    // pas garanti d'aboutir (silencieusement manqué, de façon intermittente).
+    // Discord notification, awaited before responding: on Vercel (serverless) execution may stop once
+    // the response is sent, so a call left running after res.json() is not guaranteed to complete.
     if (oldRole !== role) {
       try {
         const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
@@ -95,8 +93,8 @@ router.put('/:userId/role', requireAdmin, async (req, res) => {
   }
 });
 
-// Route pour changer la guilde d'un utilisateur (admin seulement)
-// bbs_id optionnel : cible ce compte précis ; par défaut, le compte principal.
+// PUT change a user's guild (admin only).
+// Optional bbs_id targets that account; defaults to the main account.
 router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
@@ -118,12 +116,11 @@ router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Form
       return res.status(404).json({ success: false, message: 'Compte bbs introuvable pour cet utilisateur' });
     }
 
-    // Vérifier les contraintes si un rôle spécifique est demandé (au niveau des comptes, pas des users)
+    // Role constraints apply per account, not per user
     if (newRole === 'chef' || newRole === 'sous-chef') {
       await assertRoleAvailable(req.db, guildeId, newRole, targetAccount?.bbs_id);
     }
 
-    // Mettre à jour la guilde et le rôle du compte ciblé
     const bbsAccounts = bbs_id
       ? updateAccount(user.bbs_accounts, bbs_id, { guildeId, role: newRole })
       : upsertPrimaryAccount(user.bbs_accounts, {
@@ -135,8 +132,8 @@ router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Form
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    // Notification Discord — uniquement pertinente pour le compte principal (c'est ce que
-    // reflètent les champs racine guilde_id/role affichés ailleurs) — attendue avant la réponse.
+    // Discord notification, only relevant for the main account (what the root guilde_id/role fields
+    // reflect), awaited before responding.
     if (!bbs_id || targetAccount?.is_primary) {
       await notifyGuildChange(req.db, user, guildeId).catch(e =>
         logger.error('[users/guild] Erreur notification Discord:', e.message)

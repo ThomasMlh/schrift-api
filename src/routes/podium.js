@@ -12,7 +12,7 @@ const router = express.Router();
 
 router.use(requireDb);
 
-// GET podium simple (top 10)
+// GET podium (top 10)
 router.get('/', async (req, res) => {
   try {
     const result = await getPodium(req.db, req.query);
@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET podium complet pagine
+// GET full paginated podium
 router.get('/full', async (req, res) => {
   try {
     const result = await getPodiumFull(req.db, req.query);
@@ -32,7 +32,7 @@ router.get('/full', async (req, res) => {
   }
 });
 
-// GET podium hebdomadaire
+// GET weekly podium
 router.get('/weekly', async (req, res) => {
   try {
     const result = await getPodiumWeekly(req.db, req.query);
@@ -42,7 +42,7 @@ router.get('/weekly', async (req, res) => {
   }
 });
 
-// GET podium des miss
+// GET misses podium
 router.get('/misses', async (req, res) => {
   try {
     const result = await getPodiumMisses(req.db, req.query);
@@ -52,14 +52,14 @@ router.get('/misses', async (req, res) => {
   }
 });
 
-// GET proposition de draft (admin) : répartition simulée par score sur un cycle
+// GET draft proposal (admin): simulated split by score on a cycle
 router.get('/draft-proposal', requireAdmin, async (req, res) => {
   try {
     const result = await getDraftProposal(req.db, req.query);
     res.json({ success: true, ...result });
 
-    // Historique (non bloquant, après la réponse) : garde une trace de ce qui a été généré,
-    // avec le résultat complet, pour le consulter plus tard sans avoir à tout recalculer.
+    // History (non-blocking, after the response): keeps the full generated result so it can be
+    // reviewed later without recomputing it.
     try {
       const submitter = req.user?._id
         ? await req.db.collection('users').findOne({ _id: new ObjectId(req.user._id) }, { projection: USER_DISPLAY })
@@ -83,8 +83,8 @@ router.get('/draft-proposal', requireAdmin, async (req, res) => {
   }
 });
 
-// GET remplacement ciblé (admin) : remplaçants équivalents ou plus forts pour des joueurs d'une
-// guilde, pris dans les guildes inférieures de l'ordre ou parmi les joueurs sans guilde
+// GET targeted replacement (admin): equivalent or stronger replacements for some players of a
+// guild, taken from lower guilds in the order or from guildless players
 router.get('/draft-replacement', requireAdmin, async (req, res) => {
   try {
     const result = await getDraftReplacement(req.db, req.query);
@@ -94,7 +94,7 @@ router.get('/draft-replacement', requireAdmin, async (req, res) => {
   }
 });
 
-// GET historique des propositions générées (résumés, les plus récentes d'abord)
+// GET generated proposals history (summaries, most recent first)
 router.get('/draft-proposal/history', requireAdmin, async (req, res) => {
   try {
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
@@ -110,7 +110,7 @@ router.get('/draft-proposal/history', requireAdmin, async (req, res) => {
   }
 });
 
-// GET une entrée d'historique complète (avec le détail des guildes)
+// GET a full history entry (with guild details)
 router.get('/draft-proposal/history/:id', requireAdmin, async (req, res) => {
   try {
     const entry = await req.db.collection('draft_proposals').findOne({ _id: new ObjectId(req.params.id) });
@@ -123,7 +123,7 @@ router.get('/draft-proposal/history/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE une entrée d'historique
+// DELETE a history entry
 router.delete('/draft-proposal/history/:id', requireAdmin, async (req, res) => {
   try {
     await req.db.collection('draft_proposals').deleteOne({ _id: new ObjectId(req.params.id) });
@@ -133,9 +133,9 @@ router.delete('/draft-proposal/history/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// POST publication manuelle du récap de fin de cycle, envoyé au salon général de la/les guilde(s)
-// concernée(s) : capture du podium (même notification podium_snapshot que pour les rotations)
-// et/ou bilan écrit (top 3, records battus, plus forte progression, moyenne de la guilde).
+// POST publish the end-of-cycle recap manually to the general channel of the targeted guild(s):
+// podium capture (same podium_snapshot notification as rotations) and/or written summary (top 3,
+// records beaten, biggest progression, guild average).
 router.post('/publish-cycle-recap', requireAdmin, async (req, res) => {
   try {
     const { cycle_name, year, ranking_type = 'average', guild_name, include_snapshot = true, include_summary = true } = req.body;
@@ -175,7 +175,7 @@ router.post('/publish-cycle-recap', requireAdmin, async (req, res) => {
   }
 });
 
-// GET aperçu du bilan de fin de cycle d'une guilde (sans rien envoyer)
+// GET preview of a guild's end-of-cycle recap (nothing is sent)
 router.get('/cycle-recap', requireAdmin, async (req, res) => {
   try {
     const { cycle_id, guild_id } = req.query;

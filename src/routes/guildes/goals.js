@@ -17,7 +17,7 @@ const findGuild = async (req, res) => {
   return guild;
 };
 
-// GET objectifs d'une guilde sur un cycle (cycle en cours par défaut), avec leur progression. Public.
+// GET a guild's goals on a cycle (current cycle by default), with their progress. Public.
 router.get('/:id/goals', async (req, res) => {
   try {
     const guild = await findGuild(req, res);
@@ -32,8 +32,8 @@ router.get('/:id/goals', async (req, res) => {
   }
 });
 
-// PUT objectifs d'une guilde sur un cycle : admin, ou chef/sous-chef de cette guilde.
-// Body : { cycle_id, goals: [{ type, target }] } ; une liste vide supprime les objectifs.
+// PUT a guild's goals on a cycle: admin, or a leader/officer of this guild.
+// Body: { cycle_id, goals: [{ type, target }] }; an empty list removes the goals.
 router.put('/:id/goals', requireScoresAccess, async (req, res) => {
   try {
     if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(req.params.id)) {

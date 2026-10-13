@@ -6,10 +6,9 @@ import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
-// Middleware pour toutes les routes accessories
 router.use(requireDb);
 
-// GET codes disponibles sur le bucket (liste FTP des sous-dossiers /accessories/)
+// GET accessory codes available on the bucket (FTP listing of /accessories/ subfolders)
 router.get('/codes', requireAdmin, async (req, res) => {
   const ftp = new FTPUploader();
   try {
@@ -24,7 +23,7 @@ router.get('/codes', requireAdmin, async (req, res) => {
   }
 });
 
-// POST créer un accessory
+// POST create an accessory
 router.post('/', requireAdmin, async (req, res) => {
   try {
     const { name, code } = req.body;
@@ -41,15 +40,13 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
-// GET tous les accessories (sans pagination, avec recherche optionnelle)
+// GET every accessory (no pagination, optional name search)
 router.get('/', async (req, res) => {
   try {
     const { search } = req.query;
 
-    // Construction de la requête
     const query = {};
 
-    // Filtre par recherche sur le nom
     if (search && search.trim()) {
       query.name = { $regex: search.trim(), $options: 'i' };
     }
@@ -73,7 +70,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET un accessory par ID
+// GET an accessory by id
 router.get('/:id', async (req, res) => {
   try {
     const accessory = await req.db.collection('accessories').findOne({
@@ -100,13 +97,12 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT mettre à jour un accessory
+// PUT update an accessory
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const { name } = req.body;
     const { code } = req.body;
 
-    // Validation
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
@@ -114,7 +110,6 @@ router.put('/:id', requireAdmin, async (req, res) => {
       });
     }
 
-    // Vérifier que l'accessory existe
     const existingAccessory = await req.db.collection('accessories').findOne({
       _id: new ObjectId(req.params.id)
     });
@@ -126,7 +121,6 @@ router.put('/:id', requireAdmin, async (req, res) => {
       });
     }
 
-    // Mettre à jour l'accessory
     const result = await req.db.collection('accessories').updateOne(
       { _id: new ObjectId(req.params.id) },
       { $set: { name: name.trim(), ...(code !== undefined ? { code: code.trim() || null } : {}) } }
@@ -139,7 +133,6 @@ router.put('/:id', requireAdmin, async (req, res) => {
       });
     }
 
-    // Récupérer l'accessory mis à jour
     const updatedAccessory = await req.db.collection('accessories').findOne({
       _id: new ObjectId(req.params.id)
     });
@@ -158,7 +151,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE supprimer un accessory
+// DELETE an accessory
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const result = await req.db.collection('accessories').deleteOne({

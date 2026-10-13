@@ -5,10 +5,9 @@ import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
-// Middleware to ensure database connection
 router.use(requireDb);
 
-// GET /guides - Retrieve all guide types available
+// GET /guides - available guide types
 router.get('/', async (req, res) => {
   try {
     const guideTypes = await req.db.collection('guide_orbe').aggregate([
@@ -16,7 +15,7 @@ router.get('/', async (req, res) => {
     ]).toArray();
     
     res.json({
-      availableGuides: ['orbes', 'stuff', 'xp', 'ability-slots'], // Types de guides disponibles
+      availableGuides: ['orbes', 'stuff', 'xp', 'ability-slots'],
       data: guideTypes
     });
   } catch (error) {
@@ -24,15 +23,14 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /guides/orbes - Guide spécifique au farm d'orbes
+// GET /guides/orbes - orb farming guide
 router.get('/orbes', async (req, res) => {
   try {
     const orbesGuide = await req.db.collection('guide_orbe')
       .find()
-      .sort({ amount: -1 }) // Tri par montant décroissant
+      .sort({ amount: -1 })
       .toArray();
     
-    // Calcul du total d'orbes disponibles
     const totalOrbes = orbesGuide.reduce((sum, source) => sum + (source.amount || 0), 0);
     
     res.json({
@@ -45,7 +43,7 @@ router.get('/orbes', async (req, res) => {
   }
 });
 
-// POST /guides/orbes - Ajouter une nouvelle entrée au guide des orbes
+// POST /guides/orbes - add an orb guide entry
 router.post('/orbes', requireAdmin, async (req, res) => {
   try {
     const newEntry = req.body;
@@ -62,7 +60,7 @@ router.post('/orbes', requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE /guides/orbes/:id - Supprimer une entrée du guide des orbes
+// DELETE /guides/orbes/:id - delete an orb guide entry
 router.delete('/orbes/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -82,7 +80,7 @@ router.delete('/orbes/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// PATCH /guides/orbes/:id - Mettre à jour une entrée spécifique du guide des orbes
+// PATCH /guides/orbes/:id - update an orb guide entry
 router.patch('/orbes/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -108,9 +106,8 @@ router.patch('/orbes/:id', requireAdmin, async (req, res) => {
 });
 
 
-// Calcule l'ordre d'insertion pour une catégorie : à la suite de la dernière
-// ligne de cette catégorie si elle existe déjà, sinon à la toute fin du
-// tableau. La numérotation démarre à 1.
+// Insertion order for a category: right after the category's last row when it exists, otherwise
+// at the end of the table. Numbering starts at 1.
 const computeAbilitySlotInsertOrder = async (db, category) => {
   const [lastInCategory] = await db.collection('guide_ability_slots')
     .find({ category })
@@ -131,7 +128,7 @@ const computeAbilitySlotInsertOrder = async (db, category) => {
   return (lastOverall?.order ?? 0) + 1;
 };
 
-// GET /guides/ability-slots - Tableau des emplacements de capacités
+// GET /guides/ability-slots - ability slots table
 router.get('/ability-slots', async (req, res) => {
   try {
     const abilitySlotsGuide = await req.db.collection('guide_ability_slots')
@@ -146,9 +143,8 @@ router.get('/ability-slots', async (req, res) => {
   }
 });
 
-// POST /guides/ability-slots - Ajouter une ligne au tableau des emplacements de capacités
-// L'ordre est toujours calculé automatiquement (à la suite de la catégorie
-// concernée) pour éviter les doublons/collisions entre catégories.
+// POST /guides/ability-slots - add an ability slots row.
+// The order is always computed (right after its category) to avoid collisions between categories.
 router.post('/ability-slots', requireAdmin, async (req, res) => {
   try {
     const { category, name, star1, star2, star3 } = req.body;
@@ -160,7 +156,7 @@ router.post('/ability-slots', requireAdmin, async (req, res) => {
     const collection = req.db.collection('guide_ability_slots');
     const insertOrder = await computeAbilitySlotInsertOrder(req.db, category);
 
-    // Décale les lignes suivantes pour garder les catégories contiguës
+    // Shift the following rows so categories stay contiguous
     await collection.updateMany({ order: { $gte: insertOrder } }, { $inc: { order: 1 } });
 
     const result = await collection.insertOne({
@@ -182,7 +178,7 @@ router.post('/ability-slots', requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE /guides/ability-slots/:id - Supprimer une ligne du tableau des emplacements de capacités
+// DELETE /guides/ability-slots/:id - delete an ability slots row
 router.delete('/ability-slots/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -202,10 +198,9 @@ router.delete('/ability-slots/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// PATCH /guides/ability-slots/:id - Mettre à jour une ligne du tableau des emplacements de capacités
-// L'ordre n'est jamais accepté depuis le client : si la catégorie change, il
-// est recalculé automatiquement pour recoller la ligne à la suite de sa
-// nouvelle catégorie.
+// PATCH /guides/ability-slots/:id - update an ability slots row.
+// The order is never taken from the client: when the category changes, it is recomputed to place
+// the row after its new category.
 router.patch('/ability-slots/:id', requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -244,10 +239,9 @@ router.patch('/ability-slots/:id', requireAdmin, async (req, res) => {
 });
 
 
-// GET /guides/stuff - Guide pour le farm de stuff (à implémenter)
+// GET /guides/stuff - gear farming guide
 router.get('/stuff', async (req, res) => {
   try {
-    // Collection dédiée pour le guide stuff
     const stuffGuide = await req.db.collection('guide_stuff')
       .find()
       .toArray();
@@ -263,13 +257,12 @@ router.get('/stuff', async (req, res) => {
   }
 });
 
-// GET /guides/:type - Route générique pour les nouveaux types de guides
+// GET /guides/:type - generic route for other guide types
 router.get('/:type', async (req, res) => {
   try {
     const { type } = req.params;
     const collectionName = `guide_${type}`;
     
-    // Vérifier si la collection existe
     const collections = await req.db.listCollections({ name: collectionName }).toArray();
     
     if (collections.length === 0) {
