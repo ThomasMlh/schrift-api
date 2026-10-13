@@ -5,6 +5,7 @@ import { getDeclineAlerts } from '../../services/playerTrends.js';
 import { getScoreAnomalies, reviewScoreAnomaly } from '../../services/scoreAnomalies.js';
 import { getScoreHistory, isScoreHistoryAction } from '../../services/scoreHistory.js';
 import { getMissingScores, getRotationPreparation } from '../../services/guildTools.js';
+import { getBulkEntryContext } from '../../services/bulkEntryContext.js';
 import { sendServerError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
@@ -58,6 +59,22 @@ router.get('/decline-alerts', requireScoresAccess, async (req, res) => {
     const alerts = await getDeclineAlerts(req.db, { guildIds });
     res.json({ success: true, alerts });
   } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// GET repères de la saisie groupée (dernier score, habituel, base différentielle) des comptes donnés
+// sur une rotation d'un cycle. Ici et pas dans bulk.js : GET /:id (crud) la capturerait sinon.
+router.get('/bulk-context', requireScoresAccess, async (req, res) => {
+  try {
+    await resolveSingleGuild(req);
+    const { cycle_id, rotation_id } = req.query;
+    if (!cycle_id || !rotation_id) return res.status(400).json({ success: false, message: 'cycle_id et rotation_id requis' });
+    const bbsIds = String(req.query.bbs_ids || '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 200);
+    const context = await getBulkEntryContext(req.db, { cycleId: cycle_id, rotationId: rotation_id, bbsIds });
+    res.json({ success: true, ...context });
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ success: false, message: err.message });
     handleError(res, err);
   }
 });
