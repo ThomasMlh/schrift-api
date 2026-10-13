@@ -18,8 +18,8 @@ const RECORD_FACTOR = 1.2;
 // Minimum de scores existants sur le killer pour que son record serve de référence
 const MIN_KILLER_SAMPLES = 5;
 // Au-delà du double, ou sous le quart, de la moyenne du joueur sur ce killer
-const ABOVE_USUAL_FACTOR = 2;
-const BELOW_USUAL_FACTOR = 0.25;
+export const ABOVE_USUAL_FACTOR = 2;
+export const BELOW_USUAL_FACTOR = 0.25;
 // Cycles commencés examinés (les plus récents)
 const RECENT_CYCLES = 2;
 
