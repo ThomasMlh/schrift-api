@@ -5,9 +5,9 @@ import { getProgression, getDeclineAlerts, getPreviousCycle } from '../../src/se
 import { getPodiumFull } from '../../src/services/podiumService/index.js';
 import { getCycleRecap } from '../../src/services/cycleRecap.js';
 
-// Progression d'un cycle à l'autre, baisses de régime et récap de fin de cycle, contre un vrai
-// MongoDB en mémoire. Tous les scores sont ici non différentiels (donc tous comparables) : le
-// filtrage des différentiels sans base est couvert par killerRecords.test.js.
+// Cycle-to-cycle progression, declines and end-of-cycle recap, against a real in-memory MongoDB. All
+// scores here are non-differential (so all comparable): filtering differentials without a base is
+// covered by killerRecords.test.js.
 jest.setTimeout(60000);
 
 let mongod;
@@ -20,7 +20,7 @@ beforeAll(async () => {
   client = new MongoClient(mongod.getUri());
   await client.connect();
   db = client.db('schrift-test');
-  setDb(db); // notifyDiscord journalise dans activity_log via getDB()
+  setDb(db); // notifyDiscord logs to activity_log through getDB()
   originalFetch = globalThis.fetch;
   globalThis.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => '' });
   process.env.FRONTEND_URL = 'https://front.test';
@@ -76,7 +76,7 @@ const score = (cycle_id, rotation_id, bbs_id, value, guild_id = 'g1') => ({
 describe('getProgression', () => {
   it('ranks accounts by average improvement (%) against the previous cycle', async () => {
     const [k1, k2] = await seedRotations();
-    // C2 créé avant C1 : l'ordre vient des dates, pas de l'insertion
+    // C2 created before C1: the order comes from the dates, not the insertion
     const c2 = await seedCycle('C2', '01/03/2026', [k1, k2]);
     const c1 = await seedCycle('C1', '01/01/2026', [k1, k2]);
     await db.collection('scores').insertMany([
@@ -84,7 +84,7 @@ describe('getProgression', () => {
       score(c1, k1, 'bob', 300), score(c1, k2, 'bob', 300),
       score(c2, k1, 'alice', 150), score(c2, k2, 'alice', 300),
       score(c2, k1, 'bob', 200), score(c2, k2, 'bob', 300),
-      // carol n'a pas joué C1 : pas de progression calculable
+      // carol did not play C1: no progression can be computed
       score(c2, k1, 'carol', 999),
     ]);
 
@@ -155,12 +155,12 @@ describe('getDeclineAlerts', () => {
       for (const c of cycles.slice(0, 2)) {
         scores.push(score(c, k, 'alice', usual[k], guildId), score(c, k, 'bob', usual[k], guildId));
       }
-      // alice s'effondre sur C3, bob reste à son niveau, carol n'a aucun historique
+      // alice collapses on C3, bob keeps his level, carol has no history
       scores.push(score(cycles[2], k, 'alice', usual[k] / 2, guildId));
       scores.push(score(cycles[2], k, 'bob', usual[k] * 0.95, guildId));
       scores.push(score(cycles[2], k, 'carol', 1, guildId));
     }
-    // dave n'est pas dans la guilde
+    // dave is not in the guild
     scores.push(score(cycles[0], k1, 'dave', 100), score(cycles[2], k1, 'dave', 1), score(cycles[2], k2, 'dave', 1));
     await db.collection('scores').insertMany(scores);
 
@@ -180,9 +180,9 @@ describe('getDeclineAlerts', () => {
     await seedCycle('C4', '01/07/2026', [k1, k2]);
     const guildId = await seedGuild('Les Quincy', ['alice', 'bob']);
     await db.collection('scores').insertMany([
-      // alice : un seul score récent avec historique
+      // alice: a single recent score with history
       score(c1, k1, 'alice', 100, guildId), score(c3, k1, 'alice', 10, guildId),
-      // bob : effondrement sur C2, mais C2 n'est plus dans les deux derniers cycles (C3, C4)
+      // bob: collapse on C2, but C2 is no longer one of the two latest cycles (C3, C4)
       score(c1, k1, 'bob', 100, guildId), score(c1, k2, 'bob', 100, guildId),
       score(c2, k1, 'bob', 10, guildId), score(c2, k2, 'bob', 10, guildId),
     ]);
@@ -203,7 +203,7 @@ describe('getCycleRecap', () => {
       score(c1, k1, 'bob', 300, guildId), score(c1, k2, 'bob', 300, guildId),
       score(c2, k1, 'alice', 150, guildId), score(c2, k2, 'alice', 300, guildId),
       score(c2, k1, 'bob', 200, guildId), score(c2, k2, 'bob', 300, guildId),
-      // un cycle ULTÉRIEUR ne doit pas empêcher les records de C2
+      // A LATER cycle must not prevent the C2 records
       score(c3, k1, 'alice', 999, guildId),
     ]);
 
@@ -222,7 +222,7 @@ describe('getCycleRecap', () => {
       previous_guild_average: 225,
     });
     expect(recap.top3.map((p) => [p.rank, p.pseudo, p.average])).toEqual([[1, 'BOB', 250], [2, 'ALICE', 225]]);
-    // les deux records ont le même gain relatif (+50 %) : on ne vérifie pas leur ordre
+    // Both records have the same relative gain (+50%): their order is not checked
     expect(recap.records.map((r) => [r.killer, r.previous_score, r.new_score]).sort()).toEqual([
       ['Arrancar', 100, 150], ['Espada', 200, 300],
     ]);

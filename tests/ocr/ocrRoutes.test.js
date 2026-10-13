@@ -6,16 +6,13 @@ import { MongoClient, ObjectId } from 'mongodb';
 import ocrRouter from '../../src/routes/ocr.js';
 import { setDb } from '../../src/config/database.js';
 
-// La saisie manuelle (scores/bulk.js) déclenche une capture automatique du
-// podium ('podium_snapshot', envoyée au salon membres) en plus du
-// récapitulatif texte. La saisie OCR (routes/ocr.js, POST /submit-batch) ne
-// le faisait pas — ce test couvre le correctif.
+// The manual entry (scores/bulk.js) triggers an automatic podium capture ('podium_snapshot', sent to
+// the members channel) in addition to the text summary; this covers the same behavior for the OCR
+// entry (routes/ocr.js, POST /submit-batch).
 //
-// notifyDiscord journalise chaque notification dans `activity_log` AVANT
-// d'essayer de joindre le bot (cf. src/utils/notifyDiscord.js), donc on peut
-// vérifier le déclenchement sans mocker quoi que ce soit : l'appel au bot
-// échouera (aucun bot ne tourne dans ce test), ce qui est non bloquant et
-// n'empêche pas la journalisation.
+// notifyDiscord logs every notification to `activity_log` BEFORE contacting the bot (see
+// src/utils/notifyDiscord.js), so the trigger can be checked without mocks: the bot call fails (no bot
+// runs in this test), which is non-blocking and does not prevent logging.
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';
@@ -32,7 +29,7 @@ beforeAll(async () => {
   client = new MongoClient(mongod.getUri());
   await client.connect();
   db = client.db('schrift-test');
-  setDb(db); // requis pour que notifyDiscord puisse journaliser dans activity_log
+  setDb(db); // Required for notifyDiscord to log to activity_log
 
   app = express();
   app.use(express.json());
@@ -98,17 +95,17 @@ describe('POST /api/ocr/submit-batch', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.inserted).toBe(1);
 
-    // Score réellement persisté
+    // Score actually persisted
     const score = await db.collection('scores').findOne({ bbs_id: 'bbs-1', cycle_id: cycleId });
     expect(score).not.toBeNull();
     expect(score.source).toBe('ocr');
 
-    // Récapitulatif texte envoyé au salon chefs
+    // Text summary sent to the leaders channel
     const textNotif = await db.collection('activity_log').findOne({ type: 'scores' });
     expect(textNotif).not.toBeNull();
     expect(textNotif.channel_id).toBe('chefs-channel');
 
-    // Capture podium envoyée au salon membres — c'est le comportement qui manquait
+    // Podium capture sent to the members channel
     const podiumNotif = await db.collection('activity_log').findOne({ type: 'podium_snapshot' });
     expect(podiumNotif).not.toBeNull();
     expect(podiumNotif.channel_id).toBe('membres-channel');
@@ -143,7 +140,7 @@ describe('POST /api/ocr/submit-batch', () => {
 
   it('announces a personal record when a new OCR score beats the account best from a previous cycle', async () => {
     const { guildId, cycleId, userId } = await seedFixtures();
-    // Cycle précédent sur le même killer (rotation 'r1'), avec un score plus bas pour ce compte
+    // Previous cycle on the same killer (rotation 'r1'), with a lower score for this account
     const previous = await db.collection('cycles').insertOne({
       name: 'Cycle Précédent', year: 2026, rotations: [{ rotation_id: 'r1', position: 1 }],
     });

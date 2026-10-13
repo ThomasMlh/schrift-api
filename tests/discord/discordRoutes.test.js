@@ -5,11 +5,10 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient, ObjectId } from 'mongodb';
 import discordRouter from '../../src/routes/discord.js';
 
-// Nouvelle fonctionnalité : lister les salons Discord (+ leurs membres) et envoyer un
-// message via le bot, depuis le site. Admin : tous les salons. Chef/sous-chef : limité
-// aux salons (chefs + général) des guildes qu'il gère (cf. getAllowedChannelIds dans
-// routes/discord.js). Le bot lui-même est mocké via global.fetch — ces tests vérifient
-// la logique de filtrage/permission côté API, pas le bot.
+// Listing Discord channels (with their members) and sending a message through the bot from the site.
+// Admin: every channel. Leader/officer: only the channels (leaders + general) of their guilds (see
+// getAllowedChannelIds in routes/discord.js). The bot itself is mocked through global.fetch: these
+// tests cover the API-side filtering and permissions, not the bot.
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';

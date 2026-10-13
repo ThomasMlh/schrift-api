@@ -1,22 +1,18 @@
 import sharp from 'sharp';
 
-// Smoke tests couvrant exactement la surface de l'API sharp utilisée par le
-// pipeline OCR (src/utils/ocrAutoDetect.js, src/utils/ocrProcessor.js,
-// routes/ocr.js, routes/ocr-debug.js). Zéro couverture avant la mise à
-// jour 0.34.5 -> 0.35.5 (correctif de sécurité libvips/libheif) : ces tests
-// garantissent que chaque appel utilisé en prod se comporte toujours comme
-// attendu après la montée de version.
+// Smoke tests covering exactly the sharp API surface used by the OCR pipeline
+// (src/utils/ocrAutoDetect.js, src/utils/ocrProcessor.js, routes/ocr.js, routes/ocr-debug.js), so
+// every call used in production keeps behaving as expected after sharp upgrades.
 //
-// Image de test générée en mémoire (pas de fixture externe nécessaire) :
-// 100x60 px, un rectangle blanc sur fond noir, pour avoir du contraste à
-// mesurer par stats().
+// The test image is generated in memory (no external fixture): 100x60 px, a white rectangle on a
+// black background, giving contrast to measure with stats().
 const makeTestImage = async () => {
   const width = 100;
   const height = 60;
   const channels = 3;
-  const buffer = Buffer.alloc(width * height * channels, 0); // noir partout
+  const buffer = Buffer.alloc(width * height * channels, 0); // Black everywhere
 
-  // Rectangle blanc au centre
+  // White rectangle in the middle
   for (let y = 20; y < 40; y++) {
     for (let x = 25; x < 75; x++) {
       const idx = (y * width + x) * channels;
@@ -110,7 +106,7 @@ describe('sharp API surface used by the OCR pipeline', () => {
     const stats = await sharp(image).stats();
     expect(stats.channels[0]).toHaveProperty('stdev');
     expect(typeof stats.channels[0].stdev).toBe('number');
-    // Notre image a un contraste net (rectangle blanc sur fond noir) : stdev > 0.
+    // The image has a sharp contrast (white rectangle on black): stdev > 0.
     expect(stats.channels[0].stdev).toBeGreaterThan(0);
   });
 

@@ -11,8 +11,8 @@ import { invalidateAchievementsCache } from '../../src/services/achievements.js'
 import { getPodiumFull } from '../../src/services/podiumService/index.js';
 import { getCycleRecap } from '../../src/services/cycleRecap.js';
 
-// Outils des chefs (scores manquants, fiche de préparation, objectifs de guilde), annonces Discord
-// des succès et badge de succès sur le podium.
+// Leader tools (missing scores, preparation sheet, guild goals), Discord achievement announcements
+// and the achievement badge on the podium.
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';
@@ -57,7 +57,7 @@ const adminToken = () => jwt.sign({ _id: new ObjectId().toString(), is_admin: tr
 
 const fmt = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 
-// Guilde avec deux membres actuels (alice, bob) et un cycle passé de 4 rotations (2 semaines)
+// Guild with two current members (alice, bob) and a past cycle of 4 rotations (2 weeks)
 const seed = async ({ start = new Date(2025, 0, 1), rotationIds = null } = {}) => {
   const { insertedId: guildOid } = await db.collection('guildes').insertOne({ name: 'Les Quincy', discord_general_channel_id: 'chan-1' });
   const guildId = guildOid.toString();
@@ -103,7 +103,7 @@ describe('GET /api/scores/missing', () => {
 
   it('requires a guild for admins and refuses another guild to a chef', async () => {
     const ctx = await seed();
-    // Avec plusieurs guildes actives, un admin doit préciser laquelle
+    // With several active guilds, an admin must specify one
     await db.collection('guildes').insertOne({ name: 'Autre' });
     expect((await request(app).get('/api/scores/missing').set('Authorization', `Bearer ${adminToken()}`)).status).toBe(400);
     const other = await request(app).get('/api/scores/missing').query({ guild_id: new ObjectId().toString() })
@@ -118,7 +118,7 @@ describe('GET /api/scores/preparation', () => {
     await db.collection('scores').insertMany([
       score(older, 0, 'alice', 500), score(older, 0, 'bob', 300),
     ]);
-    // Nouveau cycle sur le même killer (rotation réutilisée), pour la même guilde
+    // New cycle on the same killer (reused rotation), for the same guild
     const { insertedId } = await db.collection('cycles').insertOne({
       name: 'Next', year: 2025, created_at: new Date(),
       rotations: [{ rotation_id: older.rotations[0], position: 1, start_date: '01/03/2025', end_date: '01/03/2025' }],
@@ -157,7 +157,7 @@ describe('guild goals', () => {
     const byType = Object.fromEntries(res.body.goals.map((g) => [g.type, g]));
     expect(byType.average).toMatchObject({ value: 572_333_333, achieved: true });
     expect(byType.clear_rate).toMatchObject({ value: 33.3, achieved: false, progress: 66.6 });
-    // 3 scores sur 2 membres × 4 rotations terminées
+    // 3 scores out of 2 members × 4 finished rotations
     expect(byType.participation).toMatchObject({ value: 37.5, achieved: true });
   });
 
@@ -186,11 +186,11 @@ describe('achievement announcements and podium badge', () => {
     const ctx = await seed();
     await db.collection('scores').insertOne(score(ctx, 0, 'alice', 621_500_000));
 
-    // Premier passage : l'historique est enregistré sans annonce
+    // First run: history is recorded without announcements
     expect(await notifyAchievementUnlocks(db, [score(ctx, 0, 'alice', 0)])).toBe(0);
     expect(await db.collection('achievement_unlocks').countDocuments({ bbs_id: 'alice', code: 'perfect_score' })).toBe(2);
 
-    // Bob réalise un score parfait : or et platine annoncés une seule fois
+    // Bob makes a perfect score: gold and platinum are announced once
     const bobScore = score(ctx, 1, 'bob', 621_100_000);
     await db.collection('scores').insertOne(bobScore);
     expect(await notifyAchievementUnlocks(db, [bobScore])).toBe(1);
@@ -209,7 +209,7 @@ describe('achievement announcements and podium badge', () => {
     const result = await getPodiumFull(db, { cycle_name: ctx.cycleName });
     const alice = result.data.find((r) => r.bbs_id === 'alice');
     const bob = result.data.find((r) => r.bbs_id === 'bob');
-    // Le platine de "Score parfait" n'est détenu que par alice : c'est son succès le plus rare
+    // Only alice holds the "Score parfait" platinum: it is her rarest achievement
     expect(alice.top_achievement).toMatchObject({ code: 'perfect_score', tier: 'platinum', name: 'Score parfait' });
     expect(bob.top_achievement).toMatchObject({ tier: 'bronze' });
   });
