@@ -15,8 +15,8 @@ const rotationEnd = (r) => parseDate(r.end_date) || parseDate(r.start_date);
 
 // A member only owes scores for rotations that ended after they joined the guild. An unknown join
 // date (assignments made before it was recorded) counts as always having been there.
-const wasMemberDuring = (member, rotation) =>
-  !member.guild_joined_at || rotationEnd(rotation) + DAY_MS > new Date(member.guild_joined_at).getTime();
+export const wasMemberDuring = (guildJoinedAt, rotation) =>
+  !guildJoinedAt || rotationEnd(rotation) + DAY_MS > new Date(guildJoinedAt).getTime();
 
 /** The requested cycle, otherwise the current one, otherwise the latest started cycle. */
 export const resolveCycle = async (db, cycleId, now = Date.now()) => {
@@ -70,7 +70,7 @@ export const getMissingScores = async (db, { guildId, cycleId, now = Date.now() 
       // Differential rotation (2nd of the week): the leader enters the running total shown in game
       is_differential: r.index % 2 === 1,
       missing: roster
-        .filter((m) => m.bbs_id && wasMemberDuring(m, r) && !scored.has(`${m.bbs_id}|${r.rotation_id}`))
+        .filter((m) => m.bbs_id && wasMemberDuring(m.guild_joined_at, r) && !scored.has(`${m.bbs_id}|${r.rotation_id}`))
         .map((m) => ({ user_id: m.user_id, bbs_id: m.bbs_id, bbs_name: m.bbs_name || null, global_name: m.global_name || null }))
         .sort((a, b) => (a.bbs_name || '').localeCompare(b.bbs_name || '')),
     };
