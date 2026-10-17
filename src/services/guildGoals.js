@@ -3,6 +3,8 @@ import { loadComparableScores, parseDate } from './killerRecords.js';
 import { getCycleRecords } from './playerTrends.js';
 import { getGuildScoreMatch, getGuildBbsIdsForCycle } from './podiumService/index.js';
 import { CLEAR_SCORE_THRESHOLD } from '../utils/scoreThresholds.js';
+import { getGuildAccountRoster } from '../utils/bbsAccounts.js';
+import { wasMemberDuring } from './guildTools.js';
 
 /**
  * A guild's goals on a cycle (`guild_goals` collection, one document per guild and cycle), set by
@@ -43,19 +45,31 @@ const average = (values) => (values.length ? values.reduce((a, b) => a + b, 0) /
 /** Current value of each goal type for a guild on a cycle. */
 const computeGoalValues = async (db, cycle, guildId, now) => {
   const cycleId = cycle._id.toString();
-  const [match, bbsIds] = await Promise.all([
+  const [match, bbsIds, roster] = await Promise.all([
     getGuildScoreMatch(db, cycle, guildId, now),
     getGuildBbsIdsForCycle(db, cycle, guildId, now),
+    getGuildAccountRoster(db, guildId),
   ]);
-  const [scores, played, records] = await Promise.all([
+  const [scores, entered, records] = await Promise.all([
     loadComparableScores(db, { cycle_id: cycleId, ...match }),
-    db.collection('scores').countDocuments({ cycle_id: cycleId, ...match }),
+    db.collection('scores').find({ cycle_id: cycleId, ...match }, { projection: { bbs_id: 1, rotation_id: 1 } }).toArray(),
     getCycleRecords(db, cycle, bbsIds),
   ]);
   const values = scores.map((s) => s.score || 0);
+
+  // Participation only counts the rotations that ended after each member joined the guild. Join
+  // dates are only known for accounts still in the guild; the others owe every rotation.
+  const joinedAt = new Map(roster.map((m) => [m.bbs_id, m.guild_joined_at]));
+  const rotationById = new Map((cycle.rotations || []).map((r) => [r.rotation_id, r]));
   const endedRotations = (cycle.rotations || [])
-    .filter((r) => (parseDate(r.end_date) || parseDate(r.start_date)) + DAY_MS <= now).length;
-  const expected = bbsIds.length * endedRotations;
+    .filter((r) => (parseDate(r.end_date) || parseDate(r.start_date)) + DAY_MS <= now);
+  const expected = bbsIds.reduce(
+    (sum, bbsId) => sum + endedRotations.filter((r) => wasMemberDuring(joinedAt.get(bbsId), r)).length, 0
+  );
+  const played = entered.filter((s) => {
+    const rotation = rotationById.get(s.rotation_id);
+    return !rotation || wasMemberDuring(joinedAt.get(s.bbs_id), rotation);
+  }).length;
 
   const avg = average(values);
   return {

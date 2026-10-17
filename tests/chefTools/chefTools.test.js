@@ -196,6 +196,24 @@ describe('guild goals', () => {
     expect(byType.participation).toMatchObject({ value: 37.5, achieved: true });
   });
 
+  it('only expects participation from the rotations after a member joined', async () => {
+    const ctx = await seed();
+    await db.collection('users').updateOne(
+      { 'bbs_accounts.bbs_id': 'bob' },
+      { $set: { 'bbs_accounts.0.guild_joined_at': new Date(2025, 0, 3, 12) } }
+    );
+    await db.collection('scores').insertMany([
+      score(ctx, 0, 'alice', 100), score(ctx, 1, 'alice', 100),
+      // Before bob joined: neither expected nor counted
+      score(ctx, 0, 'bob', 100), score(ctx, 2, 'bob', 100),
+    ]);
+    await db.collection('guild_goals').insertOne({ guild_id: ctx.guildId, cycle_id: ctx.cycleId, goals: [{ type: 'participation', target: 50 }] });
+
+    const res = await request(app).get(`/api/guildes/${ctx.guildId}/goals`).query({ cycle_id: ctx.cycleId });
+    // 3 scores out of 4 (alice) + 2 (bob, rotations 3 and 4) expected
+    expect(res.body.goals[0]).toMatchObject({ value: 50, achieved: true });
+  });
+
   it('validates goals and refuses another guild', async () => {
     const ctx = await seed();
     const auth = { Authorization: `Bearer ${chefToken(ctx.guildId)}` };
