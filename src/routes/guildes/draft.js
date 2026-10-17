@@ -89,6 +89,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
         bbsId: account?.bbs_id || null,
         originalGuildeId: account?.guilde_id || null,
         originalRole: account?.role || null,
+        originalJoinedAt: account?.guild_joined_at || null,
         bbsName: account?.bbs_name || null
       });
     }
@@ -126,7 +127,9 @@ router.post('/draft', requireAdmin, async (req, res) => {
         for (const m of resolvedMoves) {
           if (!m.bbsId || !m.originalGuildeId) continue;
           const user = userMap.get(m.userId);
-          const bbsAccounts = updateAccount(user.bbs_accounts, m.bbsId, { guildeId: m.originalGuildeId, role: m.originalRole });
+          const bbsAccounts = updateAccount(user.bbs_accounts, m.bbsId, {
+            guildeId: m.originalGuildeId, role: m.originalRole, guildJoinedAt: m.originalJoinedAt
+          });
           user.bbs_accounts = bbsAccounts;
           await req.db.collection('users').updateOne(
             { _id: user._id },
