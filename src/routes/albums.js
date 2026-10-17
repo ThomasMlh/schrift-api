@@ -2,6 +2,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAuth } from '../middleware/auth.js';
 import { sendHiddenServiceError } from '../utils/httpErrors.js';
+import { getGuildAccountRoster } from '../utils/bbsAccounts.js';
 
 // Character albums: one document per bbs account (keyed by bbs_id, like the score history, so the
 // album follows the account when it is transferred between users).
@@ -19,6 +20,25 @@ const findAccountOwner = (db, bbsId) =>
     { $or: [{ 'bbs_accounts.bbs_id': bbsId }, { bbs_id: bbsId }] },
     { projection: { _id: 1 } }
   );
+
+// GET the albums of every bbs account in a guild (public). `characters` is null for an account
+// that never filled its album, so it can be told apart from an empty one.
+router.get('/guild/:guildeId', async (req, res) => {
+  try {
+    const roster = await getGuildAccountRoster(req.db, req.params.guildeId);
+    const albums = await req.db.collection('albums')
+      .find({ bbs_id: { $in: roster.map(m => m.bbs_id).filter(Boolean) } }, { projection: { bbs_id: 1, characters: 1 } })
+      .toArray();
+    const byBbsId = new Map(albums.map(a => [a.bbs_id, a.characters || {}]));
+
+    res.json({
+      success: true,
+      data: roster.map(member => ({ ...member, characters: byBbsId.get(member.bbs_id) ?? null }))
+    });
+  } catch (error) {
+    sendHiddenServiceError(res, error, 'Erreur lors de la récupération des albums de la guilde:');
+  }
+});
 
 // GET an account's album (public)
 router.get('/:bbsId', async (req, res) => {
