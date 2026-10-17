@@ -310,7 +310,7 @@ describe('guild scope on past and in-progress cycles', () => {
 describe('getDraftProposal (integration)', () => {
   it('splits ranked candidates into chunks of 20 across the requested guild order', async () => {
     const guildA = await makeGuild('A');
-    const guildB = await makeGuild('B');
+    await makeGuild('B');
     const cycle = await makeCycle({ name: 'Cycle Draft', rotations: [makeRotationMeta('r1', 1)] });
     const cycleId = cycle._id.toString();
 

@@ -2,7 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { MongoClient, ObjectId } from 'mongodb';
+import { MongoClient } from 'mongodb';
 import ocrRouter from '../../src/routes/ocr.js';
 import { setDb } from '../../src/config/database.js';
 

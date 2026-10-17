@@ -15,6 +15,7 @@ const nodeGlobals = {
 };
 
 const jestGlobals = {
+  global: 'readonly',
   describe: 'readonly',
   it: 'readonly',
   test: 'readonly',
