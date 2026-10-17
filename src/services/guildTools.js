@@ -13,6 +13,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const rotationEnd = (r) => parseDate(r.end_date) || parseDate(r.start_date);
 
+// A member only owes scores for rotations that ended after they joined the guild. An unknown join
+// date (assignments made before it was recorded) counts as always having been there.
+const wasMemberDuring = (member, rotation) =>
+  !member.guild_joined_at || rotationEnd(rotation) + DAY_MS > new Date(member.guild_joined_at).getTime();
+
 /** The requested cycle, otherwise the current one, otherwise the latest started cycle. */
 export const resolveCycle = async (db, cycleId, now = Date.now()) => {
   if (cycleId) {
@@ -65,7 +70,7 @@ export const getMissingScores = async (db, { guildId, cycleId, now = Date.now() 
       // Differential rotation (2nd of the week): the leader enters the running total shown in game
       is_differential: r.index % 2 === 1,
       missing: roster
-        .filter((m) => m.bbs_id && !scored.has(`${m.bbs_id}|${r.rotation_id}`))
+        .filter((m) => m.bbs_id && wasMemberDuring(m, r) && !scored.has(`${m.bbs_id}|${r.rotation_id}`))
         .map((m) => ({ user_id: m.user_id, bbs_id: m.bbs_id, bbs_name: m.bbs_name || null, global_name: m.global_name || null }))
         .sort((a, b) => (a.bbs_name || '').localeCompare(b.bbs_name || '')),
     };
@@ -76,6 +81,25 @@ export const getMissingScores = async (db, { guildId, cycleId, now = Date.now() 
     members_count: bbsIds.length,
     rotations,
   };
+};
+
+/**
+ * Records that an account joined the guild after a rotation (set by a leader when the join date is
+ * unknown), so that rotation and the earlier ones no longer count as missing. Returns the new date,
+ * or null when the account or rotation is not found.
+ */
+export const markJoinedAfterRotation = async (db, { guildId, bbsId, cycleId, rotationId }) => {
+  const cycle = await resolveCycle(db, cycleId);
+  const rotation = cycle?.rotations?.find((r) => r.rotation_id === rotationId);
+  if (!rotation) return null;
+
+  const joinedAt = new Date(rotationEnd(rotation) + DAY_MS);
+  const { matchedCount } = await db.collection('users').updateOne(
+    { bbs_accounts: { $elemMatch: { bbs_id: bbsId, guilde_id: guildId } } },
+    { $set: { 'bbs_accounts.$[account].guild_joined_at': joinedAt } },
+    { arrayFilters: [{ 'account.bbs_id': bbsId }] }
+  );
+  return matchedCount ? joinedAt : null;
 };
 
 const round = (n) => Math.round(n);

@@ -2,7 +2,8 @@ import { ObjectId } from "mongodb";
 import { escapeRegex } from "./regexUtils.js";
 
 // Helpers for a user's multiple bbs accounts (main + alts).
-// bbs_accounts: [{ bbs_id, bbs_name, guilde_id, role, is_primary, linked_at }]
+// bbs_accounts: [{ bbs_id, bbs_name, guilde_id, guild_joined_at, role, is_primary, linked_at }]
+// guild_joined_at: when the account joined its current guild (unknown for older assignments).
 
 // The user's bbs account matching a bbs_id.
 export const findAccount = (user, bbsId) =>
@@ -34,6 +35,16 @@ export const buildGuildRoles = (bbsAccounts) =>
 // Creates or updates a user's MAIN bbs account (is_primary: true). The main account may exist before
 // it has a bbs_id (e.g. guild/role assigned while waiting for the game account link), so the entry is
 // found by is_primary first, and by bbs_id only as a fallback.
+
+// guild_joined_at follows guilde_id: set when the guild changes, cleared when the account leaves.
+// guildJoinedAt restores a known date, null included (e.g. a draft rollback).
+const nextGuildFields = (account, guildeId, guildJoinedAt) => {
+  if (guildeId === undefined || (guildeId || null) === (account.guilde_id || null)) {
+    return { guilde_id: account.guilde_id ?? null, guild_joined_at: account.guild_joined_at ?? null };
+  }
+  return { guilde_id: guildeId || null, guild_joined_at: guildeId ? (guildJoinedAt !== undefined ? guildJoinedAt : new Date()) : null };
+};
+
 export const upsertPrimaryAccount = (existingAccounts, { bbsId, bbsName, guildeId, role }) => {
   const accounts = [...(existingAccounts || [])];
   const hasData = bbsId || bbsName || guildeId || role;
@@ -49,6 +60,7 @@ export const upsertPrimaryAccount = (existingAccounts, { bbsId, bbsName, guildeI
       bbs_id: bbsId || null,
       bbs_name: bbsName || null,
       guilde_id: guildeId || null,
+      guild_joined_at: guildeId ? new Date() : null,
       role: role || null,
       is_primary: true,
       linked_at: new Date()
@@ -60,7 +72,7 @@ export const upsertPrimaryAccount = (existingAccounts, { bbsId, bbsName, guildeI
     ...accounts[index],
     bbs_id: bbsId || accounts[index].bbs_id,
     bbs_name: bbsName || accounts[index].bbs_name,
-    guilde_id: guildeId !== undefined ? guildeId : accounts[index].guilde_id,
+    ...nextGuildFields(accounts[index], guildeId),
     role: role !== undefined ? role : accounts[index].role,
     is_primary: true
   };
@@ -69,7 +81,7 @@ export const upsertPrimaryAccount = (existingAccounts, { bbsId, bbsName, guildeI
 };
 
 // Adds an alt account (not main by default). Throws if this bbs_id is already attached to the user.
-export const addAltAccount = (existingAccounts, { bbsId, bbsName, guildeId, role }) => {
+export const addAltAccount = (existingAccounts, { bbsId, bbsName, guildeId, role, guildJoinedAt }) => {
   const accounts = [...(existingAccounts || [])];
   if (!bbsId) {
     throw Object.assign(new Error("bbs_id requis pour ajouter un compte"), { statusCode: 400 });
@@ -81,6 +93,7 @@ export const addAltAccount = (existingAccounts, { bbsId, bbsName, guildeId, role
     bbs_id: bbsId,
     bbs_name: bbsName || null,
     guilde_id: guildeId || null,
+    guild_joined_at: guildeId ? (guildJoinedAt !== undefined ? guildJoinedAt : new Date()) : null,
     role: role || null,
     is_primary: accounts.length === 0,
     linked_at: new Date()
@@ -89,7 +102,7 @@ export const addAltAccount = (existingAccounts, { bbsId, bbsName, guildeId, role
 };
 
 // Updates bbs_name/guilde_id/role of an existing account (found by bbs_id).
-export const updateAccount = (existingAccounts, bbsId, { bbsName, guildeId, role }) => {
+export const updateAccount = (existingAccounts, bbsId, { bbsName, guildeId, role, guildJoinedAt }) => {
   const accounts = [...(existingAccounts || [])];
   const index = accounts.findIndex(a => a.bbs_id === bbsId);
   if (index === -1) {
@@ -98,7 +111,7 @@ export const updateAccount = (existingAccounts, bbsId, { bbsName, guildeId, role
   accounts[index] = {
     ...accounts[index],
     bbs_name: bbsName !== undefined ? bbsName : accounts[index].bbs_name,
-    guilde_id: guildeId !== undefined ? guildeId : accounts[index].guilde_id,
+    ...nextGuildFields(accounts[index], guildeId, guildJoinedAt),
     role: role !== undefined ? role : accounts[index].role
   };
   return accounts;
@@ -242,6 +255,7 @@ export const getGuildAccountRoster = async (db, guildeId) => {
         avatar: user.avatar,
         bbs_id: account.bbs_id,
         bbs_name: account.bbs_name,
+        guild_joined_at: account.guild_joined_at || null,
         role: account.role,
         is_primary: account.is_primary
       }))

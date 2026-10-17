@@ -4,7 +4,7 @@ import { requireScoresAccess } from '../../middleware/auth.js';
 import { getDeclineAlerts } from '../../services/playerTrends.js';
 import { getScoreAnomalies, reviewScoreAnomaly } from '../../services/scoreAnomalies.js';
 import { getScoreHistory, isScoreHistoryAction } from '../../services/scoreHistory.js';
-import { getMissingScores, getRotationPreparation } from '../../services/guildTools.js';
+import { getMissingScores, getRotationPreparation, markJoinedAfterRotation } from '../../services/guildTools.js';
 import { getBulkEntryContext } from '../../services/bulkEntryContext.js';
 import { sendServerError } from '../../utils/httpErrors.js';
 
@@ -114,6 +114,23 @@ router.get('/missing', requireScoresAccess, async (req, res) => {
   try {
     const guildId = await resolveSingleGuild(req);
     res.json({ success: true, ...(await getMissingScores(req.db, { guildId, cycleId: req.query.cycle_id })) });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// POST mark that a member joined the guild after a rotation (?guild_id=, body: bbs_id, cycle_id,
+// rotation_id): that rotation and the earlier ones are no longer missing for them.
+router.post('/missing/joined-after', requireScoresAccess, async (req, res) => {
+  try {
+    const guildId = await resolveSingleGuild(req);
+    const { bbs_id, cycle_id, rotation_id } = req.body || {};
+    if (!bbs_id || !cycle_id || !rotation_id) {
+      return res.status(400).json({ success: false, message: 'bbs_id, cycle_id et rotation_id sont requis' });
+    }
+    const joinedAt = await markJoinedAfterRotation(req.db, { guildId, bbsId: bbs_id, cycleId: cycle_id, rotationId: rotation_id });
+    if (!joinedAt) return res.status(404).json({ success: false, message: 'Membre ou rotation introuvable' });
+    res.json({ success: true, guild_joined_at: joinedAt });
   } catch (err) {
     handleError(res, err);
   }

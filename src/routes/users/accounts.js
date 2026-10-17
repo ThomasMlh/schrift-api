@@ -235,13 +235,14 @@ router.post('/:userId/accounts/:bbsId/transfer', requireAdmin, validateObjectIdP
     }
     sourceAccounts = sourceAccounts.filter(a => a.bbs_id !== bbsId);
 
-    // Add it to the target as an alt (never main), keeping its bbs_name/guild/role.
+    // Add it to the target as an alt (never main), keeping its bbs_name/guild/role and join date.
     // addAltAccount throws if the target already has this bbs_id (should not happen).
     const targetAccounts = addAltAccount(targetUser.bbs_accounts, {
       bbsId: account.bbs_id,
       bbsName: account.bbs_name,
       guildeId: account.guilde_id,
-      role: account.role
+      role: account.role,
+      guildJoinedAt: account.guild_joined_at ?? null
     });
 
     await req.db.collection('users').updateOne(

@@ -112,6 +112,41 @@ describe('GET /api/scores/missing', () => {
   });
 });
 
+describe('missing scores of members who joined during the cycle', () => {
+  it('skips the rotations that ended before the member joined the guild', async () => {
+    const ctx = await seed();
+    await db.collection('users').updateOne(
+      { 'bbs_accounts.bbs_id': 'bob' },
+      { $set: { 'bbs_accounts.0.guild_joined_at': new Date(2025, 0, 3, 12) } }
+    );
+
+    const res = await request(app).get('/api/scores/missing').query({ cycle_id: ctx.cycleId })
+      .set('Authorization', `Bearer ${chefToken(ctx.guildId)}`);
+
+    expect(res.body.rotations.map((r) => [r.position, r.missing.map((m) => m.bbs_id)])).toEqual([
+      [4, ['alice', 'bob']], [3, ['alice', 'bob']], [2, ['alice']], [1, ['alice']],
+    ]);
+  });
+
+  it('lets a chef mark that a member joined after a rotation', async () => {
+    const ctx = await seed();
+    const auth = { Authorization: `Bearer ${chefToken(ctx.guildId)}` };
+
+    const res = await request(app).post('/api/scores/missing/joined-after').set(auth)
+      .send({ bbs_id: 'bob', cycle_id: ctx.cycleId, rotation_id: ctx.rotations[2] });
+    expect(res.status).toBe(200);
+
+    const missing = await request(app).get('/api/scores/missing').query({ cycle_id: ctx.cycleId }).set(auth);
+    expect(missing.body.rotations.map((r) => [r.position, r.missing.map((m) => m.bbs_id)])).toEqual([
+      [4, ['alice', 'bob']], [3, ['alice']], [2, ['alice']], [1, ['alice']],
+    ]);
+
+    const unknown = await request(app).post('/api/scores/missing/joined-after').set(auth)
+      .send({ bbs_id: 'nobody', cycle_id: ctx.cycleId, rotation_id: ctx.rotations[2] });
+    expect(unknown.status).toBe(404);
+  });
+});
+
 describe('GET /api/scores/preparation', () => {
   it('gives each member their history on the killer, best average first', async () => {
     const older = await seed({ start: new Date(2025, 0, 1) });
