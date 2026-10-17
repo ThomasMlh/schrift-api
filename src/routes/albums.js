@@ -3,24 +3,24 @@ import { ObjectId } from 'mongodb';
 import { requireDb, requireAuth } from '../middleware/auth.js';
 import { sendHiddenServiceError } from '../utils/httpErrors.js';
 
-// Album de personnages : un document par compte bbs (clé = bbs_id, comme l'historique des scores,
-// pour que l'album suive le compte en cas de transfert entre users).
-// characters = { <character _id>: spé } — un perso présent est possédé (spé 1 d'office,
-// jusqu'à 5 avec les doublons), un perso absent ne l'est pas.
+// Character albums: one document per bbs account (keyed by bbs_id, like the score history, so the
+// album follows the account when it is transferred between users).
+// characters = { <character _id>: spec }: a listed character is owned (spec 1 by default, up to 5
+// with duplicates), a missing one is not.
 const router = express.Router();
 
 export const MAX_SPE = 5;
 
 router.use(requireDb);
 
-// Le compte bbs existe-t-il, et à quel user appartient-il ?
+// Does the bbs account exist, and which user owns it?
 const findAccountOwner = (db, bbsId) =>
   db.collection('users').findOne(
     { $or: [{ 'bbs_accounts.bbs_id': bbsId }, { bbs_id: bbsId }] },
     { projection: { _id: 1 } }
   );
 
-// GET album d'un compte (public)
+// GET an account's album (public)
 router.get('/:bbsId', async (req, res) => {
   try {
     const { bbsId } = req.params;
@@ -39,8 +39,8 @@ router.get('/:bbsId', async (req, res) => {
   }
 });
 
-// PUT spé d'un perso dans l'album d'un compte (propriétaire du compte ou admin).
-// spe = 0 retire le perso de l'album.
+// PUT a character's spec in an account's album (account owner or admin).
+// spe = 0 removes the character from the album.
 router.put('/:bbsId/characters/:characterId', requireAuth, async (req, res) => {
   try {
     const { bbsId, characterId } = req.params;

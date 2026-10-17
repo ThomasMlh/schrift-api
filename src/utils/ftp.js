@@ -25,9 +25,9 @@ export class FTPUploader {
   }
 
   /**
-   * Liste les sous-dossiers d'un répertoire FTP
-   * @param {string} remotePath - Chemin du dossier à lister
-   * @returns {string[]} Noms des sous-dossiers triés
+   * Lists the subfolders of an FTP directory
+   * @param {string} remotePath - Folder to list
+   * @returns {string[]} Sorted subfolder names
    */
   async listSubdirectories(remotePath) {
     const list = await this.client.list(remotePath);
@@ -38,8 +38,8 @@ export class FTPUploader {
   }
 
   /**
-   * Vérifie si un fichier existe sur le FTP
-   * @param {string} remotePath - Chemin complet sur le FTP
+   * Whether a file exists on the FTP
+   * @param {string} remotePath - Full FTP path
    * @returns {boolean}
    */
   async fileExists(remotePath) {
@@ -54,9 +54,9 @@ export class FTPUploader {
   }
 
   /**
-   * Upload un buffer (ex : image déjà traitée) sur le FTP, en créant le dossier au besoin
-   * @param {Buffer} buffer - Contenu du fichier
-   * @param {string} remotePath - Chemin de destination sur le FTP
+   * Uploads a buffer (e.g. an already processed image) to the FTP, creating the folder when needed
+   * @param {Buffer} buffer - File content
+   * @param {string} remotePath - FTP destination path
    */
   async uploadBuffer(buffer, remotePath) {
     const dir = remotePath.substring(0, remotePath.lastIndexOf("/"));
@@ -65,8 +65,8 @@ export class FTPUploader {
   }
 
   /**
-   * Supprime un fichier du FTP (sans erreur s'il n'existe déjà plus)
-   * @param {string} remotePath - Chemin complet sur le FTP
+   * Deletes a file from the FTP (no error when it is already gone)
+   * @param {string} remotePath - Full FTP path
    */
   async removeFile(remotePath) {
     try {
@@ -77,10 +77,10 @@ export class FTPUploader {
   }
 
   /**
-   * Télécharge une image depuis une URL et l'upload sur le FTP
-   * @param {string} imageUrl - URL source de l'image
-   * @param {string} remotePath - Chemin de destination sur le FTP
-   * @returns {boolean} true si l'upload a réussi
+   * Downloads an image from a URL and uploads it to the FTP
+   * @param {string} imageUrl - Source image URL
+   * @param {string} remotePath - FTP destination path
+   * @returns {boolean} true when the upload succeeded
    */
   async downloadAndUpload(imageUrl, remotePath) {
     if (!imageUrl || typeof imageUrl !== "string" || !imageUrl.trim()) {
@@ -94,16 +94,16 @@ export class FTPUploader {
         return false;
       }
 
-      // S'assurer que le dossier distant existe
+      // Make sure the remote folder exists
       const dir = remotePath.substring(0, remotePath.lastIndexOf("/"));
       await this.client.ensureDir(dir);
 
-      // Convertir le body en Node readable stream
+      // Convert the body into a Node readable stream
       let stream;
       if (response.body && typeof Readable.fromWeb === "function") {
         stream = Readable.fromWeb(response.body);
       } else {
-        // Fallback: lire tout en mémoire
+        // Fallback: read everything into memory
         const buf = Buffer.from(await response.arrayBuffer());
         stream = Readable.from(buf);
       }

@@ -13,9 +13,8 @@ import { notifyAccountGuildMove, notifyAccountRoleChange } from './notifications
 
 const router = express.Router();
 
-// --- Gestion des comptes bbs (principal + alts) d'un user ---
 
-// POST ajouter un compte alt à un user (admin seulement)
+// POST add an alt account to a user (admin only)
 router.post('/:userId/accounts', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
@@ -41,7 +40,7 @@ router.post('/:userId/accounts', requireAdmin, validateObjectIdParam('userId', "
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     if (guilde_id) {
       try {
         await notifyAccountGuildMove(req.db, {
@@ -61,10 +60,9 @@ router.post('/:userId/accounts', requireAdmin, validateObjectIdParam('userId', "
   }
 });
 
-// PUT modifier un compte bbs existant d'un user (admin seulement)
-// bbs_id dans le body est optionnel : s'il est fourni et différent du :bbsId de l'URL, le compte
-// est renommé (ex: faute de frappe à la création) et l'historique des scores de ce compte migre
-// avec lui, pour que le classement/l'historique du joueur restent cohérents après correction.
+// PUT update a user's bbs account (admin only).
+// The optional body bbs_id, when different from the URL :bbsId, renames the account (e.g. a typo at
+// creation) and moves its score history along, so the player's ranking and history stay consistent.
 router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId, bbsId } = req.params;
@@ -97,7 +95,7 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    // Migrer l'historique des scores de ce compte vers le nouvel identifiant/pseudo
+    // Move the account's score history to the new id/name
     if (isRenaming || bbs_name !== undefined) {
       const scoreUpdate = {};
       if (isRenaming) scoreUpdate.bbs_id = newBbsId;
@@ -108,12 +106,12 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
       );
     }
 
-    // L'album de personnages est indexé par bbs_id : il suit le compte renommé
+    // Character albums are keyed by bbs_id: the album follows the renamed account
     if (isRenaming) {
       await req.db.collection('albums').updateOne({ bbs_id: bbsId }, { $set: { bbs_id: newBbsId } });
     }
 
-    // Notification Discord — guilde et/ou rôle du compte ont pu changer, attendue avant la réponse.
+    // Discord notification (the account's guild and/or role may have changed), awaited before responding.
     try {
       const oldGuildeId = accountBefore?.guilde_id || null;
       const oldRole = accountBefore?.role || null;
@@ -136,7 +134,7 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
   }
 });
 
-// DELETE retirer un compte bbs d'un user (admin seulement)
+// DELETE remove a bbs account from a user (admin only)
 router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId, bbsId } = req.params;
@@ -154,7 +152,7 @@ router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('u
       { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
     );
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     if (accountBefore?.guilde_id) {
       try {
         await notifyAccountGuildMove(req.db, {
@@ -173,7 +171,7 @@ router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('u
   }
 });
 
-// PUT définir un compte bbs comme principal (admin seulement)
+// PUT make a bbs account the main one (admin only)
 router.put('/:userId/accounts/:bbsId/primary', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId, bbsId } = req.params;
@@ -196,10 +194,9 @@ router.put('/:userId/accounts/:bbsId/primary', requireAdmin, validateObjectIdPar
   }
 });
 
-// POST transférer un compte bbs d'un user vers un autre, en tant qu'alt (jamais principal chez la cible).
-// N'affecte volontairement pas les scores existants : ils restent liés au bbs_id (déjà dénormalisé
-// sur chaque score) et à l'ancien user_id — l'historique "suit" le compte via bbs_id, pas besoin de
-// réécrire scores.user_id (cf. décision produit : peu importe quel user_id porte le score historique).
+// POST transfer a bbs account from one user to another, as an alt (never the target's main account).
+// Existing scores are intentionally left untouched: they stay linked to the bbs_id stored on each
+// score and to the previous user_id; the history follows the account through bbs_id.
 router.post('/:userId/accounts/:bbsId/transfer', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId, bbsId } = req.params;
@@ -227,8 +224,8 @@ router.post('/:userId/accounts/:bbsId/transfer', requireAdmin, validateObjectIdP
       return res.status(404).json({ success: false, message: 'Utilisateur cible non trouvé' });
     }
 
-    // Retirer le compte du user source. S'il était principal et qu'il reste d'autres comptes,
-    // en promouvoir un automatiquement pour ne pas laisser le user source sans compte principal.
+    // Remove the account from the source user. If it was the main account and others remain, promote
+    // one automatically so the source user keeps a main account.
     let sourceAccounts = sourceUser.bbs_accounts || [];
     if (account.is_primary) {
       const nextPrimary = sourceAccounts.find(a => a.bbs_id !== bbsId);
@@ -238,8 +235,8 @@ router.post('/:userId/accounts/:bbsId/transfer', requireAdmin, validateObjectIdP
     }
     sourceAccounts = sourceAccounts.filter(a => a.bbs_id !== bbsId);
 
-    // L'ajouter comme alt chez la cible (jamais principal), en conservant bbs_name/guilde/rôle du compte.
-    // addAltAccount lève une erreur si ce bbs_id existe déjà chez la cible (ne devrait pas arriver).
+    // Add it to the target as an alt (never main), keeping its bbs_name/guild/role.
+    // addAltAccount throws if the target already has this bbs_id (should not happen).
     const targetAccounts = addAltAccount(targetUser.bbs_accounts, {
       bbsId: account.bbs_id,
       bbsName: account.bbs_name,

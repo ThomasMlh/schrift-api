@@ -9,10 +9,10 @@ import {
   notifyPersonalRecords,
 } from '../../src/services/killerRecords.js';
 
-// Records et historique par killer, contre un vrai MongoDB en mémoire. Rappel du modèle : un
-// document `rotations` est un modèle (un killer + type d'attaque) réutilisé d'un cycle à l'autre,
-// et dans chaque cycle les rotations d'index impair sont différentielles (score = points de la
-// rotation seule, déduits du cumul hebdo grâce au score de base de la rotation précédente).
+// Records and history per killer, against a real in-memory MongoDB. Model reminder: a `rotations`
+// document is a template (a killer + attack type) reused across cycles, and in each cycle odd-index
+// rotations are differential (score = points of the rotation alone, derived from the weekly total
+// using the previous rotation's base score).
 jest.setTimeout(60000);
 
 let mongod;
@@ -24,7 +24,7 @@ beforeAll(async () => {
   client = new MongoClient(mongod.getUri());
   await client.connect();
   db = client.db('schrift-test');
-  setDb(db); // notifyDiscord journalise dans activity_log via getDB()
+  setDb(db); // notifyDiscord logs to activity_log through getDB()
 });
 
 afterAll(async () => {
@@ -37,7 +37,7 @@ afterEach(async () => {
   await Promise.all(collections.map((c) => db.collection(c.name).deleteMany({})));
 });
 
-// Deux killers modèles ; 'kBase' et 'kDiff' forment une semaine (kDiff est différentiel derrière kBase).
+// Two template killers; 'kBase' and 'kDiff' form a week (kDiff is the differential after kBase).
 const seedRotations = async () => {
   const { insertedIds } = await db.collection('rotations').insertMany([
     { killer: 'Arrancar', attack: 'R', alteration: 'Gel' },
@@ -67,7 +67,7 @@ describe('loadComparableScores', () => {
     await db.collection('scores').insertMany([
       score(cycle, kBase, 'alice', 100),
       score(cycle, kDiff, 'alice', 50, { is_differential: true, raw_score: 150 }),
-      // bob n'a pas de score de base : son différentiel vaut tout son cumul hebdo -> non comparable
+      // bob has no base score: his differential holds his whole weekly total -> not comparable
       score(cycle, kDiff, 'bob', 300, { is_differential: true, raw_score: 300 }),
     ]);
 
@@ -92,10 +92,10 @@ describe('getRotationHistory', () => {
 
     expect(history.absolute_record).toMatchObject({ score: 900, bbs_id: 'carol', cycle_name: 'C1' });
     expect(history.guild_record).toMatchObject({ score: 300, bbs_id: 'alice', cycle_name: 'C2' });
-    // Score à battre pour C2, dans la guilde g1 : le meilleur des AUTRES cycles = 100 (alice, C1)
+    // Score to beat for C2 in guild g1: the best of the OTHER cycles = 100 (alice, C1)
     expect(history.record_to_beat).toMatchObject({ score: 100, cycle_name: 'C1' });
     expect(history.current_cycle_best).toMatchObject({ score: 300, bbs_id: 'alice' });
-    // Ordre chronologique (C1 avant C2, même si C2 a été créé en premier)
+    // Chronological order (C1 before C2, even though C2 was created first)
     expect(history.per_cycle.map((c) => c.cycle_name)).toEqual(['C1', 'C2']);
     expect(history.per_cycle[0]).toMatchObject({ average: 500, count: 2, guild_average: 100, guild_count: 1 });
     expect(history.per_cycle[1]).toMatchObject({ average: 200, guild_average: 200 });
@@ -163,7 +163,7 @@ describe('findNewRecords', () => {
       score(c1, kBase, 'alice', 100),
       score(c1, kDiff, 'alice', 50, { is_differential: true, raw_score: 150 }),
     ]);
-    // Cycle 2 : aucun score de base -> le différentiel vaut tout le cumul, ce n'est pas un vrai record
+    // Cycle 2: no base score -> the differential holds the whole total, not a real record
     const inflated = score(c2, kDiff, 'alice', 400, { is_differential: true, raw_score: 400 });
     await db.collection('scores').insertOne({ ...inflated });
 

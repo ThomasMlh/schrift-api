@@ -10,7 +10,7 @@ import { sendHiddenServiceError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
 
-// GET statistiques personnelles d'un joueur par user_id
+// GET a player's personal stats by user_id
 router.get('/:user_id/stats', async (req, res) => {
   try {
     const data = await getUserStats(req.db, req.params.user_id, req.query);
@@ -21,7 +21,7 @@ router.get('/:user_id/stats', async (req, res) => {
   }
 });
 
-// Route pour bannir un utilisateur (admin seulement)
+// POST ban a user (admin only)
 router.post('/:userId/ban', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
@@ -52,7 +52,7 @@ router.post('/:userId/ban', requireAdmin, validateObjectIdParam('userId', "Forma
       }
     );
 
-    // Notification Discord (non bloquante)
+    // Discord notification (non-blocking)
     try {
       const banner = await req.db.collection('users').findOne(
         { _id: new ObjectId(req.user._id) },
@@ -81,7 +81,7 @@ router.post('/:userId/ban', requireAdmin, validateObjectIdParam('userId', "Forma
   }
 });
 
-// Route pour débannir un utilisateur (admin seulement)
+// POST unban a user (admin only)
 router.post('/:userId/unban', requireAdmin, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
@@ -107,7 +107,7 @@ router.post('/:userId/unban', requireAdmin, validateObjectIdParam('userId', "For
       }
     );
 
-    // Notification Discord (non bloquante)
+    // Discord notification (non-blocking)
     try {
       const unbanner = await req.db.collection('users').findOne(
         { _id: new ObjectId(req.user._id) },

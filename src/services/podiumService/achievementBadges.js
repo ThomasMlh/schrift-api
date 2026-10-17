@@ -1,8 +1,8 @@
 import { getTopAchievements } from '../achievements.js';
 import { logger } from '../../utils/logger.js';
 
-// Ajoute à chaque ligne de classement le succès le plus rare du compte (top_achievement), affiché
-// à côté du pseudo. Ne fait jamais échouer le podium : en cas d'erreur, les lignes restent telles quelles.
+// Adds each ranking row's rarest achievement (top_achievement), shown next to the name. Never fails
+// the podium: on error, rows are returned unchanged.
 export const attachTopAchievements = async (db, rows) => {
   try {
     const top = await getTopAchievements(db, [...new Set(rows.map((r) => r.bbs_id).filter(Boolean))]);

@@ -1,21 +1,21 @@
-// Minimum pour résoudre un nom d'affichage via getUserDisplayName
+// Minimum fields to resolve a display name through getUserDisplayName
 export const USER_DISPLAY = { bbs_name: 1, global_name: 1, username: 1 };
 
-// USER_DISPLAY + _id, pour construire un Map keyed par _id
+// USER_DISPLAY + _id, to build a Map keyed by _id
 export const USER_DISPLAY_WITH_ID = { _id: 1, bbs_name: 1, global_name: 1, username: 1 };
 
-// Pour enrichir les builds avec les infos auteur
+// Author fields used to enrich builds
 export const USER_BUILD = {
   discord_id: 1, username: 1, global_name: 1, bbs_name: 1, avatar: 1, is_admin: 1
 };
 
-// $project interne aux pipelines $lookup (scores, cycles)
+// $project used inside $lookup pipelines (scores, cycles)
 export const USER_SCORES_LOOKUP = {
   _id: 1, discord_id: 1, avatar: 1, bbs_id: 1, bbs_name: 1,
   global_name: 1, guilde_id: 1, role: 1, username: 1
 };
 
-// Réponse complète liste/détail utilisateur
+// Full user list/detail response
 export const USER_FULL = {
   _id: 1, discord_id: 1, username: 1, avatar: 1, banner: 1, guilde_id: 1,
   role: 1, is_admin: 1, last_login: 1, global_name: 1, bbs_id: 1, bbs_name: 1,

@@ -1,14 +1,9 @@
 import { parseDate } from '../killerRecords.js';
 
-// Pipeline commun pour joindre users (identité Discord uniquement : avatar/global_name) à partir
-// d'un champ user_id présent sur le document, et guildes à partir d'un champ guild_id présent sur
-// le document lui-même (le guild_id/bbs_name du SCORE, jamais la guilde/le pseudo actuels du user
-// — un même user peut avoir plusieurs comptes bbs classés séparément dans des guildes différentes).
-// Nombre minimum de rotations jouées pour apparaître dans un classement basé sur une moyenne
-// (sinon un joueur avec 1-2 scores excellents peut dominer des joueurs réguliers avec beaucoup
-// plus de scores). Ne s'applique pas aux vues par rotation unique (un seul score possible) ni
-// aux misses (comptage, pas une moyenne). Configurable par l'admin (app_settings/podium) ;
-// 0 = désactivé. Repli si aucun réglage n'existe encore en base.
+// Minimum number of rotations played to appear in an average-based ranking (otherwise a player with
+// 1-2 excellent scores could beat regular players with many more scores). Does not apply to
+// single-rotation views (one score at most) nor to misses (a count, not an average). Set by the admin
+// (app_settings/podium); 0 = disabled. Fallback when no setting exists yet.
 const DEFAULT_MIN_SCORES_FOR_RANKING = 0;
 
 export const getMinScoresForRanking = async (db) => {
@@ -18,6 +13,10 @@ export const getMinScoresForRanking = async (db) => {
     : DEFAULT_MIN_SCORES_FOR_RANKING;
 };
 
+// Shared pipeline joining users (Discord identity only: avatar/global_name) from the document's
+// user_id, and guilds from the document's own guild_id (the SCORE's guild_id/bbs_name, never the
+// user's current guild/name: one user may own several bbs accounts ranked separately in different
+// guilds).
 export const lookupUserAndGuild = () => {
   return [
     {
@@ -55,12 +54,12 @@ export const lookupUserAndGuild = () => {
   ];
 }
 
-// Alias conservé pour lisibilité aux call sites existants (même pipeline).
+// Alias kept for readability at existing call sites (same pipeline).
 export const lookupUserByUserId = lookupUserAndGuild;
 
-// Résout les bbs_id actuellement rattachés à une guilde (users.bbs_accounts[].guilde_id),
-// pour attribuer un score à la guilde ACTUELLE du compte plutôt qu'à la guilde figée sur
-// le score au moment de la saisie (utile après un transfert de guilde en cours de cycle).
+// bbs_ids currently attached to a guild (users.bbs_accounts[].guilde_id), to attribute a score to
+// the account's CURRENT guild rather than the guild stored on the score at entry time (useful after a
+// mid-cycle guild change).
 export const getCurrentGuildBbsIds = async (db, guildId) => {
   const users = await db.collection('users').find(
     { 'bbs_accounts.guilde_id': guildId },
@@ -76,8 +75,8 @@ export const getCurrentGuildBbsIds = async (db, guildId) => {
   return bbsIds;
 };
 
-// Résout les bbs_id des comptes qui n'appartiennent actuellement à aucune guilde, pour que la
-// draft auto puisse les proposer comme candidats au même titre que les membres déjà en guilde.
+// bbs_ids of accounts that currently belong to no guild, so the automatic draft can propose them as
+// candidates like guild members.
 export const getUnguildedBbsIds = async (db) => {
   const users = await db.collection('users').find(
     { 'bbs_accounts.guilde_id': null },
@@ -93,13 +92,13 @@ export const getUnguildedBbsIds = async (db) => {
   return bbsIds;
 };
 
-// Condition de match pour une guilde : scores des comptes actuellement dans la guilde (via
-// bbs_id). Les scores sans bbs_id (anciens, en voie de suppression) ne remontent jamais.
+// Guild match condition: scores of the accounts currently in the guild (through bbs_id). Scores
+// without a bbs_id (legacy) never match.
 export const buildGuildMatch = (currentBbsIds) => ({ bbs_id: { $in: currentBbsIds } });
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// Un cycle est en cours entre le début de sa première rotation et la fin de sa dernière.
+// A cycle is in progress between the start of its first rotation and the end of its last one.
 export const isCycleInProgress = (cycle, now = Date.now()) => {
   const rotations = cycle?.rotations || [];
   if (rotations.length === 0) return false;
@@ -108,32 +107,31 @@ export const isCycleInProgress = (cycle, now = Date.now()) => {
   return start > 0 && start <= now && now < end + DAY_MS;
 };
 
-// Périmètre d'une guilde sur un cycle :
-//  - cycle en cours : les membres ACTUELS de la guilde (un joueur transféré en cours de cycle
-//    apparaît dans sa nouvelle guilde avec tous ses scores) ;
-//  - cycle passé : les scores saisis pour cette guilde sur ce cycle (guild_id du score), pour
-//    que les anciens podiums restent fidèles aux guildes de l'époque, même après un draft.
-// Sans cycle connu, on garde le comportement des membres actuels.
+// Scope of a guild on a cycle:
+//  - running cycle: the guild's CURRENT members (a player moved mid-cycle appears in their new
+//    guild with all their scores);
+//  - past cycle: the scores entered for this guild on that cycle (the score's guild_id), so old
+//    podiums keep the guilds of that time, even after a draft.
+// Without a known cycle, current members are used.
 export const getGuildScoreMatch = async (db, cycle, guildId, now = Date.now()) =>
   !cycle || isCycleInProgress(cycle, now)
     ? buildGuildMatch(await getCurrentGuildBbsIds(db, guildId))
     : { guild_id: guildId };
 
-// Comptes de la guilde sur un cycle, selon la même règle que getGuildScoreMatch.
+// The guild's accounts on a cycle, with the same rule as getGuildScoreMatch.
 export const getGuildBbsIdsForCycle = async (db, cycle, guildId, now = Date.now()) =>
   !cycle || isCycleInProgress(cycle, now)
     ? getCurrentGuildBbsIds(db, guildId)
     : db.collection('scores').distinct('bbs_id', { cycle_id: cycle._id.toString(), guild_id: guildId, bbs_id: { $ne: null } });
 
-// Une fois le filtre par guilde appliqué, chaque ligne appartient par construction à cette
-// guilde : on force l'affichage dessus plutôt que sur le guild_id (potentiellement obsolète,
-// cf. buildGuildMatch) figé sur le score.
+// Once the guild filter is applied, every row belongs to that guild by construction: display its
+// name rather than the (possibly outdated, see buildGuildMatch) guild_id stored on the score.
 export const overrideGuildName = (results, guildName) => {
   if (guildName) results.forEach(r => { r.guild_name = guildName; });
   return results;
 };
 
-// Calcule les ranks en tenant compte des ex-aequo
+// Ranks with ties
 export const applyRanks = (results, scoreKey) => {
   let currentRank = 1;
   let previousScore = null;
@@ -145,7 +143,7 @@ export const applyRanks = (results, scoreKey) => {
   });
 }
 
-// Applique la pagination sur un tableau déjà trié
+// Paginates an already sorted array
 export const paginate = (results, page, limit) => {
   const skip = (page - 1) * limit;
   const totalCount = results.length;

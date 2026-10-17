@@ -2,8 +2,8 @@ import { ObjectId } from 'mongodb';
 import { notifyDiscord } from '../../utils/notifyDiscord.js';
 import { getUserDisplayName } from '../../utils/nameMatching.js';
 
-// Partagé entre crud.js (PATCH /:userId) et roles.js (PUT /:userId/guild) :
-// les deux routes peuvent changer la guilde du compte PRINCIPAL d'un user.
+// Shared by crud.js (PATCH /:userId) and roles.js (PUT /:userId/guild): both routes can change the
+// guild of a user's MAIN account.
 export const notifyGuildChange = async (db, userBefore, newGuildeId) => {
   const username = getUserDisplayName(userBefore);
   const oldGuildeId = userBefore.guilde_id || null;
@@ -35,9 +35,8 @@ export const notifyGuildChange = async (db, userBefore, newGuildeId) => {
   await Promise.allSettled(promises);
 };
 
-// Notifie un join/leave de guilde pour UN compte bbs précis (utilisé par les routes /accounts/*,
-// qui portent la vraie logique d'édition guilde/rôle depuis EditUserModal — contrairement à
-// notifyGuildChange ci-dessus qui ne cible que le compte principal).
+// Notifies a guild join/leave for ONE bbs account (used by the /accounts/* routes, which hold the
+// actual guild/role editing from EditUserModal; notifyGuildChange above only targets the main account).
 export const notifyAccountGuildMove = async (db, { username, oldGuildeId, newGuildeId, role }) => {
   const [oldGuilde, newGuilde] = await Promise.all([
     oldGuildeId ? db.collection('guildes').findOne({ _id: new ObjectId(oldGuildeId) }) : null,
@@ -58,7 +57,7 @@ export const notifyAccountGuildMove = async (db, { username, oldGuildeId, newGui
   await Promise.allSettled(promises);
 };
 
-// Notifie un changement de rôle pour UN compte bbs précis (guilde inchangée).
+// Notifies a role change for ONE bbs account (same guild).
 export const notifyAccountRoleChange = async (db, { username, guildeId, oldRole, newRole }) => {
   const guilde = guildeId ? await db.collection('guildes').findOne({ _id: new ObjectId(guildeId) }) : null;
   await notifyDiscord('membre_role_change', {

@@ -9,8 +9,8 @@ import {
 const router = express.Router();
 
 /**
- * Charge le build et vérifie que l'utilisateur connecté en est l'auteur ou un admin.
- * Renvoie le build, ou null après avoir répondu avec l'erreur adaptée.
+ * Loads the build and checks that the logged-in user is its author or an admin.
+ * Returns the build, or null after sending the appropriate error.
  */
 const loadEditableBuild = async (req, res) => {
   if (!req.user) {
@@ -39,7 +39,7 @@ const loadEditableBuild = async (req, res) => {
   return build;
 };
 
-// POST /builds/:id/screenshot - Ajoute ou remplace la capture d'un build ({ image: data URL })
+// POST /builds/:id/screenshot - add or replace a build's screenshot ({ image: data URL })
 router.post('/:id/screenshot', optionalAuth, validateObjectIdParam('id'), async (req, res) => {
   try {
     const build = await loadEditableBuild(req, res);
@@ -66,7 +66,7 @@ router.post('/:id/screenshot', optionalAuth, validateObjectIdParam('id'), async 
       { _id: build._id },
       { $set: { screenshot: filename, updated_at: new Date() } }
     );
-    // L'ancienne capture est supprimée une fois la nouvelle en place
+    // The old screenshot is removed once the new one is stored
     if (build.screenshot && build.screenshot !== filename) await removeScreenshot(build.screenshot);
 
     res.json({ success: true, screenshot: filename });
@@ -76,7 +76,7 @@ router.post('/:id/screenshot', optionalAuth, validateObjectIdParam('id'), async 
   }
 });
 
-// DELETE /builds/:id/screenshot - Retire la capture d'un build
+// DELETE /builds/:id/screenshot - remove a build's screenshot
 router.delete('/:id/screenshot', optionalAuth, validateObjectIdParam('id'), async (req, res) => {
   try {
     const build = await loadEditableBuild(req, res);

@@ -62,9 +62,8 @@ describe('sendStatusCodeError', () => {
     const res = mockRes();
     const err = new Error('');
     sendStatusCodeError(res, err, 'Message client', 'Label de log interne');
-    // Le comportement observable (réponse HTTP) ne dépend pas du logLabel ;
-    // on vérifie juste qu'il ne fait pas planter l'appel et que le message
-    // client reste bien le fallback fourni.
+    // The observable behavior (HTTP response) does not depend on logLabel; only check that it does not
+    // break the call and that the client message is the given fallback.
     expect(res.json).toHaveBeenCalledWith({ success: false, message: 'Message client' });
   });
 });

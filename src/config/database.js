@@ -1,5 +1,5 @@
-// Singleton d'accès à la connexion Mongo établie dans server.js (initDb()),
-// pour les modules hors du cycle requête/réponse Express (pas de req.db disponible).
+// Singleton holding the Mongo connection opened in server.js (initDb()), for modules that run
+// outside the Express request cycle (no req.db available).
 let db = null;
 
 export const setDb = (database) => {
@@ -13,7 +13,3 @@ export const getDB = () => {
   return db;
 }
 
-// Utilisation :
-// import { getDB } from '../config/database.js';
-// const db = getDB();
-// const guildes = await db.collection('guildes').find();

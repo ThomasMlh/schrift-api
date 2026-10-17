@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.use(requireDb);
 
-// Récupérer les settings de notification globaux (types hors-guilde : ban, unban, ...)
+// GET global notification settings (non-guild types: ban, unban, …)
 router.get('/notifications', requireAdmin, async (req, res) => {
   try {
     const settings = await req.db.collection('app_settings').findOne({ _id: 'notifications' });
@@ -17,7 +17,7 @@ router.get('/notifications', requireAdmin, async (req, res) => {
   }
 });
 
-// Mettre à jour les settings de notification globaux
+// PUT global notification settings
 router.put('/notifications', requireAdmin, async (req, res) => {
   try {
     const disabledTypes = sanitizeDisabledTypes(req.body.disabled_notification_types);
@@ -34,7 +34,7 @@ router.put('/notifications', requireAdmin, async (req, res) => {
   }
 });
 
-// Récupérer le réglage du seuil minimum de scores pour apparaître au podium (moyenne)
+// GET the minimum number of scores to appear on the podium (average ranking)
 router.get('/podium', requireAdmin, async (req, res) => {
   try {
     const settings = await req.db.collection('app_settings').findOne({ _id: 'podium' });
@@ -47,7 +47,7 @@ router.get('/podium', requireAdmin, async (req, res) => {
   }
 });
 
-// Mettre à jour le seuil (0 = désactivé)
+// PUT the threshold (0 = disabled)
 router.put('/podium', requireAdmin, async (req, res) => {
   try {
     const value = parseInt(req.body.min_scores_for_ranking, 10);

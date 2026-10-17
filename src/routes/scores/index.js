@@ -5,16 +5,13 @@ import bulkRouter from './bulk.js';
 import transfersRouter from './transfers.js';
 import alertsRouter from './alerts.js';
 
-// Découpé depuis un unique scores.js de 1429 lignes en 3 modules par thème :
-// crud (lecture/écriture simple), bulk (saisie groupée), transfers (transfert
-// de rotation / de compte). Tous montés sans préfixe : les chemins exposés
-// sous /api/scores sont rigoureusement identiques à avant la découpe.
+// Score routes split by theme (crud, bulk entry, transfers, monitoring tools), mounted without a prefix.
 const router = express.Router();
 
 router.use(requireDb);
 
-// Monté avant crud pour que les routes des outils chefs (/decline-alerts, /anomalies, /history,
-// /missing, /preparation) ne soient pas capturées par GET /:id
+// Mounted before crud so the leader tool routes (/decline-alerts, /anomalies, /history, /missing,
+// /preparation, /bulk-context) are not caught by GET /:id
 router.use(alertsRouter);
 router.use(crudRouter);
 router.use(bulkRouter);

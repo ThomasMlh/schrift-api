@@ -10,10 +10,9 @@ import { sendStatusCodeError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
-// Middleware pour toutes les routes characters
 router.use(requireDb);
 
-// Route pour ajouter plusieurs personnages
+// POST add several characters
 router.post("/", requireAdmin, async (req, res) => {
   try {
     const characters = req.body;
@@ -24,13 +23,12 @@ router.post("/", requireAdmin, async (req, res) => {
       });
     }
 
-    // Nettoyer et valider les données
     const sanitizedCharacters = [];
 
     for (const char of characters) {
       const cleanedChar = cleanObject(char);
 
-      // Ignorer les entrées sans nom de recherche
+      // Skip entries without a search name
       if (
         !cleanedChar["Nom de recherche"] ||
         !cleanedChar["Nom de recherche"].trim()
@@ -42,7 +40,6 @@ router.post("/", requireAdmin, async (req, res) => {
         .replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, "")
         .trim();
 
-      // Vérifier si le personnage existe déjà en base
       const existingCharacter = await req.db
         .collection("characters")
         .findOne({ search_name: searchName });
@@ -56,7 +53,7 @@ router.post("/", requireAdmin, async (req, res) => {
         "Range Nullify": "range"
       };
 
-      // Gérer les killers depuis le champ "Killers" (avec split) ou depuis Killer 1/2
+      // Killers come from the "Killers" field (comma separated) or from Killer 1/2
       let killers = [];
       if (cleanedChar["Killers"] && cleanedChar["Killers"].trim()) {
         killers = cleanedChar["Killers"]
@@ -199,40 +196,37 @@ router.get("/", async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
 
-    // Paramètres de filtrage
     const { affinity, category, killer, search, attack_type } = req.query;
 
-    // Construire la requête de filtrage
     const query = {};
 
-    // Filtre par affinité
     if (affinity && affinity.trim()) {
       query.affinity = { $regex: new RegExp(affinity.trim(), "i") };
     }
 
-    // Filtre par catégorie (recherche dans le tableau)
+    // Category (array field)
     if (category && category.trim()) {
       query.categories = { $regex: new RegExp(category.trim(), "i") };
     }
 
-    // Filtre par killer (recherche exacte dans le tableau)
+    // Killer (array field)
     if (killer && killer.trim()) {
       query.killers = { $regex: new RegExp(killer.trim(), "i") };
     }
 
-    // Filtre par type d'attaque (R pour Rouge, B pour Bleue)
+    // Attack type (R = red, B = blue)
     if (attack_type && attack_type.trim()) {
       query.attack_type = attack_type.trim().toUpperCase();
     }
 
-    // Filtre par recherche textuelle
+    // Text search
     if (search && search.trim()) {
       const searchTerm = search
         .toLowerCase()
         .replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, "")
         .trim();
 
-      // Chercher les bannières correspondantes pour inclure leurs personnages
+      // Include characters from matching banners
       const matchingBanners = await req.db
         .collection("banners")
         .find({
@@ -253,7 +247,7 @@ router.get("/", async (req, res) => {
       ];
     }
 
-    // Récupérer les personnages triés par sort_order croissant (0 = plus récent)
+    // Sorted by ascending sort_order (0 = most recent)
     const characters = await req.db
       .collection("characters")
       .find(query)
@@ -286,7 +280,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET valeurs distinctes pour killers, catégories, affinités
+// GET distinct killers, categories and affinities
 router.get("/meta", async (req, res) => {
   try {
     const [killers, categories, affinities, statDocs] = await Promise.all([
@@ -309,8 +303,8 @@ router.get("/meta", async (req, res) => {
   }
 });
 
-// GET catalogue complet et léger des personnages (album des joueurs) : pas de pagination,
-// uniquement les champs nécessaires à une grille de vignettes. Déclaré avant /:id.
+// GET the full, lightweight character catalog (player albums): no pagination, only the fields a
+// thumbnail grid needs. Declared before /:id.
 router.get("/catalog", async (req, res) => {
   try {
     const characters = await req.db
@@ -361,7 +355,7 @@ router.get("/search", async (req, res) => {
       .replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, "")
       .trim();
 
-    // Chercher les bannières correspondantes pour inclure leurs personnages
+    // Include characters from matching banners
     const matchingBanners = await req.db
       .collection("banners")
       .find({
@@ -383,7 +377,7 @@ router.get("/search", async (req, res) => {
       ]
     };
 
-    // Récupérer les personnages triés par sort_order croissant (0 = plus récent)
+    // Sorted by ascending sort_order (0 = most recent)
     const characters = await req.db
       .collection("characters")
       .find(searchQuery)
@@ -439,27 +433,21 @@ router.get("/names", async (req, res) => {
 
 router.post("/admin/create-indexes", requireAdmin, async (req, res) => {
   try {
-    // Créer les index pour optimiser les performances
     await Promise.all([
-      // Index texte pour la recherche
+      // Text index for search
       req.db.collection("characters").createIndex({
         search_name: "text",
         name: "text"
       }),
-      // Index pour search_name
       req.db.collection("characters").createIndex({ search_name: 1 }),
-      // Index pour l'affinité
       req.db.collection("characters").createIndex({ affinity: 1 }),
-      // Index composé
+      // Compound index
       req.db.collection("characters").createIndex({
         affinity: 1,
         search_name: 1
       }),
-      // Index pour les catégories
       req.db.collection("characters").createIndex({ categories: 1 }),
-      // Index pour les killers
       req.db.collection("characters").createIndex({ killers: 1 }),
-      // Nouveaux index pour les champs ajoutés
       req.db.collection("characters").createIndex({ release_date: 1 }),
       req.db.collection("characters").createIndex({ rarity: 1 }),
       req.db.collection("characters").createIndex({ status: 1 })
@@ -478,7 +466,7 @@ router.post("/admin/create-indexes", requireAdmin, async (req, res) => {
   }
 });
 
-// Route pour mettre à jour les personnages via SFTP
+// POST update characters from the SFTP source
 router.post("/update", requireAdmin, async (req, res) => {
   try {
     const result = await syncCharactersFromSFTP(req.db, { uploadImages: req.body?.uploadImages === true });
@@ -488,9 +476,8 @@ router.post("/update", requireAdmin, async (req, res) => {
   }
 });
 
-// Route pour uploader les images par batch
 
-// Route pour uploader les images par batch (évite les timeouts Vercel)
+// POST upload images in batches (avoids Vercel timeouts)
 router.post("/update/images", requireAdmin, async (req, res) => {
   try {
     const result = await uploadImagesBatch(req.db, req.body?.batchSize);

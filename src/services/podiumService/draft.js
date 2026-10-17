@@ -3,20 +3,20 @@ import { getMinScoresForRanking, lookupUserAndGuild, getCurrentGuildBbsIds, getU
 const DEFAULT_DRAFT_GUILD_ORDER = ['A', 'C', 'B', 'E', 'D'];
 const DRAFT_GUILD_SIZE = 20;
 
-// Moyenne du score de classement (moyenne ou total) d'une liste de joueurs ; null si vide
+// Average ranking score (average or total) of a list of players; null when empty
 const averageOf = (players, scoreKey) => players.length
   ? Math.round(players.reduce((sum, p) => sum + p[scoreKey], 0) / players.length)
   : null;
 
 const httpError = (statusCode, message) => Object.assign(new Error(message), { statusCode });
 
-// Liste "a,b,c" (ou tableau) -> tableau de valeurs non vides
+// "a,b,c" list (or array) -> array of non-empty values
 const parseList = (value) => Array.isArray(value)
   ? value
   : String(value || '').split(',').map(v => v.trim()).filter(Boolean);
 
-// Paramètres communs aux simulations de draft : cycle, type de classement et ordre des guildes
-// (qui sert aussi de hiérarchie : la 1re guilde est la meilleure).
+// Parameters shared by draft simulations: cycle, ranking type and guild order (which is also the
+// hierarchy: the first guild is the strongest).
 const resolveDraftContext = async (db, { cycle_name, year, ranking_type = 'average', guild_names }) => {
   if (!cycle_name) throw httpError(400, 'Le paramètre cycle_name est obligatoire');
 
@@ -46,8 +46,8 @@ const resolveDraftContext = async (db, { cycle_name, year, ranking_type = 'avera
   };
 };
 
-// Classement de comptes sur un cycle (moyenne ou total), du meilleur au moins bon. Le seuil
-// minimum de scores du podium ne s'applique qu'au classement par moyenne, et seulement si demandé.
+// Ranks accounts on a cycle (average or total), best first. The podium's minimum score count only
+// applies to the average ranking, and only when requested.
 const rankAccountsOnCycle = (db, { cycle, rankingType, scoreKey, minScores }, bbsIds, { applyThreshold }) =>
   db.collection('scores').aggregate([
     { $match: { cycle_id: cycle._id.toString(), bbs_id: { $in: bbsIds } } },
@@ -81,41 +81,39 @@ const rankAccountsOnCycle = (db, { cycle, rankingType, scoreKey, minScores }, bb
     { $sort: { [scoreKey]: -1 } },
   ]).toArray();
 
-// Propose une répartition des joueurs des guildes sélectionnées sur un cycle donné : classe
-// tout le monde par score (moyenne ou total) et découpe par paquets de 20 dans l'ordre de
-// guildes fourni (les meilleurs vont dans la 1re guilde, les 20 suivants dans la 2e, etc.).
-// Les guildes figées (locked_guild_names) gardent leurs membres actuels : elles ne reçoivent
-// personne, personne n'en sort, et elles sont sautées dans l'ordre des paquets de 20.
-// Pur outil de simulation en lecture seule : ne modifie rien, l'admin applique manuellement
-// via l'onglet Draft s'il valide la proposition.
+// Proposes a split of the selected guilds' players on a cycle: ranks everyone by score (average or
+// total) and fills guilds by chunks of 20 in the given order (the best go to the first guild, the
+// next 20 to the second, and so on).
+// Locked guilds (locked_guild_names) keep their current members: nobody joins or leaves them, and
+// they are skipped in the chunk order.
+// Read-only simulation: nothing is changed, the admin applies the proposal manually from the Draft tab.
 export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'average', guild_names, excluded_bbs_ids, pinned_bbs_ids, locked_guild_names }) => {
   const context = await resolveDraftContext(db, { cycle_name, year, ranking_type, guild_names });
   const { rankingType: normalizedRankingType, scoreKey, minScores, guildOrder, guildByName } = context;
 
   const lockedNames = new Set(parseList(locked_guild_names).filter(n => guildOrder.includes(n)));
-  // Guildes réellement redistribuées, dans l'ordre choisi (les figées sont sautées)
+  // Guilds actually redistributed, in the chosen order (locked ones are skipped)
   const draftOrder = guildOrder.filter(n => !lockedNames.has(n));
 
-  // Pool de candidats : membres actuels des guildes concernées (via bbs_accounts, cf.
-  // getCurrentGuildBbsIds), avec leur guilde actuelle pour que le front puisse repérer qui
-  // bougerait par rapport à la répartition d'aujourd'hui, plus les comptes sans guilde (agents
-  // libres) qui doivent pouvoir intégrer une guilde via la draft, pas seulement en être exclus.
+  // Candidate pool: current members of the involved guilds (through bbs_accounts, see
+  // getCurrentGuildBbsIds) with their current guild, so the front end can show who would move, plus
+  // guildless accounts (free agents) that must be able to join a guild through the draft.
   const currentGuildByBbsId = new Map();
   for (const name of draftOrder) {
     const guildId = guildByName.get(name)._id.toString();
     const bbsIds = await getCurrentGuildBbsIds(db, guildId);
     for (const bbsId of bbsIds) currentGuildByBbsId.set(bbsId, name);
   }
-  // Membres des guildes figées : hors du pool de candidats, affichés tels quels dans leur guilde
-  const lockedMembers = new Map(); // nom de guilde -> bbs_id[]
+  // Locked guild members: outside the candidate pool, shown as-is in their guild
+  const lockedMembers = new Map(); // Guild name -> bbs_id[]
   for (const name of lockedNames) {
     lockedMembers.set(name, await getCurrentGuildBbsIds(db, guildByName.get(name)._id.toString()));
   }
   const lockedBbsIds = new Set([...lockedMembers.values()].flat());
   const unguildedBbsIds = await getUnguildedBbsIds(db);
-  // "Et si" : exclus complètement de la simulation (aucune guilde), ou garantis de rester
-  // dans leur guilde ACTUELLE quel que soit leur score (ex: un chef qu'on ne veut pas voir
-  // bouger). Les deux listes viennent du front sous forme de bbs_id séparés par des virgules.
+  // What-if: fully excluded from the simulation (no guild), or guaranteed to stay in their CURRENT
+  // guild whatever their score (e.g. a leader who should not move). Both lists come from the front end
+  // as comma-separated bbs_ids.
   const excludedBbsIds = new Set(parseList(excluded_bbs_ids));
   const pinnedBbsIds = new Set(parseList(pinned_bbs_ids));
 
@@ -131,10 +129,10 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
     ...(normalizedRankingType === 'average' && minScores > 0 && { minScoresRequired: minScores }),
   };
 
-  // Classement sur le cycle (le seuil de scores ne s'applique qu'aux candidats)
+  // Ranking on the cycle (the score threshold only applies to candidates)
   const rankAccounts = (bbsIds, { applyThreshold }) => rankAccountsOnCycle(db, context, bbsIds, { applyThreshold });
 
-  // Guildes figées : leurs membres actuels, classés par score sur le cycle, sans rang global
+  // Locked guilds: their current members, ranked by score on the cycle, without a global rank
   const lockedGuilds = new Map();
   for (const [name, bbsIds] of lockedMembers) {
     const players = bbsIds.length ? await rankAccounts(bbsIds, { applyThreshold: false }) : [];
@@ -148,9 +146,9 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
     });
   }
 
-  // Moyenne de chaque guilde redistribuée AVANT la draft : ses membres actuels, mêmes règles de
-  // classement que les candidats (seuil de scores compris), y compris ceux exclus de la simulation
-  // puisqu'ils font bien partie de la guilde aujourd'hui.
+  // Average of each redistributed guild BEFORE the draft: its current members, with the same ranking
+  // rules as candidates (score threshold included), including players excluded from the simulation
+  // since they are part of the guild today.
   const currentMemberIds = [...currentGuildByBbsId.keys()];
   const currentRanked = currentMemberIds.length ? await rankAccounts(currentMemberIds, { applyThreshold: true }) : [];
   const averageBeforeByGuild = new Map(draftOrder.map(name => [
@@ -182,14 +180,14 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
       ...p,
       overallRank: i + 1,
       currentGuildName,
-      // "Rester dans sa guilde actuelle" n'a pas de sens pour un agent libre (pas de guilde
-      // actuelle) : on ignore le pin plutôt que de le laisser disparaître du résultat.
+      // "Stay in the current guild" is meaningless for a free agent (no current guild): the pin is ignored
+      // rather than dropping the player from the result.
       isPinned: pinnedBbsIds.has(p.bbs_id) && !!currentGuildName,
     };
   });
 
-  // Les joueurs épinglés occupent d'abord une place dans leur guilde actuelle ; le reste des
-  // places de chaque guilde (dans l'ordre choisi) est comblé par les meilleurs scores restants.
+  // Pinned players first take a spot in their current guild; the remaining spots of each guild (in
+  // the chosen order) are filled with the best remaining scores.
   const floating = withCurrentGuild.filter(p => !p.isPinned);
   let floatingCursor = 0;
 
@@ -210,16 +208,16 @@ export const getDraftProposal = async (db, { cycle_name, year, ranking_type = 'a
   };
 }
 
-const DEFAULT_REPLACEMENT_TOLERANCE = 5; // % de score en moins accepté pour un remplaçant "équivalent"
+const DEFAULT_REPLACEMENT_TOLERANCE = 5; // % below the original score still accepted for an "equivalent" replacement
 const DEFAULT_SUGGESTIONS = 5;
 
 /**
- * Remplacement ciblé : pour des joueurs d'une guilde, propose des remplaçants de score équivalent
- * (jusqu'à `tolerance` % de moins) ou supérieur, pris UNIQUEMENT dans les guildes inférieures de
- * l'ordre (hiérarchie) ou parmi les joueurs sans guilde : les membres de la guilde visée et des
- * guildes supérieures ne sont jamais proposés. Une recommandation associe à chaque joueur remplacé
- * (du plus fort au moins fort) le meilleur remplaçant encore libre. Simulation en lecture seule.
- * Sans `replace_bbs_ids`, renvoie seulement les membres classés de la guilde (pour les choisir).
+ * Targeted replacement: for some players of a guild, proposes replacements with an equivalent (up to
+ * `tolerance` % lower) or higher score, taken ONLY from lower guilds in the order (hierarchy) or from
+ * guildless players: members of the target guild and of higher guilds are never proposed. The
+ * recommendation pairs each replaced player (strongest first) with the best replacement still
+ * available. Read-only simulation.
+ * Without `replace_bbs_ids`, only returns the guild's ranked members (to pick from).
  */
 export const getDraftReplacement = async (db, {
   cycle_name, year, ranking_type = 'average', guild_names, target_guild, replace_bbs_ids,
@@ -234,7 +232,7 @@ export const getDraftReplacement = async (db, {
   if (!Number.isFinite(tolerancePct) || tolerancePct < 0 || tolerancePct > 50) throw httpError(400, 'tolerance doit être comprise entre 0 et 50');
   const maxSuggestions = Math.min(20, Math.max(1, parseInt(limit, 10) || DEFAULT_SUGGESTIONS));
 
-  // Membres actuels de la guilde visée, classés (tous, même sous le seuil de scores)
+  // Current members of the target guild, ranked (all of them, even below the score threshold)
   const targetMembers = await getCurrentGuildBbsIds(db, guildByName.get(target_guild)._id.toString());
   const roster = targetMembers.length ? await rankAccountsOnCycle(db, context, targetMembers, { applyThreshold: false }) : [];
 
@@ -253,7 +251,7 @@ export const getDraftReplacement = async (db, {
   const replaced = roster.filter(p => toReplace.has(p.bbs_id));
   if (replaced.length === 0) return { roster, replacements: [], meta };
 
-  // Remplaçants possibles : membres des guildes inférieures + joueurs sans guilde
+  // Possible replacements: members of lower guilds + guildless players
   const sourceGuildByBbsId = new Map();
   for (const name of lowerGuilds) {
     for (const bbsId of await getCurrentGuildBbsIds(db, guildByName.get(name)._id.toString())) sourceGuildByBbsId.set(bbsId, name);
@@ -271,7 +269,7 @@ export const getDraftReplacement = async (db, {
   };
   const eligibleFor = (player) => candidates.filter(c => c[scoreKey] >= player[scoreKey] * (1 - tolerancePct / 100));
 
-  // Recommandation : le joueur remplacé le plus fort choisit en premier le meilleur remplaçant libre
+  // Recommendation: the strongest replaced player picks the best free replacement first
   const taken = new Set();
   const recommended = new Map();
   for (const player of [...replaced].sort((a, b) => b[scoreKey] - a[scoreKey])) {

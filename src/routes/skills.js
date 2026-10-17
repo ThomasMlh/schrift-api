@@ -5,18 +5,15 @@ import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
-// Middleware pour toutes les routes skills
 router.use(requireDb);
 
-// GET tous les skills (sans pagination, avec recherche optionnelle)
+// GET every skill (no pagination, optional name search)
 router.get('/', async (req, res) => {
   try {
     const { search } = req.query;
 
-    // Construction de la requête
     const query = {};
 
-    // Filtre par recherche sur le nom
     if (search && search.trim()) {
       query.name = { $regex: search.trim(), $options: 'i' };
     }
@@ -40,7 +37,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET un skill par ID
+// GET a skill by id
 router.get('/:id', async (req, res) => {
   try {
     const skill = await req.db.collection('skills').findOne({
@@ -67,12 +64,11 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT mettre à jour un skill
+// PUT update a skill
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const { name } = req.body;
 
-    // Validation
     if (!name || !name.trim()) {
       return res.status(400).json({
         success: false,
@@ -80,7 +76,6 @@ router.put('/:id', requireAdmin, async (req, res) => {
       });
     }
 
-    // Vérifier que le skill existe
     const existingSkill = await req.db.collection('skills').findOne({
       _id: new ObjectId(req.params.id)
     });
@@ -92,7 +87,6 @@ router.put('/:id', requireAdmin, async (req, res) => {
       });
     }
 
-    // Mettre à jour le skill
     const result = await req.db.collection('skills').updateOne(
       { _id: new ObjectId(req.params.id) },
       { $set: { name: name.trim() } }
@@ -105,7 +99,6 @@ router.put('/:id', requireAdmin, async (req, res) => {
       });
     }
 
-    // Récupérer le skill mis à jour
     const updatedSkill = await req.db.collection('skills').findOne({
       _id: new ObjectId(req.params.id)
     });
@@ -124,7 +117,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE supprimer un skill
+// DELETE a skill
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const result = await req.db.collection('skills').deleteOne({

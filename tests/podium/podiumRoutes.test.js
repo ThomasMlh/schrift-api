@@ -4,12 +4,9 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient } from 'mongodb';
 import podiumRouter from '../../src/routes/podium.js';
 
-// Tests HTTP de bout en bout sur routes/podium.js, en particulier pour
-// vérifier que sendStatusCodeError (src/utils/httpErrors.js) reproduit
-// exactement le comportement des 5 blocs catch identiques qu'il remplace :
-// même status code, même forme de réponse JSON, sur le chemin succès comme
-// sur le chemin erreur métier (statusCode porté par l'Error levée par
-// podiumService.js).
+// End-to-end HTTP tests of routes/podium.js, checking that sendStatusCodeError
+// (src/utils/httpErrors.js) returns the same status code and JSON shape on success and on business
+// errors (statusCode carried by the Error thrown by podiumService).
 jest.setTimeout(60000);
 
 let mongod;

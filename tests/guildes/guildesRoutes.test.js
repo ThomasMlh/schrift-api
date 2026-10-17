@@ -5,12 +5,8 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient, ObjectId } from 'mongodb';
 import guildesRouter from '../../src/routes/guildes/index.js';
 
-// guildes.js (991 lignes, 19 routes) a été découpé en crud.js/stats.js/
-// members.js/draft.js + un index.js qui les monte dans un ordre précis
-// (stats avant crud, cf. le commentaire dans index.js). Ces tests vérifient
-// que le découpage préserve le routage réel — en particulier que /rankings
-// et /members-summary ne sont PAS capturées par GET /:id — ce qu'aucun test
-// ne couvrait avant la découpe.
+// Checks that guild routing works as mounted in index.js (stats before crud), in particular that
+// /rankings and /members-summary are NOT caught by GET /:id.
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';
@@ -48,8 +44,8 @@ const adminToken = () => jwt.sign({ id: 'admin-1', is_admin: true }, JWT_SECRET)
 describe('GET /api/guildes/rankings (stats.js) is not shadowed by GET /:id (crud.js)', () => {
   it('reaches the rankings handler, not the :id handler', async () => {
     const res = await request(app).get('/api/guildes/rankings');
-    // Si /:id capturait la requête, "rankings" ne serait pas un ObjectId
-    // valide -> 500 ; le vrai handler renvoie 200 avec data: [].
+    // If /:id caught the request, "rankings" would not be a valid ObjectId -> 500; the real handler
+    // returns 200 with data: [].
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true, data: [] });
   });

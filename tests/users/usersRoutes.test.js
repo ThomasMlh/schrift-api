@@ -5,12 +5,8 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient, ObjectId } from 'mongodb';
 import usersRouter from '../../src/routes/users/index.js';
 
-// users.js (930 lignes, 17 routes) a été découpé en crud.js/roles.js/
-// accounts.js/moderation.js + notifications.js (3 helpers Discord partagés
-// entre crud.js et roles.js) + un index.js qui les monte. Ces tests
-// vérifient que /without-guild et /accounts (crud.js) ne sont pas capturées
-// par GET /:userId (même fichier, ordre interne) et que chaque sous-routeur
-// répond — aucune route de users.js n'avait de test avant la découpe.
+// Checks that /without-guild and /accounts (crud.js) are not caught by GET /:userId (same file,
+// internal order) and that each users sub-router responds.
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';
@@ -48,8 +44,8 @@ const adminToken = () => jwt.sign({ id: 'admin-1', is_admin: true }, JWT_SECRET)
 describe('GET /api/users/without-guild (crud.js) is not shadowed by GET /:userId', () => {
   it('reaches the without-guild handler, not the :userId handler', async () => {
     const res = await request(app).get('/api/users/without-guild');
-    // Si /:userId capturait la requête, validateObjectIdParam rejetterait
-    // "without-guild" avec un 400 ; le vrai handler renvoie 200.
+    // If /:userId caught the request, validateObjectIdParam would reject "without-guild" with a 400;
+    // the real handler returns 200.
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.users).toEqual([]);
@@ -114,8 +110,8 @@ describe('POST /api/users/:userId/accounts (accounts.js, requireAdmin)', () => {
 describe('GET /api/users/:user_id/stats (moderation.js)', () => {
   it('surfaces a business error from getUserStats as a non-500', async () => {
     const res = await request(app).get('/api/users/not-an-id/stats');
-    // getUserStats lève une erreur avec .statusCode pour un id invalide ;
-    // sendHiddenServiceError doit la laisser passer telle quelle (pas 500).
+    // getUserStats throws an error with .statusCode for an invalid id; sendHiddenServiceError must pass
+    // it through as is (not 500).
     expect(res.status).not.toBe(500);
   });
 });

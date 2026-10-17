@@ -6,7 +6,7 @@ import { CLEAR_SCORE_THRESHOLD } from '../../utils/scoreThresholds.js';
 
 const router = express.Router();
 
-// Classement de toutes les guildes pour un cycle
+// GET every guild's ranking for a cycle
 router.get('/rankings', async (req, res) => {
   try {
     const cycleId = req.query.cycle_id;
@@ -26,8 +26,8 @@ router.get('/rankings', async (req, res) => {
       scoresByGuild[s.guild_id].push(s.score || 0);
     }
 
-    // Nombre de comptes actuels par guilde (pour l'affichage) — un compte bbs = un membre du roster,
-    // un même user peut donc compter pour plusieurs guildes s'il y a un compte dans chacune.
+    // Current account count per guild (display only): one bbs account = one roster member, so a user
+    // can count in several guilds if they have an account in each.
     const memberCountRows = await req.db.collection('users').aggregate([
       { $match: { "bbs_accounts.guilde_id": { $in: guildIds } } },
       { $unwind: "$bbs_accounts" },
@@ -60,7 +60,7 @@ router.get('/rankings', async (req, res) => {
   }
 });
 
-// Nombre de membres par guilde (une seule requête via aggregation)
+// GET member count per guild (single aggregation)
 router.get('/members-summary', async (req, res) => {
   try {
     const guildIds = (await req.db.collection('guildes')
@@ -81,33 +81,30 @@ router.get('/members-summary', async (req, res) => {
   }
 });
 
-// Récupérer les statistiques d'une guilde
+// GET a guild's statistics
 router.get('/:id/stats', async (req, res) => {
   try {
     const guildeId = req.params.id;
     const cycleId = req.query.cycle_id;
 
-    // Vérifier que la guilde existe
     const guilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) });
     if (!guilde) {
       return res.status(404).json({ success: false, message: 'Guilde non trouvée' });
     }
 
-    // Construire la requête pour les scores (basée sur guild_id dans le score)
+    // Scores are matched on the guild_id stored on each score
     const scoresQuery = { guild_id: guildeId };
     if (cycleId) {
       scoresQuery.cycle_id = cycleId;
     }
 
-    // Récupérer tous les scores de la guilde
     const scores = await req.db.collection('scores')
       .find(scoresQuery)
       .toArray();
 
-    // Nombre de comptes actuels (pour l'affichage)
+    // Current account count (display only)
     const totalMembers = await req.db.collection('users').countDocuments({ "bbs_accounts.guilde_id": guildeId });
 
-    // Calculer les statistiques
     const totalScores = scores.length;
     const totalPoints = scores.reduce((sum, score) => sum + (score.score || 0), 0);
     const averageScore = totalScores > 0 ? Math.round(totalPoints / totalScores) : 0;
@@ -131,7 +128,7 @@ router.get('/:id/stats', async (req, res) => {
   }
 });
 
-// Top membres d'une guilde pour un cycle
+// GET a guild's top members for a cycle
 router.get('/:id/top-members', async (req, res) => {
   try {
     const cycleId = req.query.cycle_id;
@@ -144,7 +141,7 @@ router.get('/:id/top-members', async (req, res) => {
     const scores = await req.db.collection('scores').find(scoresQuery, { projection: { user_id: 1, bbs_id: 1, bbs_name: 1, score: 1 } }).toArray();
     if (scores.length === 0) return res.json({ success: true, data: [] });
 
-    // Groupé par compte bbs (pas par user) : deux comptes du même user comptent séparément.
+    // Grouped by bbs account (not user): two accounts of the same user count separately.
     const byAccount = {};
     for (const s of scores) {
       const key = s.bbs_id || s.user_id;
@@ -152,7 +149,7 @@ router.get('/:id/top-members', async (req, res) => {
       byAccount[key].scores.push(s.score || 0);
     }
 
-    // Récupérer les infos Discord des users concernés (actuels ou anciens), pour avatar/discord_id.
+    // Discord info (avatar, discord_id) of the users involved, current or former members.
     const userIds = [...new Set(Object.values(byAccount).map(a => a.userId))];
     const membres = await req.db.collection('users').find(
       { _id: { $in: userIds.map(id => new ObjectId(id)) } },
@@ -180,7 +177,7 @@ router.get('/:id/top-members', async (req, res) => {
   }
 });
 
-// Distribution des scores d'une guilde pour un cycle
+// GET a guild's score distribution for a cycle
 router.get('/:id/score-distribution', async (req, res) => {
   try {
     const cycleId = req.query.cycle_id;
@@ -216,7 +213,7 @@ router.get('/:id/score-distribution', async (req, res) => {
   }
 });
 
-// Évolution d'une guilde sur les derniers cycles
+// GET a guild's evolution over recent cycles
 router.get('/:id/evolution', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 6, 12);

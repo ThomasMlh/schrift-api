@@ -4,12 +4,12 @@ import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
 
 /**
- * Annonces Discord des paliers de succès or et platine débloqués lors d'une saisie de scores.
+ * Discord announcements of gold and platinum achievement tiers unlocked by a score entry.
  *
- * Les succès sont recalculés à partir des scores ; pour savoir ce qui est NOUVEAU, chaque palier
- * annoncé est mémorisé dans `achievement_unlocks` (un document par compte, succès et palier). Au
- * premier passage, tous les paliers déjà obtenus sont enregistrés sans annonce, pour ne pas
- * publier d'un coup tout l'historique.
+ * Achievements are recomputed from scores; to know what is NEW, each announced tier is stored in
+ * `achievement_unlocks` (one document per account, achievement and tier). On the first run, every
+ * tier already earned is recorded without an announcement, so the whole history is not published
+ * at once.
  */
 
 export const ANNOUNCED_TIERS = ['gold', 'platinum'];
@@ -32,9 +32,9 @@ const ensureSeeded = async (db) => {
 };
 
 /**
- * Détecte les paliers or/platine nouvellement débloqués par les comptes ayant de nouveaux scores
- * et envoie un message groupé par guilde (salon général, à défaut salon chefs). Ne lève jamais.
- * @returns {Promise<number>} nombre de paliers annoncés
+ * Detects gold/platinum tiers newly unlocked by accounts with new scores and sends one message per
+ * guild (general channel, falling back to the leaders channel). Never throws.
+ * @returns {Promise<number>} number of tiers announced
  */
 export const notifyAchievementUnlocks = async (db, insertedScores) => {
   try {

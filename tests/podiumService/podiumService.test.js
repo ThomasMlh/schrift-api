@@ -19,7 +19,7 @@ describe('applyRanks', () => {
   });
 
   it('gives tied scores the same rank, using dense ranking (no gap after a tie)', () => {
-    // Deux joueurs à 100 sont tous les deux 1er ; le suivant est 2e, pas 3e.
+    // Two players at 100 are both 1st; the next one is 2nd, not 3rd.
     const results = [{ score: 100 }, { score: 100 }, { score: 90 }, { score: 80 }];
     expect(applyRanks(results, 'score')).toEqual([
       { rank: 1, score: 100 },

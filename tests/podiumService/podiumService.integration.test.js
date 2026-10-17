@@ -10,11 +10,9 @@ import {
   isCycleInProgress,
 } from '../../src/services/podiumService/index.js';
 
-// Tests d'intégration exerçant les vrais pipelines d'agrégation MongoDB (les
-// tests unitaires de podiumService.test.js ne couvrent que les fonctions pures
-// autour). mongodb-memory-server démarre un vrai mongod éphémère en local :
-// pas de mock d'aggregate() à maintenir, le comportement testé est le
-// comportement réel de Mongo sur ces pipelines.
+// Integration tests running the real MongoDB aggregation pipelines (podiumService.test.js only covers
+// the pure functions around them). mongodb-memory-server starts a real ephemeral mongod: no aggregate()
+// mock to maintain, the tested behavior is Mongo's actual behavior.
 jest.setTimeout(60000);
 
 let mongod;
@@ -38,7 +36,7 @@ afterEach(async () => {
   await Promise.all(collections.map(c => db.collection(c.name).deleteMany({})));
 });
 
-// --- Fixtures -----------------------------------------------------------
+// Fixtures
 
 const makeGuild = async (name) => {
   const { insertedId } = await db.collection('guildes').insertOne({ name });
@@ -79,7 +77,6 @@ const insertScore = (cycleId, { bbsId, bbsName, userId, guildId, rotationId, sco
     raw_score: rawScore ?? score,
   });
 
-// --- getPodium ------------------------------------------------------------
 
 describe('getPodium (integration)', () => {
   it('ranks players by average score, descending', async () => {
@@ -101,9 +98,9 @@ describe('getPodium (integration)', () => {
     const cycleId = cycle._id.toString();
     await db.collection('app_settings').insertOne({ _id: 'podium', min_scores_for_ranking: 2 });
 
-    // Alice : 1 seul score, très haut -> doit être exclue malgré son score
+    // Alice: a single, very high score -> must be excluded despite her score
     await insertScore(cycleId, { bbsId: 'bbs-1', bbsName: 'Alice', userId: 'u1', guildId: null, rotationId: 'r1', score: 999 });
-    // Bob : 2 scores -> passe le seuil
+    // Bob: 2 scores -> meets the threshold
     await insertScore(cycleId, { bbsId: 'bbs-2', bbsName: 'Bob', userId: 'u2', guildId: null, rotationId: 'r1', score: 50 });
     await insertScore(cycleId, { bbsId: 'bbs-2', bbsName: 'Bob', userId: 'u2', guildId: null, rotationId: 'r2', score: 60 });
 
@@ -135,7 +132,6 @@ describe('getPodium (integration)', () => {
   });
 });
 
-// --- getPodiumFull ----------------------------------------------------------
 
 describe('getPodiumFull (integration)', () => {
   it('resolves the cycle by name and ranks by average by default', async () => {
@@ -159,14 +155,14 @@ describe('getPodiumFull (integration)', () => {
 
     const result = await getPodiumFull(db, { cycle_name: 'Cycle Max', ranking_type: 'max' });
 
-    // Un seul score, très en dessous du seuil de 5 : exclue en 'average', présente en 'max'.
+    // A single score, well below the threshold of 5: excluded in 'average', present in 'max'.
     expect(result.data.map(p => p.bbs_name)).toEqual(['Alice']);
     expect(result.meta.minScoresRequired).toBeUndefined();
   });
 
   it('returns individual scores (no grouping) when rotation_id is given', async () => {
-    // getPodiumFull résout rotation_id via new ObjectId(...) sur la collection 'rotations' :
-    // il faut un vrai ObjectId, pas un id arbitraire comme dans les autres tests de ce fichier.
+    // getPodiumFull resolves rotation_id with new ObjectId(...) on the 'rotations' collection: it needs a
+    // real ObjectId, not an arbitrary id like the other tests of this file.
     const rotationId = new ObjectId().toString();
     await db.collection('rotations').insertOne({ _id: new ObjectId(rotationId), killer: 'Killer A', attack: 'Rouge' });
     const cycle = await makeCycle({ name: 'Cycle Rot', rotations: [makeRotationMeta(rotationId, 1)] });
@@ -176,7 +172,7 @@ describe('getPodiumFull (integration)', () => {
 
     const result = await getPodiumFull(db, { cycle_name: 'Cycle Rot', rotation_id: rotationId });
 
-    // Pas de $group par rotation_id : les deux scores du même joueur remontent séparément.
+    // No $group by rotation_id: both scores of the same player are returned separately.
     expect(result.data).toHaveLength(2);
     expect(result.meta.podiumType).toBe('individual_scores');
   });
@@ -192,7 +188,6 @@ describe('getPodiumFull (integration)', () => {
   });
 });
 
-// --- getPodiumWeekly --------------------------------------------------------
 
 describe('getPodiumWeekly (integration)', () => {
   it('sums the two rotations of the requested week', async () => {
@@ -232,7 +227,6 @@ describe('getPodiumWeekly (integration)', () => {
   });
 });
 
-// --- getPodiumMisses ---------------------------------------------------------
 
 describe('getPodiumMisses (integration)', () => {
   it('only counts scores <= 0 and ranks by most misses first', async () => {
@@ -252,13 +246,13 @@ describe('getPodiumMisses (integration)', () => {
   });
 });
 
-// --- Périmètre d'une guilde : cycle passé vs cycle en cours -------------------
+// Guild scope: past cycle vs running cycle
 
 describe('guild scope on past and in-progress cycles', () => {
   const ddmmyyyy = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   const DAY = 24 * 60 * 60 * 1000;
 
-  // Alice a joué pour la guilde A, puis a été transférée dans la guilde B (draft)
+  // Alice played for guild A, then was moved to guild B (draft)
   const seedTransfer = async (rotations) => {
     const guildA = await makeGuild('Guilde A');
     const guildB = await makeGuild('Guilde B');
@@ -312,7 +306,6 @@ describe('guild scope on past and in-progress cycles', () => {
   });
 });
 
-// --- getDraftProposal --------------------------------------------------------
 
 describe('getDraftProposal (integration)', () => {
   it('splits ranked candidates into chunks of 20 across the requested guild order', async () => {
@@ -321,7 +314,7 @@ describe('getDraftProposal (integration)', () => {
     const cycle = await makeCycle({ name: 'Cycle Draft', rotations: [makeRotationMeta('r1', 1)] });
     const cycleId = cycle._id.toString();
 
-    // 25 joueurs classés par score décroissant, tous actuellement dans Guilde A.
+    // 25 players ranked by descending score, all currently in guild A.
     const users = [];
     for (let i = 0; i < 25; i++) {
       const bbsId = `bbs-${i}`;
@@ -337,7 +330,7 @@ describe('getDraftProposal (integration)', () => {
     expect(result.guilds[1].guild_name).toBe('B');
     expect(result.guilds[1].players).toHaveLength(5);
     expect(result.leftover).toHaveLength(0);
-    // Le meilleur score (Player0) doit être en tête de la première guilde.
+    // The best score (Player0) must lead the first guild.
     expect(result.guilds[0].players[0].bbs_name).toBe('Player0');
   });
 
@@ -348,7 +341,7 @@ describe('getDraftProposal (integration)', () => {
     const cycle = await makeCycle({ name: 'Cycle Lock', rotations: [makeRotationMeta('r1', 1)] });
     const cycleId = cycle._id.toString();
 
-    // A : 2 très bons joueurs qu'on veut garder ensemble ; B et C : 25 joueurs à répartir
+    // A: 2 very strong players to keep together; B and C: 25 players to split
     const users = [
       { discord_id: 'a1', bbs_accounts: [{ bbs_id: 'bbs-a1', guilde_id: guildA }] },
       { discord_id: 'a2', bbs_accounts: [{ bbs_id: 'bbs-a2', guilde_id: guildA }] },
@@ -367,7 +360,7 @@ describe('getDraftProposal (integration)', () => {
     expect(result.guilds.map((g) => [g.guild_name, !!g.locked, g.players.length])).toEqual([['A', true, 2], ['B', false, 20], ['C', false, 5]]);
     expect(result.guilds[0].players.map((p) => p.bbs_name)).toEqual(['A1', 'A2']);
     expect(result.guilds[0].players[0].overallRank).toBeNull();
-    // Les joueurs de A ne sont pas redistribués : le 1er paquet de B commence par P0
+    // A's players are not redistributed: B's first chunk starts with P0
     expect(result.guilds[1].players[0].bbs_name).toBe('P0');
     expect(result.meta.lockedGuilds).toEqual(['A']);
     expect(result.meta.totalCandidates).toBe(25);
@@ -383,7 +376,7 @@ describe('getDraftProposal (integration)', () => {
       { discord_id: 'd1', bbs_accounts: [{ bbs_id: 'bbs-low', guilde_id: guildA }] },
       { discord_id: 'd2', bbs_accounts: [{ bbs_id: 'bbs-high', guilde_id: guildB }] },
     ]);
-    // bbs-low a un score très faible mais est épinglé sur Guilde A.
+    // bbs-low has a very low score but is pinned to guild A.
     await insertScore(cycleId, { bbsId: 'bbs-low', bbsName: 'Low', userId: 'd1', guildId: guildA, rotationId: 'r1', score: 1 });
     await insertScore(cycleId, { bbsId: 'bbs-high', bbsName: 'High', userId: 'd2', guildId: guildB, rotationId: 'r1', score: 999 });
 
@@ -422,7 +415,7 @@ describe('getDraftProposal (integration)', () => {
     const cycle = await makeCycle({ name: 'Cycle Avg', rotations: [makeRotationMeta('r1', 1)] });
     const cycleId = cycle._id.toString();
 
-    // 25 joueurs (score 1000 - i) : pairs dans A, impairs dans B ; C figée avec 2 joueurs
+    // 25 players (score 1000 - i): even in A, odd in B; C locked with 2 players
     const users = [
       { discord_id: 'c1', bbs_accounts: [{ bbs_id: 'bbs-c1', guilde_id: guildC }] },
       { discord_id: 'c2', bbs_accounts: [{ bbs_id: 'bbs-c2', guilde_id: guildC }] },
@@ -436,15 +429,15 @@ describe('getDraftProposal (integration)', () => {
     }
     await db.collection('users').insertMany(users);
 
-    // P0 est exclu de la simulation : il compte toujours dans la moyenne "avant" de A
+    // P0 is excluded from the simulation: it still counts in A's "before" average
     const result = await getDraftProposal(db, {
       cycle_name: 'Cycle Avg', guild_names: 'A,B,C', locked_guild_names: 'C', excluded_bbs_ids: 'bbs-0',
     });
 
     const averages = result.guilds.map((g) => [g.guild_name, g.average_before, g.average_after]);
-    // A avant : i pairs 0..24 → 988 ; après : i 1..20 → 989.5 → 990
-    // B avant : i impairs 1..23 → 988 ; après : i 21..24 → 977.5 → 978
-    // C figée : identique avant/après
+    // A before: even i 0..24 -> 988; after: i 1..20 -> 989.5 -> 990
+    // B before: odd i 1..23 -> 988; after: i 21..24 -> 977.5 -> 978
+    // C locked: same before and after
     expect(averages).toEqual([['A', 988, 990], ['B', 988, 978], ['C', 200, 200]]);
   });
 
@@ -455,20 +448,19 @@ describe('getDraftProposal (integration)', () => {
   });
 });
 
-// --- getDraftReplacement -------------------------------------------------------
 
 describe('getDraftReplacement (integration)', () => {
-  // Ordre A > C > B : on remplace des joueurs de C
+  // Order A > C > B: players of C are replaced
   const seedHierarchy = async () => {
     const guilds = {};
     for (const name of ['A', 'C', 'B']) guilds[name] = await makeGuild(name);
     const cycle = await makeCycle({ name: 'Cycle Repl', rotations: [makeRotationMeta('r1', 1)] });
     const cycleId = cycle._id.toString();
     const players = [
-      ['a-strong', 'A', 900], // plus fort, mais guilde supérieure : jamais proposé
-      ['c-weak', 'C', 500], ['c-mid', 'C', 600], ['c-strong', 'C', 950], // c-strong : même guilde, jamais proposé
+      ['a-strong', 'A', 900], // Stronger, but in a higher guild: never proposed
+      ['c-weak', 'C', 500], ['c-mid', 'C', 600], ['c-strong', 'C', 950], // c-strong: same guild, never proposed
       ['b-top', 'B', 700], ['b-equal', 'B', 480], ['b-low', 'B', 300],
-      ['free', null, 650], // sans guilde : proposable
+      ['free', null, 650], // Guildless: can be proposed
     ];
     const users = [];
     for (const [bbsId, guildName, value] of players) {
@@ -493,13 +485,13 @@ describe('getDraftReplacement (integration)', () => {
     });
 
     const byPlayer = Object.fromEntries(result.replacements.map((r) => [r.player.bbs_id, r]));
-    // c-weak (500) : ≥ 475 → b-top 700, free 650, b-equal 480 ; jamais a-strong ni c-strong
+    // c-weak (500): >= 475 -> b-top 700, free 650, b-equal 480; never a-strong or c-strong
     expect(byPlayer['c-weak'].suggestions.map((c) => c.bbs_id)).toEqual(['b-top', 'free', 'b-equal']);
-    // c-mid (600) : ≥ 570 → b-top, free
+    // c-mid (600): >= 570 -> b-top, free
     expect(byPlayer['c-mid'].suggestions.map((c) => c.bbs_id)).toEqual(['b-top', 'free']);
     expect(byPlayer['c-mid'].suggestions[0]).toMatchObject({ currentGuildName: 'B', delta: 100, deltaPercent: 16.7 });
     expect(byPlayer['c-mid'].suggestions[1].currentGuildName).toBeNull();
-    // Recommandation : le plus fort (c-mid) prend b-top, c-weak prend le suivant libre (free)
+    // Recommendation: the strongest (c-mid) takes b-top, c-weak takes the next free one (free)
     expect(byPlayer['c-mid'].recommended_bbs_id).toBe('b-top');
     expect(byPlayer['c-weak'].recommended_bbs_id).toBe('free');
   });

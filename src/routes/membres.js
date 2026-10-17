@@ -7,10 +7,9 @@ import { sendServerError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
-// Middleware pour toutes les routes membres
 router.use(requireDb);
 
-// Récupérer tous les membres
+// GET every member
 router.get('/', async (req, res) => {
   try {
     const membres = await req.db.collection('membres').find().toArray();
@@ -20,7 +19,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Récupérer un membre par ID
+// GET a member by id
 router.get('/:id', async (req, res) => {
   try {
     const membre = await req.db.collection('membres').findOne({ _id: new ObjectId(req.params.id) });
@@ -33,7 +32,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Changer le rôle d'un membre
+// PUT change a member's role
 router.put('/:id/role', requireAdmin, async (req, res) => {
   try {
     const memberId = req.params.id;
@@ -46,7 +45,7 @@ router.put('/:id/role', requireAdmin, async (req, res) => {
 
     const guildeId = member.guilde_id;
 
-    // Vérifier contraintes si on veut passer en chef ou sous-chef
+    // Leader/officer constraints
     if (newRole === 'chef') {
       const chefCount = await req.db.collection('membres').countDocuments({ 
         guilde_id: guildeId, 
@@ -73,9 +72,8 @@ router.put('/:id/role', requireAdmin, async (req, res) => {
       { _id: new ObjectId(memberId) },
       { $set: { role: newRole } }
     );
-    // Notification Discord — attendue avant la réponse : sur Vercel (serverless), l'exécution
-    // peut être coupée dès la réponse envoyée, donc un appel non attendu après res.json() n'est
-    // pas garanti d'aboutir (silencieusement manqué, de façon intermittente).
+    // Discord notification, awaited before responding: on Vercel (serverless) execution may stop once
+    // the response is sent, so a call left running after res.json() is not guaranteed to complete.
     if (member.role !== newRole) {
       try {
         const guilde = guildeId ? await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) }) : null;
@@ -96,7 +94,7 @@ router.put('/:id/role', requireAdmin, async (req, res) => {
   }
 });
 
-// Déplacer un membre vers une autre guilde (rôle automatiquement "membre")
+// PUT move a member to another guild (role reset to "membre")
 router.put('/:id/guilde', requireAdmin, async (req, res) => {
   try {
     const memberId = req.params.id;
@@ -104,7 +102,7 @@ router.put('/:id/guilde', requireAdmin, async (req, res) => {
 
     if (!newGuildeId) return res.status(400).json({ success: false, message: 'guilde_id requis' });
 
-    // Je veux récupérer le name de la nouvelle guilde pour le message de succès
+    // New guild name, for the success message
     const newGuilde = await req.db.collection('guildes').findOne({ _id: new ObjectId(newGuildeId) });
     if (!newGuilde) {
       return res.status(404).json({ success: false, message: 'Nouvelle guilde non trouvée' });
@@ -113,7 +111,7 @@ router.put('/:id/guilde', requireAdmin, async (req, res) => {
     const member = await req.db.collection('membres').findOne({ _id: new ObjectId(memberId) });
     if (!member) return res.status(404).json({ success: false, message: 'Membre non trouvé' });
 
-    // Forcer le rôle "membre" lors du déplacement (plus simple et logique)
+    // A moved member always gets the "membre" role
     await req.db.collection('membres').updateOne(
       { _id: new ObjectId(memberId) },
       { $set: { guilde_id: newGuildeId, role: 'membre' } }
@@ -125,7 +123,7 @@ router.put('/:id/guilde', requireAdmin, async (req, res) => {
   }
 });
 
-// Supprimer un membre
+// DELETE a member
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const member = await req.db.collection('membres').findOne({ _id: new ObjectId(req.params.id) });

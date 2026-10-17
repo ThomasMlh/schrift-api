@@ -9,10 +9,9 @@ import { sendServerError } from '../utils/httpErrors.js';
 
 const router = express.Router();
 
-// Middleware pour toutes les routes cycles
 router.use(requireDb);
 
-// GET tous les cycles avec pagination
+// GET cycles with pagination
 router.get('/', async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
@@ -22,9 +21,9 @@ router.get('/', async (req, res) => {
       .sort({ year: -1 })
       .toArray();
 
-    // Trier les cycles par la start_date la plus récente (première rotation)
+    // Most recent first, by the start date of the first rotation
     cycles.sort((a, b) => {
-      // Fonction pour parser le format DD/MM/YYYY
+      // Parses DD/MM/YYYY
       const parseDate = (dateStr) => {
         if (!dateStr) return new Date(0);
         const [day, month, year] = dateStr.split('/');
@@ -34,7 +33,6 @@ router.get('/', async (req, res) => {
       const dateA = a.rotations && a.rotations.length > 0 ? parseDate(a.rotations[0].start_date) : new Date(0);
       const dateB = b.rotations && b.rotations.length > 0 ? parseDate(b.rotations[0].start_date) : new Date(0);
       
-      // Tri décroissant (dates les plus récentes en premier)
       return dateB.getTime() - dateA.getTime();
     });
 
@@ -51,7 +49,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET un cycle spécifique par ID
+// GET a cycle by id
 router.get('/:cycleId', async (req, res) => {
   try {
     const cycle = await req.db.collection('cycles').findOne({ 
@@ -68,12 +66,12 @@ router.get('/:cycleId', async (req, res) => {
   }
 });
 
-// POST créer un nouveau cycle
+// POST create a cycle
 router.post('/', requireAdmin, async (req, res) => {
   try {
     const { name, rotations } = req.body;
 
-    // Validation : exactement 20 rotations
+    // A cycle has exactly 20 rotations
     if (!rotations || rotations.length !== 20) {
       return res.status(400).json({
         success: false,
@@ -81,11 +79,10 @@ router.post('/', requireAdmin, async (req, res) => {
       });
     }
 
-    // Prendre l'année en cours
     const currentYear = new Date().getFullYear();
 
-    // Validation : le nom doit être unique pour une même année (le nom peut être
-    // réutilisé d'une année à l'autre, l'année sert de clé de résolution du podium)
+    // The name must be unique within a year (it can be reused across years; the year is part of the
+    // podium resolution key)
     const existingCycle = await req.db.collection('cycles').findOne({ name, year: currentYear });
     if (existingCycle) {
       return res.status(409).json({
@@ -94,7 +91,7 @@ router.post('/', requireAdmin, async (req, res) => {
       });
     }
 
-    // Validation : toutes les rotations doivent être uniques
+    // Rotations must be unique
     const rotationStrings = rotations.map(rotation => 
       JSON.stringify({
         start_date: rotation.start_date,
@@ -116,7 +113,6 @@ router.post('/', requireAdmin, async (req, res) => {
       });
     }
 
-    // Ajouter des IDs aux rotations
     const rotationsWithIds = rotations.map(rotation => ({
       ...rotation,
       _id: new ObjectId()
@@ -132,8 +128,8 @@ router.post('/', requireAdmin, async (req, res) => {
 
     const result = await req.db.collection('cycles').insertOne(cycle);
 
-    // Notification Discord — attendue avant la réponse (cf. commit fix(notify) : sur Vercel,
-    // l'exécution peut être coupée dès la réponse envoyée).
+    // Discord notification, awaited before responding (on Vercel, execution may stop once the
+    // response is sent).
     try {
       await notifyDiscord('cycle_change', {
         action: 'create',
@@ -155,12 +151,12 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
-// PUT modifier un cycle
+// PUT update a cycle
 router.put('/:cycleId', requireAdmin, async (req, res) => {
   try {
     const { name, rotations } = req.body;
 
-    // Validation : exactement 20 rotations
+    // A cycle has exactly 20 rotations
     if (rotations && rotations.length !== 20) {
       return res.status(400).json({
         success: false,
@@ -168,7 +164,7 @@ router.put('/:cycleId', requireAdmin, async (req, res) => {
       });
     }
 
-    // Validation : toutes les rotations doivent être uniques (si rotations fournies)
+    // Rotations must be unique (when provided)
     if (rotations) {
       const rotationStrings = rotations.map(rotation => 
         JSON.stringify({
@@ -198,8 +194,8 @@ router.put('/:cycleId', requireAdmin, async (req, res) => {
     }
 
     if (name) {
-      // Le nom peut être réutilisé d'une année à l'autre : on ne bloque que le
-      // doublon name+year (l'année d'un cycle n'est pas modifiable via cette route).
+      // Names can be reused across years: only a name+year duplicate is rejected (a cycle's year cannot
+      // be changed through this route).
       const existingCycle = await req.db.collection('cycles').findOne({
         name,
         year: currentCycle.year,
@@ -220,7 +216,7 @@ router.put('/:cycleId', requireAdmin, async (req, res) => {
     if (name) updateData.name = name;
 
     if (rotations) {
-      // Préserver les IDs existants ou en créer de nouveaux
+      // Keep existing ids, generate the missing ones
       updateData.rotations = rotations.map(rotation => ({
         ...rotation,
         _id: rotation._id ? new ObjectId(rotation._id) : new ObjectId()
@@ -236,7 +232,7 @@ router.put('/:cycleId', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Cycle non trouvé' });
     }
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       await notifyDiscord('cycle_change', {
         action: 'update',
@@ -254,7 +250,7 @@ router.put('/:cycleId', requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE supprimer un cycle
+// DELETE a cycle
 router.delete('/:cycleId', requireAdmin, async (req, res) => {
   try {
     const cycleToDelete = await req.db.collection('cycles').findOne({ _id: new ObjectId(req.params.cycleId) });
@@ -267,7 +263,7 @@ router.delete('/:cycleId', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Cycle non trouvé' });
     }
 
-    // Notification Discord — attendue avant la réponse.
+    // Discord notification, awaited before responding.
     try {
       await notifyDiscord('cycle_change', {
         action: 'delete',
@@ -285,7 +281,7 @@ router.delete('/:cycleId', requireAdmin, async (req, res) => {
   }
 });
 
-// GET tout les scores d'une rotation donné par sa position dans un cycle donné par son ID
+// GET every score of a rotation, by its position in the cycle
 router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
   try {
     const cycleId = req.params.cycleId;
@@ -315,10 +311,8 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Rotation actuelle non trouvée' });
     }
 
-    // Paramètres de query
-    const guildName = req.query.guild; // Nom de la guilde à filtrer
+    const guildName = req.query.guild; // Guild name filter
 
-    // Si guild_name est spécifié, rechercher la guilde correspondante
     let guildId = null;
     if (guildName && guildName.trim()) {
       const guild = await req.db.collection('guildes').findOne({
@@ -335,7 +329,6 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       guildId = guild._id.toString();
     }
 
-    // Construire le match stage avec le filtre guilde si nécessaire
     const matchStage = {
       rotation_id: rotation.rotation_id,
       cycle_id: cycleId
@@ -345,20 +338,20 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       matchStage.guild_id = guildId;
     }
 
-    // Pipeline pour récupérer tous les scores (sans pagination d'abord pour calculer les ranks)
+    // Every score first (no pagination) so ranks can be computed
     let pipelineForRanking = [
       { $match: matchStage },
       {
         $lookup: {
           from: 'users',
-          let: { userId: "$user_id" }, // Pas de conversion ObjectId ici
+          let: { userId: "$user_id" },
           pipeline: [
             { 
               $match: { 
                 $expr: { 
                   $or: [
-                    { $eq: ["$discord_id", "$$userId"] }, // Si user_id est un discord_id
-                    { $eq: [{ $toString: "$_id" }, "$$userId"] } // Si user_id est un ObjectId en string
+                    { $eq: ["$discord_id", "$$userId"] }, // user_id holding a discord_id
+                    { $eq: [{ $toString: "$_id" }, "$$userId"] } // user_id holding a stringified ObjectId
                   ]
                 }
               }
@@ -371,12 +364,11 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       {
         $unwind: {
           path: '$user',
-          preserveNullAndEmptyArrays: true // Garder les scores même si l'utilisateur n'est pas trouvé
+          preserveNullAndEmptyArrays: true // Keep scores whose user is not found
         }
       }
     ];
 
-    // Ajouter le tri (sans pagination pour le moment)
     pipelineForRanking.push(
       { $sort: { score: -1 } }
     );
@@ -385,13 +377,12 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       .aggregate(pipelineForRanking)
       .toArray();
 
-    // Calculer les ranks en tenant compte des égalités
+    // Ranks with ties
     let currentRank = 1;
     let previousScore = null;
 
     const scoresWithRank = allScores.map((scoreDoc, index) => {
       if (previousScore !== null && scoreDoc.score !== previousScore) {
-        // Le score a changé, mettre à jour le rank
         currentRank = index + 1;
       }
       
@@ -403,7 +394,7 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       };
     });
 
-    // Appliquer la pagination sur les résultats avec rank
+    // Paginate the ranked results
     const totalCount = scoresWithRank.length;
     const scores = scoresWithRank.slice(skip, skip + limit);
 

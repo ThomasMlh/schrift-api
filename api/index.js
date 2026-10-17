@@ -10,11 +10,10 @@ import { setDb } from '../src/config/database.js';
 
 const app = express();
 
-// Configuration des middlewares
 app.use(express.json({limit: '1000mb'}));
 app.use(express.urlencoded({limit: '1000mb', extended: true}));
 
-// Configuration CORS simplifiée pour JWT
+// CORS (JWT in the Authorization header)
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
@@ -28,7 +27,7 @@ if (!uri) {
   process.exit(1);
 }
 
-// Connexion MongoDB optimisée pour Vercel (serverless)
+// MongoDB connection cached across serverless invocations (Vercel)
 let cachedClient = null;
 let cachedDb = null;
 
@@ -55,7 +54,7 @@ async function connectToDatabase() {
     }
 
     cachedClient = client;
-    // Rend la DB accessible hors du cycle requête/réponse Express (ex: notifyDiscord.js)
+    // Exposes the DB outside the Express request cycle (e.g. notifyDiscord.js)
     setDb(cachedDb);
 
     console.log('✅ Connecté à MongoDB');
@@ -66,7 +65,7 @@ async function connectToDatabase() {
   }
 }
 
-// Middleware pour initialiser la DB pour chaque requête
+// Ensures the DB is connected for every request
 app.use(async (req, res, next) => {
   try {
     const { db } = await connectToDatabase();
@@ -82,7 +81,6 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Route racine
 app.get('/', (_req, res) => {
   res.json({ 
     success: true, 
@@ -93,7 +91,7 @@ app.get('/', (_req, res) => {
 
 app.use('/api', apiRoutes);
 
-// Gestion d'erreur globale
+// Global error handler
 app.use((err, req, res, next) => {
   console.error('Erreur serveur:', err);
   res.status(500).json({ 
@@ -102,7 +100,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Pour le développement local
+// Local development
 if (process.env.NODE_ENV !== 'production') {
   const port = Number(process.env.PORT) || 3000;
   app.listen(port, () => {
@@ -110,5 +108,5 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// Export pour Vercel
+// Vercel entry point
 export default app;

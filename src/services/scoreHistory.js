@@ -4,9 +4,9 @@ import { toObjectIds } from './killerRecords.js';
 import { invalidateAchievementsCache } from './achievements.js';
 
 /**
- * Historique des modifications de scores (collection `score_history`) : une entrée par création,
- * modification, suppression, transfert ou recalcul automatique d'un score, avec l'état avant/après
- * et l'auteur. Sert en cas de litige ou d'erreur de saisie.
+ * Score change history (`score_history` collection): one entry per creation, update, deletion,
+ * transfer or automatic recomputation of a score, with the before/after state and the author. Used
+ * for disputes and typo investigations.
  */
 
 export const SCORE_HISTORY_ACTIONS = ['create', 'update', 'delete', 'transfer_account', 'transfer_rotation', 'recalculate'];
@@ -22,15 +22,15 @@ const snapshot = (doc) => {
   return snap;
 };
 
-// Auteur à partir du JWT (req.user) ; null pour un recalcul automatique.
+// Author from the JWT (req.user); null for an automatic recomputation.
 const authorOf = (user) => (user ? (user._id?.toString() || user.id?.toString() || user.discord_id || null) : null);
 
 /**
- * Enregistre un changement. `before`/`after` sont des documents score (ou null pour une création /
- * une suppression). Une modification sans changement réel n'est pas enregistrée. Ne lève jamais.
+ * Records a change. `before`/`after` are score documents (or null for a creation / deletion). An
+ * update without any real change is not recorded. Never throws.
  */
 export const recordScoreChange = async (db, { action, source = 'manual', scoreId, before = null, after = null, user = null }) => {
-  // Tout changement de score peut débloquer ou retirer un succès
+  // Any score change can unlock or remove an achievement
   invalidateAchievementsCache();
   try {
     const beforeSnap = snapshot(before);
@@ -58,9 +58,9 @@ export const recordScoreChange = async (db, { action, source = 'manual', scoreId
 };
 
 /**
- * Liste paginée de l'historique, du plus récent au plus ancien, avec le nom de l'auteur, de la
- * guilde, du cycle et le killer de la rotation. `guildIds` restreint aux guildes données (chefs) :
- * une entrée est visible si le score appartenait à l'une d'elles avant OU après le changement.
+ * Paginated history, most recent first, with the author, guild, cycle and rotation killer names.
+ * `guildIds` restricts to the given guilds (leaders): an entry is visible when the score belonged to
+ * one of them before OR after the change.
  */
 export const getScoreHistory = async (db, { guildIds = null, scoreId, cycleId, bbsId, action, page = 1, limit = 50 }) => {
   const filter = {};

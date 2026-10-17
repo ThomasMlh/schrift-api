@@ -2,25 +2,24 @@ import { loadComparableScores, toObjectIds, cycleTimestamp } from './killerRecor
 import { getCyclesChronological } from './playerTrends.js';
 
 /**
- * Scores à vérifier (probables erreurs de saisie) sur les cycles récents, pour les chefs et admins :
- *  - above_killer_record : nettement au-dessus du meilleur score jamais fait sur ce killer
- *  - far_above_usual / far_below_usual : très loin de l'habitude du joueur sur ce killer
- *    (chiffre en trop / en moins)
- *  - missing_base : rotation différentielle saisie sans le score de base de la semaine (le score
- *    affiché vaut alors tout le cumul hebdo)
- *  - same_value : même score brut pour plusieurs joueurs de la guilde sur la même rotation
- *    (copier-coller)
- * Un score marqué "vérifié" n'apparaît plus, tant que sa valeur ne change pas.
+ * Scores to review (probable typos) on recent cycles, for leaders and admins:
+ *  - above_killer_record: well above the best score ever made on this killer
+ *  - far_above_usual / far_below_usual: very far from the player's usual level on this killer
+ *    (an extra or missing digit)
+ *  - missing_base: differential rotation entered without the week's base score (the displayed
+ *    score is then the whole weekly total)
+ *  - same_value: same raw score for several players of the guild on the same rotation (copy-paste)
+ * A score marked as reviewed no longer shows up until its value changes.
  */
 
-// Au-delà de 120 % du meilleur score de tous les joueurs sur ce killer
+// Above 120% of every player's best score on this killer
 const RECORD_FACTOR = 1.2;
-// Minimum de scores existants sur le killer pour que son record serve de référence
+// Minimum number of existing scores on the killer for its record to be used as a reference
 const MIN_KILLER_SAMPLES = 5;
-// Au-delà du double, ou sous le quart, de la moyenne du joueur sur ce killer
+// Above twice, or below a quarter of, the player's average on this killer
 export const ABOVE_USUAL_FACTOR = 2;
 export const BELOW_USUAL_FACTOR = 0.25;
-// Cycles commencés examinés (les plus récents)
+// Number of latest started cycles examined
 const RECENT_CYCLES = 2;
 
 export const ANOMALY_TYPES = ['above_killer_record', 'far_above_usual', 'far_below_usual', 'missing_base', 'same_value'];
@@ -39,7 +38,7 @@ export const getScoreAnomalies = async (db, { guildIds, now = Date.now() }) => {
   }).toArray();
   if (recent.length === 0) return [];
 
-  // Référence : tous les scores comparables (tous joueurs, tous cycles) sur les killers concernés
+  // Reference: every comparable score (all players, all cycles) on the involved killers
   const rotationIds = [...new Set(recent.map((s) => s.rotation_id))];
   const comparable = await loadComparableScores(db, { rotation_id: { $in: rotationIds } });
   const comparableIds = new Set(comparable.map((s) => s._id.toString()));
@@ -49,7 +48,7 @@ export const getScoreAnomalies = async (db, { guildIds, now = Date.now() }) => {
     byRotation.get(s.rotation_id).push(s);
   }
 
-  // Même score brut pour plusieurs comptes sur une même rotation d'une même guilde
+  // Same raw score for several accounts on the same rotation of the same guild
   const sameValueGroups = new Map();
   for (const s of recent) {
     if (!(s.raw_score > 0)) continue;
@@ -97,7 +96,7 @@ export const getScoreAnomalies = async (db, { guildIds, now = Date.now() }) => {
   const rotationById = new Map(rotations.map((r) => [r._id.toString(), r]));
   const guildNameById = new Map(guilds.map((g) => [g._id.toString(), g.name]));
 
-  // Du plus récent au plus ancien : cycle le plus récent d'abord, puis dernière rotation d'abord
+  // Most recent first: latest cycle first, then latest rotation first
   const recency = (s) => {
     const cycleIndex = cycles.findIndex((c) => c._id.toString() === s.cycle_id);
     const rotationIndex = cycleById.get(s.cycle_id)?.rotations?.findIndex((r) => r.rotation_id === s.rotation_id) ?? 0;
@@ -132,7 +131,7 @@ export const getScoreAnomalies = async (db, { guildIds, now = Date.now() }) => {
     });
 };
 
-/** Marque un score comme vérifié à sa valeur actuelle (il réapparaît si la valeur change). */
+/** Marks a score as reviewed at its current value (it comes back if the value changes). */
 export const reviewScoreAnomaly = async (db, score, user) => {
   await db.collection('scores').updateOne(
     { _id: score._id },

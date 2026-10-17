@@ -6,8 +6,8 @@ import { MongoClient, ObjectId } from 'mongodb';
 import scoresRouter from '../../src/routes/scores/index.js';
 import podiumRouter from '../../src/routes/podium.js';
 
-// Câblage HTTP des tendances : droits d'accès aux baisses de régime (admin / chef limité à sa
-// guilde) et aperçu du récap de fin de cycle. La logique de calcul est couverte par playerTrends.test.js.
+// HTTP wiring of trends: access rules for declines (admin / leader limited to their guild) and the
+// end-of-cycle recap preview. The computation is covered by playerTrends.test.js.
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';
@@ -45,7 +45,7 @@ const adminToken = () => jwt.sign({ id: 'admin-1', is_admin: true }, JWT_SECRET)
 const chefToken = (guildId) => jwt.sign({ id: 'chef-1', role: 'chef', guild_roles: [{ guilde_id: guildId, role: 'chef' }] }, JWT_SECRET);
 const memberToken = () => jwt.sign({ id: 'member-1' }, JWT_SECRET);
 
-// Une guilde dont un membre (alice) s'effondre sur le dernier cycle
+// A guild where one member (alice) collapses on the latest cycle
 const seedDecline = async (guildName) => {
   const { insertedId } = await db.collection('guildes').insertOne({ name: guildName });
   const guildId = insertedId.toString();

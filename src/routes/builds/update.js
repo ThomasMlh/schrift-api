@@ -7,13 +7,12 @@ import { parseBuildResult } from './result.js';
 
 const router = express.Router();
 
-// PATCH /builds/:id - Mettre à jour un build
+// PATCH /builds/:id - update a build
 router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
 
-    // Vérifier que le build existe
     const existingBuild = await req.db.collection('builds').findOne({
       _id: new ObjectId(id)
     });
@@ -25,7 +24,7 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       });
     }
 
-    // Vérifier que l'utilisateur a le droit de modifier ce build
+    // Only the author or an admin can edit
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -33,7 +32,6 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       });
     }
 
-    // Récupérer l'ID MongoDB de l'utilisateur courant
     let currentUserId = null;
     const userIdentifier = req.user?.userId || req.user?.discord_id;
 
@@ -50,7 +48,6 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       }
     }
 
-    // Seul le propriétaire ou un admin peut modifier
     const isOwner = existingBuild.user_id === currentUserId;
     const isAdmin = req.user.is_admin === true;
 
@@ -61,7 +58,6 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       });
     }
 
-    // Valider les champs si présents
     if (updates.rotation_id) {
       try {
         const rotation = await req.db.collection('rotations').findOne({
@@ -83,7 +79,7 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
     }
 
     if (updates.team && Array.isArray(updates.team)) {
-      // Valider la structure de la team
+      // Team structure
       for (const member of updates.team) {
         if (!member.id_character) {
           return res.status(400).json({
@@ -99,7 +95,6 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
           });
         }
 
-        // Vérifier que le personnage existe
         try {
           const character = await req.db.collection('characters').findOne({
             _id: new ObjectId(member.id_character)
@@ -118,7 +113,6 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
           });
         }
 
-        // Valider les links si présents
         if (member.links && Array.isArray(member.links)) {
           if (member.links.length > 3) {
             return res.status(400).json({
@@ -155,7 +149,6 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
           }
         }
 
-        // Valider les skills si présents
         if (member.skills && Array.isArray(member.skills)) {
           if (member.skills.length > 2) {
             return res.status(400).json({
@@ -185,7 +178,7 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
           }
         }
 
-        // Valider les accessories si présents (max 3 accessories par personnage)
+        // At most 3 accessories per character
         if (member.accessories && Array.isArray(member.accessories)) {
           if (member.accessories.length > 3) {
             return res.status(400).json({
@@ -202,7 +195,6 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
               });
             }
 
-            // Vérifier que l'accessory existe
             try {
               const accessoryDoc = await req.db.collection('accessories').findOne({
                 _id: new ObjectId(accessory.id_accessory)
@@ -221,7 +213,6 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
               });
             }
 
-            // Vérifier le subeffect si présent
             if (accessory.id_subeffect) {
               try {
                 const subeffect = await req.db.collection('accessories_subeffect').findOne({
@@ -251,14 +242,14 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       return res.status(400).json({ success: false, message: resultError });
     }
 
-    // Seuls les champs modifiables sont enregistrés (la capture passe par /:id/screenshot,
-    // l'auteur et la validation ne se changent pas ici)
+    // Only editable fields are saved (the screenshot goes through /:id/screenshot; author and
+    // validation are not changed here)
     const setFields = { ...result, updated_at: new Date() };
     for (const field of ['rotation_id', 'description', 'team']) {
       if (field in updates) setFields[field] = updates[field];
     }
 
-    // Forcer isValid à false si ce n'est pas un admin qui modifie
+    // Edits by non-admins send the build back to validation
     if (!isAdmin) {
       setFields.isValid = false;
     }
@@ -268,7 +259,6 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       { $set: setFields }
     );
 
-    // Récupérer le build mis à jour
     const updatedBuild = await req.db.collection('builds').findOne({
       _id: new ObjectId(id)
     });
@@ -294,7 +284,7 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
   }
 });
 
-// PATCH /builds/:id/validate - Valider un build (admin seulement)
+// PATCH /builds/:id/validate - validate a build (admin only)
 router.patch('/:id/validate', requireAdmin, validateObjectIdParam('id'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -326,7 +316,6 @@ router.patch('/:id/validate', requireAdmin, validateObjectIdParam('id'), async (
       });
     }
 
-    // Récupérer le build mis à jour
     const updatedBuild = await req.db.collection('builds').findOne({
       _id: new ObjectId(id)
     });

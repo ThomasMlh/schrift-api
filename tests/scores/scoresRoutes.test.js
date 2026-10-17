@@ -5,12 +5,9 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient, ObjectId } from 'mongodb';
 import scoresRouter from '../../src/routes/scores/index.js';
 
-// scores.js (1429 lignes, 11 routes) a été découpé en crud.js/bulk.js/
-// transfers.js + un index.js qui les monte. Aucune de ces routes n'avait de
-// test avant la découpe : ces tests vérifient que les 3 sous-routeurs sont
-// bien câblés au même routeur (mêmes chemins, même middleware requireDb,
-// mêmes middlewares d'auth par route) — pas une couverture exhaustive de la
-// logique métier de scores.js, qui reste à faire séparément.
+// Checks that the score sub-routers (crud.js, bulk.js, transfers.js) are wired to the same router
+// (same paths, requireDb, same per-route auth middlewares). Not an exhaustive coverage of the score
+// business logic.
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';

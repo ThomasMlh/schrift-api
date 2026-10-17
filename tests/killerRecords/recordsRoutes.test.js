@@ -5,9 +5,9 @@ import { MongoClient, ObjectId } from 'mongodb';
 import rotationsRouter from '../../src/routes/rotations.js';
 import usersRouter from '../../src/routes/users/index.js';
 
-// Routes publiques exposant les records : historique d'un killer (page de rotation) et records
-// personnels d'un joueur (page profil). La logique de calcul est couverte par
-// killerRecords.test.js ; ici on vérifie le câblage HTTP et les paramètres.
+// Public routes exposing records: a killer's history (rotation page) and a player's personal records
+// (profile page). The computation is covered by killerRecords.test.js; this checks the HTTP wiring
+// and parameters.
 jest.setTimeout(60000);
 
 let mongod;

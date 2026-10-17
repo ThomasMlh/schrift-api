@@ -17,12 +17,11 @@ import { sendServerError, sendStatusCodeError } from '../../utils/httpErrors.js'
 
 const router = express.Router();
 
-// GET tous les scores avec filtres et pagination
+// GET scores with filters and pagination
 router.get("/", async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
 
-    // Construction des filtres
     const filters = {};
 
     if (req.query.cycle_id) {
@@ -41,13 +40,13 @@ router.get("/", async (req, res) => {
       filters.bbs_id = req.query.bbs_id;
     }
 
-    // Pour la recherche par nom d'utilisateur (global_name), on doit toujours faire une agrégation
+    // Searching by user name (global_name) requires an aggregation
     let pipeline = [];
 
     if (req.query.search && req.query.search.trim()) {
       const searchTerm = escapeRegex(req.query.search.trim());
 
-      // Pipeline d'agrégation pour joindre avec la collection users et filtrer par global_name
+      // Join users and filter on global_name
       pipeline = [
         { $match: filters },
         {
@@ -62,7 +61,7 @@ router.get("/", async (req, res) => {
           }
         },
         {
-          $unwind: "$user" // Décompose le tableau user pour accéder directement aux champs
+          $unwind: "$user"
         },
         {
           $match: {
@@ -78,7 +77,7 @@ router.get("/", async (req, res) => {
         { $limit: limit }
       ];
     } else {
-      // Requête simple sans recherche - mais on peut quand même joindre les données utilisateur
+      // No search, but still join the user data
       pipeline = [
         { $match: filters },
         {
@@ -115,7 +114,7 @@ router.get("/", async (req, res) => {
       .aggregate(pipeline)
       .toArray();
 
-    // Pour le count, on utilise la même logique
+    // Same logic for the count
     let totalCount;
     if (req.query.search && req.query.search.trim()) {
       const countSearchTerm = escapeRegex(req.query.search.trim());
@@ -145,7 +144,7 @@ router.get("/", async (req, res) => {
           }
         },
         {
-          $unwind: "$user" // Décompose le tableau user pour accéder directement aux champs
+          $unwind: "$user"
         },
         {
           $match: {
@@ -198,12 +197,12 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET comparateur entre joueurs ou guildes
+// GET compare players or guilds
 router.get("/compare", async (req, res) => {
   try {
     const { type, entity1, entity2, cycle_id, rotation_id } = req.query;
 
-    // Validation des paramètres obligatoires
+    // Required parameters
     if (!type || !entity1 || !entity2) {
       return res.status(400).json({
         success: false,
@@ -218,7 +217,7 @@ router.get("/compare", async (req, res) => {
       });
     }
 
-    // Validation spécifique pour les joueurs (ObjectId)
+    // Players are compared by ObjectId
     if (type === "players") {
       try {
         if (entity1) new ObjectId(entity1);
@@ -231,26 +230,24 @@ router.get("/compare", async (req, res) => {
       }
     }
 
-    // Construction des filtres selon les paramètres
     const baseFilter = {};
 
     if (cycle_id && rotation_id) {
-      // Cas spécifique : cycle ET rotation spécifiés
+      // Cycle and rotation
       baseFilter.cycle_id = cycle_id;
       baseFilter.rotation_id = rotation_id;
     } else if (cycle_id) {
-      // Seulement cycle spécifié
+      // Cycle only
       baseFilter.cycle_id = cycle_id;
     } else if (rotation_id) {
-      // Seulement rotation spécifiée - filtrage direct
+      // Rotation only
       baseFilter.rotation_id = rotation_id;
     }
-    // Si ni cycle_id ni rotation_id : pas de filtre temporel (tous les scores)
+    // Neither cycle_id nor rotation_id: every score
 
     let comparisonResults;
 
     if (type === "players") {
-      // Comparaison entre joueurs (utilise discord_id)
       comparisonResults = await compareEntities(
         req.db,
         "user_id",
@@ -260,7 +257,6 @@ router.get("/compare", async (req, res) => {
         { type: "players" }
       );
     } else {
-      // Comparaison entre guildes (utilise guild_id avec le nom de la guilde)
       comparisonResults = await compareEntities(
         req.db,
         "guild_id",
@@ -288,7 +284,7 @@ router.get("/compare", async (req, res) => {
   }
 });
 
-// GET un score spécifique par ID
+// GET a score by id
 router.get("/:id", async (req, res) => {
   try {
     const score = await req.db.collection("scores").findOne({
@@ -307,12 +303,12 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// POST créer un nouveau score
+// POST create a score
 router.post("/", requireScoresAccess, async (req, res) => {
   try {
     const { user_id, cycle_id, rotation_id, guild_id, bbs_id, raw_score } = req.body;
 
-    // Validation des champs requis
+    // Required fields
     if (
       !user_id ||
       !cycle_id ||
@@ -328,7 +324,6 @@ router.post("/", requireScoresAccess, async (req, res) => {
       });
     }
 
-    // Vérifier que le raw_score est un nombre
     if (typeof raw_score !== "number") {
       return res.status(400).json({
         success: false,
@@ -336,7 +331,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
       });
     }
 
-    // Vérification des droits de guilde pour chef/sous-chef
+    // Leaders/officers can only write scores for guilds they manage
     if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(guild_id)) {
       return res.status(403).json({
         success: false,
@@ -344,11 +339,11 @@ router.post("/", requireScoresAccess, async (req, res) => {
       });
     }
 
-    // Vérifier que le bbs_id appartient bien au user_id ciblé et à la bonne guilde
+    // The bbs_id must belong to the target user_id and guild
     const accountMap = await resolveScoreAccounts(req.db, [{ user_id, bbs_id, guild_id }]);
     const account = accountMap.get(`${user_id}-${bbs_id}`);
 
-    // Récupérer le cycle pour avoir l'ordre des rotations
+    // The cycle gives the rotation order
     const cycle = await req.db.collection("cycles").findOne({
       _id: new ObjectId(cycle_id)
     });
@@ -360,7 +355,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
       });
     }
 
-    // Assurer que la rotation appartient bien au cycle
+    // The rotation must belong to the cycle
     const rotationExists = cycle.rotations.some(
       (rotation) => rotation.rotation_id === rotation_id
     );
@@ -371,11 +366,10 @@ router.post("/", requireScoresAccess, async (req, res) => {
       });
     }
 
-    // Créer un map des rotations avec leur index pour l'ordre
     const rotationIndexMap = buildRotationIndexMap(cycle);
 
-    // Vérifier l'existence d'un score pour ce compte/cycle/rotation (par bbs_id : un compte
-    // transféré garde ses anciens scores sous un autre user_id, filtrer dessus aussi le manquerait)
+    // Existing score for this account/cycle/rotation, matched on bbs_id (a transferred account keeps
+    // its old scores under another user_id, filtering on it too would miss them)
     const existingScore = await req.db.collection("scores").findOne({
       bbs_id: bbs_id,
       cycle_id: cycle_id,
@@ -393,7 +387,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
 
     const currentRotationIndex = rotationIndexMap.get(rotation_id);
 
-    // Récupérer le score précédent pour le calcul différentiel
+    // Previous score for the differential computation
     let previousRawScore;
     if (currentRotationIndex > 0) {
       const previousRotationId = cycle.rotations[currentRotationIndex - 1].rotation_id;
@@ -422,15 +416,15 @@ router.post("/", requireScoresAccess, async (req, res) => {
     const result = await req.db.collection("scores").insertOne(scoreData);
     await recordScoreChange(req.db, { action: 'create', scoreId: result.insertedId, after: scoreData, user: req.user });
 
-    // Recalculer les scores différentiels suivants si c'est un score de base
+    // A base score triggers a recomputation of the following differentials
     let recalculatedCount = 0;
     if (currentRotationIndex % 2 === 0) {
       const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, cycle_id, bbs_id);
       recalculatedCount = affectedIds.length;
     }
 
-    // Record personnel battu (ne lève jamais). Pas sur PUT /:id : une correction de score par un
-    // chef ne doit pas déclencher de félicitations.
+    // Personal record beaten (never throws). Not on PUT /:id: a leader correcting a score must not
+    // trigger congratulations.
     await notifyPersonalRecords(req.db, [scoreData]);
     await notifyAchievementUnlocks(req.db, [scoreData]);
 
@@ -451,12 +445,11 @@ router.post("/", requireScoresAccess, async (req, res) => {
   }
 });
 
-// PUT modifier un score
+// PUT update a score
 router.put("/:id", requireScoresAccess, async (req, res) => {
   try {
     const { user_id, bbs_id, cycle_id, rotation_id, guild_id, score } = req.body;
 
-    // Récupérer le score existant pour avoir les données actuelles
     const existingScore = await req.db.collection("scores").findOne({
       _id: new ObjectId(req.params.id)
     });
@@ -467,7 +460,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         .json({ success: false, message: "Score non trouvé" });
     }
 
-    // Vérification des droits de guilde pour chef/sous-chef (guilde actuelle ET cible si changée)
+    // Leaders/officers need access to the current guild AND the target guild when it changes
     if (!req.user.hasFullAccess) {
       const allowedGuildIds = req.user.allowedGuildIds || [];
       const targetGuildId = guild_id || existingScore.guild_id;
@@ -489,7 +482,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
     if (rotation_id) updateData.rotation_id = rotation_id;
     if (guild_id) updateData.guild_id = guild_id;
 
-    // Si le user_id ou le bbs_id changent, revérifier que le compte appartient bien au user visé
+    // When user_id or bbs_id change, check again that the account belongs to the target user
     if (user_id || bbs_id) {
       const targetUserId = user_id || existingScore.user_id;
       const targetBbsId = bbs_id || existingScore.bbs_id;
@@ -499,8 +492,8 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
       const account = accountMap.get(`${targetUserId}-${targetBbsId}`);
       if (account?.bbs_name) updateData.bbs_name = account.bbs_name;
 
-      // Transfert vers un autre compte (bbs_id différent) : le compte cible ne doit pas avoir
-      // déjà un score sur cette même rotation, sinon on écraserait silencieusement le sien.
+      // Moving to another account (different bbs_id): the target account must not already have a score
+      // on this rotation, otherwise it would be silently overwritten.
       if (targetBbsId !== existingScore.bbs_id) {
         const targetCycleId = cycle_id || existingScore.cycle_id;
         const targetRotationId = rotation_id || existingScore.rotation_id;
@@ -519,7 +512,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
       }
     }
 
-    // Si le score est modifié, recalculer le raw_score selon la logique différentielle
+    // A changed score means recomputing raw_score with the differential logic
     if (score !== undefined) {
       if (typeof score !== "number") {
         return res.status(400).json({
@@ -546,10 +539,10 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
       const rotationIndexMap = buildRotationIndexMap(cycle);
 
       const currentRotationIndex = rotationIndexMap.get(targetRotationId);
-      let calculatedRawScore = score; // Par défaut, raw_score = score
+      let calculatedRawScore = score;
       let isDifferential = false;
 
-      // Si c'est une rotation différentielle (index impair), recalculer le raw_score
+      // Differential rotation (odd index): recompute raw_score
       if (currentRotationIndex > 0 && currentRotationIndex % 2 === 1) {
         const previousRotationId =
           cycle.rotations[currentRotationIndex - 1].rotation_id;
@@ -561,7 +554,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         });
 
         if (previousScore) {
-          // Recalculer raw_score = score + previousScore.raw_score
+          // raw_score = score + previous raw_score
           calculatedRawScore = score + previousScore.raw_score;
           isDifferential = true;
         }
@@ -583,7 +576,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
     }
     await recordScoreChange(req.db, { action: 'update', before: existingScore, after: updateData, user: req.user });
 
-    // Recalculer les scores différentiels suivants si on a modifié un score de base
+    // A changed base score triggers a recomputation of the following differentials
     let recalculatedCount = 0;
     if (score !== undefined) {
       const targetCycleId = cycle_id || existingScore.cycle_id;
@@ -598,14 +591,14 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         const rotationIndexMap = buildRotationIndexMap(cycle);
         const currentRotationIndex = rotationIndexMap.get(targetRotationId);
 
-        if (currentRotationIndex % 2 === 0) { // Score de base modifié
+        if (currentRotationIndex % 2 === 0) { // Base score changed
           const affectedIds = await recalculateAffectedDifferentials(req.db, cycle, currentRotationIndex, targetCycleId, targetBbsId);
           recalculatedCount = affectedIds.length;
         }
       }
     }
 
-    // --- Notification Discord (non bloquante) ---
+    // Discord notification (non-blocking)
     if (score !== undefined) {
       try {
         const targetUserId = user_id || existingScore.user_id;
@@ -679,7 +672,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
   }
 });
 
-// DELETE supprimer un score (admin, ou chef/sous-chef sur un score de sa guilde)
+// DELETE a score (admin, or a leader/officer for a score of their guild)
 router.delete("/:id", requireScoresAccess, async (req, res) => {
   try {
     if (!ObjectId.isValid(req.params.id)) {
@@ -711,7 +704,7 @@ router.delete("/:id", requireScoresAccess, async (req, res) => {
   }
 });
 
-// GET scores par utilisateur
+// GET scores of a user
 router.get("/user/:userId", async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
@@ -738,7 +731,7 @@ router.get("/user/:userId", async (req, res) => {
   }
 });
 
-// GET scores par cycle
+// GET scores of a cycle
 router.get("/cycle/:cycleId", async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);

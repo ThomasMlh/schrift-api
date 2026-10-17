@@ -1,9 +1,9 @@
-// Résultat d'un build : score obtenu sur la rotation et chronos des deux vagues (secondes, au
-// millième près). Tous facultatifs ; null (ou chaîne vide) efface la valeur.
+// Build result: score obtained on the rotation and both wave times (seconds, millisecond
+// precision). All optional; null (or an empty string) clears the value.
 
-// Même plafond que les scores (MAX_PLAUSIBLE_SCORE dans services/achievements.js)
+// Same cap as scores (MAX_PLAUSIBLE_SCORE in services/achievements.js)
 export const MAX_BUILD_SCORE = 625_000_000;
-// Une vague dure bien moins d'une heure : au-delà, c'est une erreur de saisie
+// A wave lasts far less than an hour: anything above is a typo
 export const MAX_WAVE_SECONDS = 3600;
 
 export const RESULT_FIELDS = ['score', 'time_normal_wave', 'time_extra_wave'];
@@ -11,9 +11,9 @@ export const RESULT_FIELDS = ['score', 'time_normal_wave', 'time_extra_wave'];
 const isEmpty = (v) => v === null || v === undefined || v === '';
 
 /**
- * Valide et normalise les champs de résultat présents dans body.
- * @returns {{ values: Record<string, number|null>, error: string|null }} values ne contient que
- *   les champs fournis.
+ * Validates and normalizes the result fields present in body.
+ * @returns {{ values: Record<string, number|null>, error: string|null }} values only holds the
+ *   provided fields.
  */
 export const parseBuildResult = (body = {}) => {
   const values = {};

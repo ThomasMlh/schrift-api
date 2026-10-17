@@ -5,11 +5,8 @@ import jwt from 'jsonwebtoken';
 import { MongoClient, ObjectId } from 'mongodb';
 import buildsRouter from '../../src/routes/builds/index.js';
 
-// builds.js (944 lignes, 6 routes mais 2 handlers de ~275 lignes chacun) a
-// été découpé en create.js/crud.js/update.js + enrich.js (3 helpers
-// d'enrichissement partagés). Ces tests vérifient que les 3 sous-routeurs
-// sont bien câblés et que l'enrichissement partagé fonctionne après la
-// découpe — aucune route de builds.js n'avait de test avant.
+// Checks that the builds sub-routers (create.js, crud.js, update.js) are wired correctly and that the
+// shared enrichment (enrich.js) works.
 jest.setTimeout(60000);
 
 let mongod;

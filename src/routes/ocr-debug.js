@@ -6,12 +6,11 @@ import { logger } from '../utils/logger.js';
 
 const router = express.Router();
 
-// Appliquer les middlewares
 router.use(requireDb);
 router.use(requireScoresAccess);
 
 /**
- * Route de debug pour visualiser les zones prédéfinies
+ * Debug route to visualize the predefined zones
  * POST /api/ocr/debug/visualize-zones
  * Body: { screenshot: { data, filename }, screenshotter_id: string }
  */
@@ -31,40 +30,36 @@ router.post('/visualize-zones', async (req, res) => {
 
     logger.info(`🔍 Début traitement OCR debug (profil: ${config.label})...`);
 
-    // Convertir base64 en buffer
     const base64Data = screenshot.data.replace(/^data:image\/\w+;base64,/, '');
     const imageBuffer = Buffer.from(base64Data, 'base64');
 
-    // Obtenir les dimensions
     const metadata = await sharp(imageBuffer).metadata();
     const { width, height } = metadata;
 
     logger.info(`📐 Image: ${width}x${height}`);
 
-    // Exécuter l'OCR avec zones prédéfinies
+    // OCR with the predefined zones
     const players = await processGuildRankingScreenshot(screenshot.data, screenshotter_id);
     
     logger.info(`✅ ${players.length} joueurs détectés`);
 
-    // Créer une image avec les zones prédéfinies marquées
+    // Image with the predefined zones drawn on it
     const svgElements = [];
     
     playerRows.forEach((row, i) => {
       const player = players[i];
       
-      // Coordonnées absolues pour le nom
       const nameX = Math.round(row.name.x * width);
       const nameY = Math.round(row.name.y * height);
       const nameW = Math.round(row.name.w * width);
       const nameH = Math.round(row.name.h * height);
       
-      // Coordonnées absolues pour le score
       const scoreX = Math.round(row.score.x * width);
       const scoreY = Math.round(row.score.y * height);
       const scoreW = Math.round(row.score.w * width);
       const scoreH = Math.round(row.score.h * height);
       
-      // Rectangle pour le nom (vert)
+      // Name rectangle (green)
       const nameLabel = player ? `${player.detectedName || '?'}` : `Ligne ${i + 1}`;
       svgElements.push(`
         <rect x="${nameX}" y="${nameY}" 
@@ -77,7 +72,7 @@ router.post('/visualize-zones', async (req, res) => {
         </text>
       `);
       
-      // Rectangle pour le score (cyan)
+      // Score rectangle (cyan)
       const scoreLabel = player ? `${player.score || 0}` : '—';
       svgElements.push(`
         <rect x="${scoreX}" y="${scoreY}" 
@@ -97,7 +92,6 @@ router.post('/visualize-zones', async (req, res) => {
       </svg>
     `;
 
-    // Appliquer les rectangles sur l'image
     const annotatedImage = await sharp(imageBuffer)
       .composite([{
         input: Buffer.from(svgOverlay),
@@ -107,14 +101,13 @@ router.post('/visualize-zones', async (req, res) => {
       .png()
       .toBuffer();
 
-    // Créer des extraits pour chaque zone prédéfinie
+    // Crops of each predefined zone
     const extractedZones = [];
     
     for (let i = 0; i < playerRows.length; i++) {
       const row = playerRows[i];
       const player = players[i];
       
-      // Zone nom
       const nameX = Math.max(0, Math.round(row.name.x * width));
       const nameY = Math.max(0, Math.round(row.name.y * height));
       const nameW = Math.min(Math.round(row.name.w * width), width - nameX);
@@ -129,7 +122,6 @@ router.post('/visualize-zones', async (req, res) => {
         .png()
         .toBuffer();
       
-      // Zone score
       const scoreX = Math.max(0, Math.round(row.score.x * width));
       const scoreY = Math.max(0, Math.round(row.score.y * height));
       const scoreW = Math.min(Math.round(row.score.w * width), width - scoreX);

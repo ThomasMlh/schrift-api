@@ -11,9 +11,9 @@ import guidesRouter from '../../src/routes/guides.js';
 import buildsRouter from '../../src/routes/builds/index.js';
 import usersRouter from '../../src/routes/users/index.js';
 
-// Non-régression : les routes d'écriture qui modifient les guildes, cycles, membres, guides,
-// builds et utilisateurs étaient accessibles sans authentification. Chacune doit maintenant
-// refuser une requête anonyme, et un chef ne doit agir que sur sa propre guilde.
+// Regression: write routes modifying guilds, cycles, members, guides, builds and users used to be
+// reachable without authentication. Each must reject an anonymous request, and a leader may only act
+// on their own guild.
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';
@@ -33,7 +33,7 @@ beforeAll(async () => {
   app = express();
   app.use(express.json());
   app.locals.db = db;
-  // Routeurs montés un par un (comme src/routes/index.js) sans le module OCR, lourd à charger
+  // Routers mounted one by one (like src/routes/index.js) without the OCR module, which is heavy to load
   app.use('/api/characters', charactersRouter);
   app.use('/api/cycles', cyclesRouter);
   app.use('/api/guildes', guildesRouter);

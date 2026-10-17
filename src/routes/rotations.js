@@ -6,10 +6,9 @@ import { getRotationHistory } from '../services/killerRecords.js';
 
 const router = express.Router();
 
-// Middleware pour toutes les routes rotations
 router.use(requireDb);
 
-// Récupérer toutes les rotations
+// GET every rotation
 router.get('/', async (req, res) => {
   try {
     const rotations = await req.db.collection('rotations').find().toArray();
@@ -19,7 +18,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Récupérer une rotation par ID
+// GET a rotation by id
 router.get('/:id', async (req, res) => {
   try {
     const rotation = await req.db.collection('rotations').findOne({ _id: new ObjectId(req.params.id) });
@@ -32,9 +31,9 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Historique d'un killer (= une rotation modèle) sur tous les cycles : records, moyennes par cycle,
-// score à battre. Public, comme les scores de rotation affichés sur la même page.
-// Query : guild_id (optionnel) pour le périmètre guilde, cycle_id (optionnel) pour le score à battre.
+// GET a killer's history (= a template rotation) across all cycles: records, per-cycle averages,
+// score to beat. Public, like the rotation scores shown on the same page.
+// Query: guild_id (optional) for the guild scope, cycle_id (optional) for the score to beat.
 router.get('/:id/history', async (req, res) => {
   try {
     const { guild_id, cycle_id } = req.query;
@@ -48,7 +47,7 @@ router.get('/:id/history', async (req, res) => {
   }
 });
 
-// Ajouter une rotation
+// POST create a rotation
 router.post('/', requireAdmin, async (req, res) => {
   try {
     const result = await req.db.collection('rotations').insertOne(req.body);
@@ -62,7 +61,7 @@ router.post('/', requireAdmin, async (req, res) => {
   }
 });
 
-// Ajouter plusieurs rotations
+// POST create several rotations
 router.post('/bulk', requireAdmin, async (req, res) => {
   try {
     const rotations = req.body;
@@ -82,7 +81,7 @@ router.post('/bulk', requireAdmin, async (req, res) => {
   }
 });
 
-// Modifier une rotation
+// PUT update a rotation
 router.put('/:id', requireAdmin, async (req, res) => {
   try {
     const rotationId = req.params.id;
@@ -102,7 +101,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// Supprimer une rotation
+// DELETE a rotation
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     const result = await req.db.collection('rotations').deleteOne({ _id: new ObjectId(req.params.id) });

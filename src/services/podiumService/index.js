@@ -1,16 +1,11 @@
-// Découpé depuis un unique podiumService.js de 850 lignes en modules par
-// fonction exportée (podium.js: getPodium/getPodiumFull, weekly.js, misses.js,
-// draft.js) + helpers.js pour les fonctions pures/DB partagées. Ce fichier
-// réexporte tout pour que les imports existants
-// (import { getPodium, ... } from '.../podiumService.js') n'aient qu'à changer
-// '.js' en '/index.js'.
+// Podium service entry point: re-exports each module (podium.js: getPodium/getPodiumFull, weekly.js,
+// misses.js, draft.js) and the shared helpers.
 export { getPodium, getPodiumFull } from './podium.js';
 export { getPodiumWeekly } from './weekly.js';
 export { getPodiumMisses } from './misses.js';
 export { getDraftProposal, getDraftReplacement } from './draft.js';
 
-// Helpers déjà couverts par tests/podiumService/podiumService.test.js :
-// réexportés pour que ces tests n'aient qu'à changer leur chemin d'import.
+// Helpers covered by tests/podiumService/podiumService.test.js
 export {
   getMinScoresForRanking, getCurrentGuildBbsIds, getUnguildedBbsIds,
   buildGuildMatch, overrideGuildName, applyRanks, paginate,

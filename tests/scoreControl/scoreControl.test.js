@@ -8,8 +8,8 @@ import scoresRouter from '../../src/routes/scores/index.js';
 import { recordScoreChange } from '../../src/services/scoreHistory.js';
 import { getScoreAnomalies } from '../../src/services/scoreAnomalies.js';
 
-// Contrôle des scores : historique des modifications (journalisé par les routes d'écriture) et
-// détection des scores à vérifier, avec le périmètre chef (sa guilde) / admin (tout).
+// Score control: change history (logged by the write routes) and detection of scores to review,
+// with the leader scope (their guild) / admin scope (everything).
 jest.setTimeout(60000);
 
 const JWT_SECRET = 'test-secret';
@@ -26,7 +26,7 @@ beforeAll(async () => {
   client = new MongoClient(mongod.getUri());
   await client.connect();
   db = client.db('schrift-test');
-  setDb(db); // notifyDiscord journalise dans activity_log via getDB()
+  setDb(db); // notifyDiscord logs to activity_log through getDB()
   originalFetch = globalThis.fetch;
   globalThis.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => '' });
 
@@ -51,7 +51,7 @@ const adminId = new ObjectId();
 const adminToken = () => jwt.sign({ _id: adminId.toString(), is_admin: true }, JWT_SECRET);
 const chefToken = (guildId) => jwt.sign({ _id: new ObjectId().toString(), guild_roles: [{ guilde_id: guildId, role: 'chef' }] }, JWT_SECRET);
 
-// Une guilde, un membre (alice) et un cycle de 2 rotations (base + différentielle)
+// One guild, one member (alice) and a cycle of 2 rotations (base + differential)
 const seed = async () => {
   const { insertedId: guildOid } = await db.collection('guildes').insertOne({ name: 'Les Quincy' });
   const guildId = guildOid.toString();
@@ -79,7 +79,7 @@ describe('score history', () => {
     await request(app).post('/api/scores').set(auth)
       .send({ user_id: userId, bbs_id: 'bbs-alice', cycle_id: cycleId, rotation_id: r2, guild_id: guildId, raw_score: 250 });
 
-    // Correction du score de base : le différentiel suivant est recalculé automatiquement
+    // Correcting the base score recomputes the following differential automatically
     const edit = await request(app).put(`/api/scores/${base.body.id}`).set(auth).send({ score: 120 });
     expect(edit.status).toBe(200);
 
@@ -106,7 +106,7 @@ describe('score history', () => {
     const scoreId = new ObjectId();
     await recordScoreChange(db, { action: 'create', scoreId, after: { score: 1, bbs_id: 'a', guild_id: own } });
     await recordScoreChange(db, { action: 'create', after: { _id: new ObjectId(), score: 2, bbs_id: 'b', guild_id: other } });
-    // Un score transféré DEPUIS la guilde du chef reste visible pour lui
+    // A score transferred FROM the leader's guild stays visible to them
     await recordScoreChange(db, { action: 'update', before: { _id: new ObjectId(), score: 3, bbs_id: 'c', guild_id: own }, after: { guild_id: other } });
 
     const res = await request(app).get('/api/scores/history').set('Authorization', `Bearer ${chefToken(own)}`);
@@ -126,7 +126,7 @@ describe('score anomalies', () => {
     cycle_id, rotation_id, bbs_id, bbs_name: bbs_id.toUpperCase(), guild_id, score: value, raw_score: value, is_differential: false, ...extra,
   });
 
-  // Historique : 6 joueurs autour de 500 sur le killer r1 lors d'un cycle précédent
+  // History: 6 players around 500 on killer r1 in a previous cycle
   const seedHistory = async () => {
     const { insertedIds } = await db.collection('rotations').insertMany([{ killer: 'Arrancar', attack: 'R' }, { killer: 'Espada', attack: 'B' }]);
     const [r1, r2] = Object.values(insertedIds).map((id) => id.toString());
@@ -148,11 +148,11 @@ describe('score anomalies', () => {
   it('flags typos, missing base scores and copy-pasted values; ignores normal scores', async () => {
     const { r1, r2, current, guildId } = await seedHistory();
     await db.collection('scores').insertMany([
-      score(current, r1, 'alice', 5000, guildId), // chiffre en trop
-      score(current, r1, 'bob', 50, guildId), // chiffre en moins
-      score(current, r1, 'p1', 510, guildId), // normal
-      score(current, r2, 'p2', 777, guildId, { is_differential: true }), // pas de score de base cette semaine pour p2
-      score(current, r1, 'p3', 480, guildId), score(current, r1, 'p4', 480, guildId), // même valeur
+      score(current, r1, 'alice', 5000, guildId), // Extra digit
+      score(current, r1, 'bob', 50, guildId), // Missing digit
+      score(current, r1, 'p1', 510, guildId), // Normal
+      score(current, r2, 'p2', 777, guildId, { is_differential: true }), // No base score this week for p2
+      score(current, r1, 'p3', 480, guildId), score(current, r1, 'p4', 480, guildId), // Same value
     ]);
 
     const anomalies = await getScoreAnomalies(db, { guildIds: [guildId] });
@@ -167,7 +167,7 @@ describe('score anomalies', () => {
     });
     const alice = anomalies.find((a) => a.bbs_id === 'alice');
     expect(alice).toMatchObject({ killer: 'Arrancar', cycle_name: 'Now', rotation_position: 1, guild_name: 'Les Quincy' });
-    // Référence = meilleur score des AUTRES sur ce killer (p1, 510, ce cycle)
+    // Reference = best score of the OTHERS on this killer (p1, 510, this cycle)
     expect(alice.issues.find((i) => i.type === 'above_killer_record').reference).toBe(510);
     expect(anomalies.find((a) => a.bbs_id === 'p3').issues[0].with).toEqual(['P4']);
   });

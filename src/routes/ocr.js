@@ -16,7 +16,7 @@ const router = express.Router();
 
 /**
  * GET /api/ocr/screenshotters
- * Retourne la liste des screenshotters disponibles (pas besoin d'auth)
+ * Available screenshotter profiles (no auth required)
  */
 router.get('/screenshotters', (req, res) => {
   const screenshotters = Object.entries(SCREENSHOTTER_CONFIGS).map(([id, config]) => ({
@@ -26,13 +26,12 @@ router.get('/screenshotters', (req, res) => {
   res.json({ success: true, data: screenshotters });
 });
 
-// Middleware pour toutes les autres routes OCR
 router.use(requireDb);
 router.use(requireScoresAccess);
 
 /**
  * POST /api/ocr/batch-guild-ranking
- * Traite un batch de screenshots de classement guilde
+ * Processes a batch of guild ranking screenshots
  * Body: {
  *   guild_id: string,
  *   cycle_id: string,
@@ -45,7 +44,6 @@ router.post('/batch-guild-ranking', async (req, res) => {
   try {
     const { guild_id, cycle_id, rotation_id, screenshotter_id, screenshots } = req.body;
     
-    // Validations
     if (!guild_id || !cycle_id || !rotation_id || !screenshotter_id) {
       return res.status(400).json({
         success: false,
@@ -67,7 +65,6 @@ router.post('/batch-guild-ranking', async (req, res) => {
       });
     }
     
-    // Vérifier que la guilde existe
     const guild = await req.db.collection('guildes').findOne({ 
       _id: new ObjectId(guild_id) 
     });
@@ -79,8 +76,8 @@ router.post('/batch-guild-ranking', async (req, res) => {
       });
     }
     
-    // Récupérer les comptes bbs (principaux ou alts) rattachés à la guilde — une ligne par compte,
-    // pas par user, pour que le matching puisse cibler un alt précis.
+    // bbs accounts (main or alts) attached to the guild, one row per account rather than per user, so
+    // matching can target a specific alt.
     const guildMembers = await getGuildAccountRoster(req.db, guild_id);
 
     if (guildMembers.length === 0) {
@@ -90,17 +87,16 @@ router.post('/batch-guild-ranking', async (req, res) => {
       });
     }
     
-    // Traiter les screenshots avec OCR (zones prédéfinies)
+    // OCR with the predefined zones
     const ocrResults = await processBatchScreenshots(screenshots, screenshotter_id);
     
-    // Pour chaque screenshot, matcher les noms détectés avec les membres
+    // Match the detected names with the guild members
     const matchedResults = await Promise.all(ocrResults.map(async (screenshot) => {
       if (!screenshot.success) {
         return screenshot;
       }
       
       const matchedPlayers = screenshot.players.map(player => {
-        // Matcher le nom avec les membres de la guilde
         const match = findBestMatch(player.detectedName, guildMembers);
         
         return {
@@ -129,7 +125,7 @@ router.post('/batch-guild-ranking', async (req, res) => {
         };
       });
       
-      // Générer une miniature du screenshot
+      // Screenshot thumbnail
       let thumbnail = null;
       try {
         const base64Data = screenshots[screenshot.index].data.replace(/^data:image\/\w+;base64,/, '');
@@ -150,7 +146,6 @@ router.post('/batch-guild-ranking', async (req, res) => {
       };
     }));
     
-    // Calculer les statistiques
     const totalScreenshots = matchedResults.length;
     const successfulScreenshots = matchedResults.filter(s => s.success).length;
     const totalPlayersDetected = matchedResults.reduce(
@@ -198,7 +193,7 @@ router.post('/batch-guild-ranking', async (req, res) => {
 
 /**
  * POST /api/ocr/submit-batch
- * Soumet les scores validés après vérification OCR avec calcul différentiel
+ * Submits the scores validated after OCR review, with the differential computation
  * Body: {
  *   guild_id: string,
  *   cycle_id: string,
@@ -224,7 +219,7 @@ router.post('/submit-batch', async (req, res) => {
       });
     }
     
-    // Récupérer le cycle pour avoir l'ordre des rotations
+    // The cycle gives the rotation order
     const cycle = await req.db.collection('cycles').findOne({
       _id: new ObjectId(cycle_id)
     });
@@ -236,7 +231,6 @@ router.post('/submit-batch', async (req, res) => {
       });
     }
     
-    // Trouver l'index de la rotation actuelle
     const rotationIndex = cycle.rotations.findIndex(r => r.rotation_id === rotation_id);
     
     if (rotationIndex === -1) {
@@ -247,14 +241,13 @@ router.post('/submit-batch', async (req, res) => {
     }
     
     const insertedScores = [];
-    // Sous-ensemble des scores réellement créés par cet envoi (l'upsert peut aussi mettre à jour
-    // un score existant) : seuls candidats à un record personnel, pour ne pas re-fêter un record
-    // en renvoyant une capture déjà traitée.
+    // Scores actually created by this submission (the upsert may also update an existing score): the
+    // only personal record candidates, so resubmitting a processed screenshot does not celebrate again.
     const newlyCreatedScores = [];
     const errors = [];
 
-    // Vérifier que chaque bbs_id appartient bien au user_id ciblé et à la bonne guilde
-    // (best-effort : les scores sans bbs_id valide sont rejetés individuellement plus bas)
+    // Each bbs_id must belong to the target user_id and guild (best effort: scores without a valid
+    // bbs_id are rejected individually below)
     let accountMap = new Map();
     try {
       accountMap = await resolveScoreAccounts(
@@ -265,7 +258,7 @@ router.post('/submit-batch', async (req, res) => {
       return res.status(400).json({ success: false, message: ownershipErr.message });
     }
 
-    // Insérer chaque score avec calcul différentiel
+    // Insert each score with the differential computation
     for (const scoreData of scores) {
       try {
         const { user_id, bbs_id, raw_score, screenshot_index } = scoreData;
@@ -283,8 +276,8 @@ router.post('/submit-batch', async (req, res) => {
 
         if (rotationIndex > 0 && rotationIndex % 2 === 1) {
           const previousRotationId = cycle.rotations[rotationIndex - 1].rotation_id;
-          // bbs_id seul (pas user_id) : un compte transféré garde ses anciens scores sous un
-          // autre user_id, filtrer aussi dessus manquerait le score de base pour le différentiel.
+          // bbs_id only (not user_id): a transferred account keeps its old scores under another user_id, so
+          // filtering on it too would miss the base score of the differential.
           const previousScore = await req.db.collection('scores').findOne({
             bbs_id,
             cycle_id,
@@ -298,7 +291,6 @@ router.post('/submit-batch', async (req, res) => {
         const { score: finalScore, isDifferential } = computeDifferential(rawScoreInt, rotationIndex, previousRawScore);
         const account = accountMap.get(`${user_id}-${bbs_id}`);
 
-        // Créer le document score
         const scoreDocument = {
           user_id,
           bbs_id,
@@ -316,8 +308,8 @@ router.post('/submit-batch', async (req, res) => {
           screenshot_index
         };
 
-        // Upsert (insert ou update si existe déjà). Filtre par bbs_id seul (identité du compte) :
-        // le $set remet user_id à jour vers le user actuel même si le doc existant portait l'ancien.
+        // Upsert keyed by bbs_id only (the account identity): $set brings user_id up to date even when the
+        // existing document still holds the previous one.
         const previousDocument = await req.db.collection('scores').findOne({ bbs_id, cycle_id, rotation_id });
         const upsertResult = await req.db.collection('scores').updateOne(
           {
@@ -358,7 +350,7 @@ router.post('/submit-batch', async (req, res) => {
       }
     }
     
-    // --- Notification Discord (non bloquante) ---
+    // Discord notification (non-blocking)
     try {
       const userIds = [...new Set(insertedScores.map(s => s.user_id))];
       const users = await req.db.collection('users').find({
@@ -402,9 +394,8 @@ router.post('/submit-batch', async (req, res) => {
         source: 'ocr'
       }, guildChannelId);
 
-      // Capture automatique du podium (image) vers le salon membres de la guilde, en plus du
-      // récapitulatif texte envoyé au salon chefs ci-dessus — même déclenchement que la saisie
-      // manuelle groupée (scores/bulk.js), qui en manquait jusqu'ici pour la saisie OCR.
+      // Automatic podium capture (image) to the guild's members channel, in addition to the text summary
+      // sent to the leaders channel above; same trigger as the manual bulk entry (scores/bulk.js).
       if (process.env.FRONTEND_URL && guildName && rotation?.position !== undefined) {
         const cycleSlug = `${(cycle.name || '').toLowerCase().replace(/\s+/g, '-')}-${cycle.year}`;
         const captureUrl = `${process.env.FRONTEND_URL.replace(/\/$/, '')}/podium?capture=1&mode=rotation`
@@ -422,7 +413,7 @@ router.post('/submit-batch', async (req, res) => {
       logger.error('[ocr/submit-batch] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
-    // Records personnels battus (message groupé par guilde ; ne lève jamais)
+    // Personal records beaten (one message per guild; never throws)
     await notifyPersonalRecords(req.db, newlyCreatedScores);
     await notifyAchievementUnlocks(req.db, insertedScores.map((s) => ({ bbs_id: s.bbs_id, guild_id })));
 

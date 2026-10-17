@@ -8,8 +8,8 @@ const router = express.Router();
 
 router.use(requireDb);
 
-// Journal d'activité paginé/filtrable. Admin = toutes les guildes ; chef/sous-chef = scope forcé
-// sur les guildes qu'il gère (req.user.allowedGuildIds, posé par requireScoresAccess).
+// Paginated, filterable activity log. Admins see every guild; leaders/officers are scoped to the
+// guilds they manage (req.user.allowedGuildIds, set by requireScoresAccess).
 router.get('/', requireScoresAccess, async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);

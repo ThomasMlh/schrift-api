@@ -14,7 +14,7 @@ let mongod;
 let client;
 let db;
 let app;
-// Stockage FTP remplacé par une mémoire : nom de fichier → taille
+// FTP storage replaced by memory: file name -> size
 const stored = new Map();
 
 beforeAll(async () => {

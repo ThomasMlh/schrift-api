@@ -1,17 +1,17 @@
-// Fonction pour nettoyer les chaînes de caractères avec échappement
+// Unescapes a string (\n, \", \\, \t, \r) and trims it
 export const cleanString = (str) => {
   if (typeof str !== 'string') return str;
   
   return str
-    .replace(/\\n/g, '\n')        // Remplacer \\n par de vrais retours à la ligne
-    .replace(/\\"/g, '"')         // Remplacer \" par "
-    .replace(/\\\\/g, '\\')       // Remplacer \\\\ par \\
-    .replace(/\\t/g, '\t')        // Remplacer \\t par des tabs
-    .replace(/\\r/g, '\r')        // Remplacer \\r par des retours chariot
-    .trim();                      // Supprimer les espaces en début/fin
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    .trim();
 }
 
-// Fonction récursive pour nettoyer un objet
+// Recursively cleans every string of an object
 export const cleanObject = (obj) => {
   if (typeof obj === 'string') {
     return cleanString(obj);

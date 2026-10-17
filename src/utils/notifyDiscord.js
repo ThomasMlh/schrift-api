@@ -2,17 +2,16 @@ import { getDB } from '../config/database.js';
 import { logger } from './logger.js';
 
 /**
- * Utilitaire pour envoyer des notifications au bot Discord via son serveur HTTP,
- * et journaliser chaque événement dans `activity_log` (consultable sur le site,
- * indépendamment de l'état d'activation Discord).
+ * Sends notifications to the Discord bot through its HTTP server, and logs every event in
+ * `activity_log` (visible on the site, whether or not Discord notifications are enabled).
  *
- * Variables d'environnement :
- *   BOT_WEBHOOK_URL  — URL de base du bot (ex: http://localhost:8080)
- *   DISCORD_CHANNEL_DEFAULT — Channel par défaut si aucun channelId fourni
+ * Environment variables:
+ *   BOT_WEBHOOK_URL         - bot base URL (e.g. http://localhost:8080)
+ *   DISCORD_CHANNEL_DEFAULT - default channel when no channelId is given
  */
 
-// Résout les settings applicables à ce channel : ceux de la guilde propriétaire
-// du channel si elle en a un, sinon les settings globaux (types hors-guilde comme `ban`).
+// Settings that apply to this channel: those of the guild owning the channel when there is one,
+// otherwise the global settings (non-guild types such as `ban`).
 const resolveNotificationSettings = async (db, channel) => {
   try {
     const guilde = channel
@@ -49,11 +48,11 @@ const logActivity = async (db, { type, data, channel, guildeId }) => {
 };
 
 /**
- * Envoie une notification au bot Discord (sauf si désactivée dans les settings)
- * et journalise systématiquement l'événement dans activity_log.
- * @param {string} type       — Type de notification (scores, character_update, generic, ...)
- * @param {object} data       — Données à envoyer (structure dépend du type)
- * @param {string} [channelId] — ID du channel Discord (sinon fallback sur DISCORD_CHANNEL_DEFAULT)
+ * Sends a notification to the Discord bot (unless disabled in the settings) and always logs the
+ * event in activity_log.
+ * @param {string} type        - Notification type (scores, character_update, generic, …)
+ * @param {object} data        - Payload (shape depends on the type)
+ * @param {string} [channelId] - Discord channel id (defaults to DISCORD_CHANNEL_DEFAULT)
  */
 export const notifyDiscord = async (type, data, channelId) => {
   const botUrl = `${process.env.BOT_WEBHOOK_URL || 'http://localhost:8080'}/webhook`;
@@ -65,7 +64,7 @@ export const notifyDiscord = async (type, data, channelId) => {
     settings = await resolveNotificationSettings(db, channel);
     await logActivity(db, { type, data, channel, guildeId: settings.guildeId });
   } catch (err) {
-    // getDB() peut jeter si la DB n'est pas encore initialisée (ex: script hors serveur) — non bloquant
+    // getDB() may throw when the DB is not initialized yet (e.g. a standalone script); non-blocking
     logger.error(`[notifyDiscord] Journalisation/settings indisponibles (non bloquant): ${err.message}`);
   }
 
@@ -81,10 +80,9 @@ export const notifyDiscord = async (type, data, channelId) => {
 
   const payload = { type, channel, data };
 
-  // Timeout de sécurité : les appelants attendent désormais cet appel avant de répondre (cf.
-  // routes scores/users/membres/podium), donc un bot injoignable ne doit pas bloquer
-  // indéfiniment leur réponse. 90s laisse la marge pour une capture podium (Playwright) avec
-  // retries côté bot ; au-delà, on abandonne et on log, comme pour toute autre erreur réseau.
+  // Safety timeout: callers await this call before responding (score/user/member/podium routes), so
+  // an unreachable bot must not block their response forever. 90s leaves room for a podium capture
+  // (Playwright) with bot-side retries; beyond that, give up and log like any network error.
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => abortController.abort(), 90000);
 
@@ -103,7 +101,7 @@ export const notifyDiscord = async (type, data, channelId) => {
       logger.info(`[notifyDiscord] Notification '${type}' envoyée → channel ${channel}`);
     }
   } catch (err) {
-    // Non bloquant : on log l'erreur mais on ne fait pas échouer la requête API
+    // Non-blocking: log the error without failing the API request
     logger.error(`[notifyDiscord] Impossible de joindre le bot: ${err.message}`);
   } finally {
     clearTimeout(timeoutId);
