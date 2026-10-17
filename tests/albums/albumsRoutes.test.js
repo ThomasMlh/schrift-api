@@ -49,6 +49,28 @@ const seed = async () => {
   return { ownerId: ownerId.toString(), otherId: otherId.toString(), characterId: characterId.toString() };
 };
 
+describe('GET /api/albums/guild/:guildeId', () => {
+  it('returns every guild account with its album, null when never filled', async () => {
+    const characterId = new ObjectId().toString();
+    await db.collection('users').insertMany([
+      { _id: new ObjectId(), bbs_accounts: [
+        { bbs_id: 'main1', bbs_name: 'Main', guilde_id: 'g1', is_primary: true },
+        { bbs_id: 'alt1', bbs_name: 'Alt', guilde_id: 'g2' },
+      ] },
+      { _id: new ObjectId(), bbs_accounts: [{ bbs_id: 'other1', bbs_name: 'Other', guilde_id: 'g1', is_primary: true }] },
+    ]);
+    await db.collection('albums').insertMany([
+      { bbs_id: 'main1', characters: { [characterId]: 3 } },
+      { bbs_id: 'alt1', characters: { [characterId]: 5 } },
+    ]);
+
+    const res = await request(app).get('/api/albums/guild/g1');
+    expect(res.status).toBe(200);
+    const byBbsId = Object.fromEntries(res.body.data.map((m) => [m.bbs_id, m.characters]));
+    expect(byBbsId).toEqual({ main1: { [characterId]: 3 }, other1: null });
+  });
+});
+
 describe('GET /api/albums/:bbsId', () => {
   it('returns an empty album for an account that never filled it', async () => {
     const res = await request(app).get('/api/albums/main1');
