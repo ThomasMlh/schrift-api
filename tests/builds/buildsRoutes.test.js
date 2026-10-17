@@ -73,6 +73,24 @@ describe('GET /api/builds (crud.js)', () => {
   });
 });
 
+describe('GET /api/builds?playable_by (crud.js)', () => {
+  it('keeps only builds whose main team is owned in the album, links excluded', async () => {
+    const [a, b, c] = ['a', 'b', 'c'].map(() => new ObjectId().toString());
+    await db.collection('albums').insertOne({ bbs_id: 'acc1', characters: { [a]: 1, [b]: 5 } });
+    await db.collection('builds').insertMany([
+      { description: 'owned', team: [{ id_character: a, position: 1, links: [{ id_character: c }] }, { id_character: b, position: 2 }] },
+      { description: 'missing', team: [{ id_character: a, position: 1 }, { id_character: c, position: 2 }] },
+    ]);
+
+    const res = await request(app).get('/api/builds?playable_by=acc1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((build) => build.description)).toEqual(['owned']);
+
+    const empty = await request(app).get('/api/builds?playable_by=unknown');
+    expect(empty.body.data).toEqual([]);
+  });
+});
+
 describe('GET /api/builds/:id (crud.js)', () => {
   it('returns 404 for a non-existent build', async () => {
     const res = await request(app).get(`/api/builds/${new ObjectId().toString()}`);

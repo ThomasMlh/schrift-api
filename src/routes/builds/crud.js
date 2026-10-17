@@ -14,7 +14,7 @@ const router = express.Router();
 // GET /builds - builds with filters and pagination
 router.get('/', async (req, res) => {
   try {
-    const { rotation_id, isValid, character_id } = req.query;
+    const { rotation_id, isValid, character_id, playable_by } = req.query;
     const { page, limit, skip } = parsePaginationParams(req.query, 20, 100);
 
     const filter = {};
@@ -29,6 +29,13 @@ router.get('/', async (req, res) => {
 
     if (character_id && ObjectId.isValid(character_id)) {
       filter['team.id_character'] = character_id;
+    }
+
+    // Builds whose whole main team is owned in that bbs account's album (links are not required)
+    if (playable_by) {
+      const album = await req.db.collection('albums').findOne({ bbs_id: String(playable_by) }, { projection: { characters: 1 } });
+      const owned = Object.entries(album?.characters || {}).filter(([, spe]) => spe > 0).map(([id]) => id);
+      filter.team = { $not: { $elemMatch: { id_character: { $nin: owned } } } };
     }
 
     const builds = await req.db.collection('builds')
