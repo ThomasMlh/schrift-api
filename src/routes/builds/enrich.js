@@ -60,97 +60,61 @@ export const enrichWithRotation = async (build, db) => {
   }
 };
 
-export const enrichTeamWithCharacters = async (team, db) => {
-  if (!team || !Array.isArray(team)) return [];
+const CHARACTER_FIELDS = { name: 1, image: 1, rarity: 1, element: 1, affinity: 1, soul_traits: 1 };
 
-  const enrichedTeam = [];
-
-  for (const member of team) {
-    if (!member.id_character) {
-      enrichedTeam.push(member);
-      continue;
-    }
-
-    const character = await db.collection('characters').findOne(
-      { _id: new ObjectId(member.id_character) },
-      { projection: { name: 1, image: 1, rarity: 1, element: 1, affinity: 1 } }
-    );
-
-    // Links, with their soul traits
-    const enrichedLinks = [];
-    if (Array.isArray(member.links)) {
-      for (const link of member.links) {
-        if (!link.id_character) {
-          enrichedLinks.push(link);
-          continue;
-        }
-
-        const linkCharacter = await db.collection('characters').findOne(
-          { _id: new ObjectId(link.id_character) },
-          { projection: { name: 1, image: 1, rarity: 1, element: 1, affinity: 1, soul_traits: 1 } }
-        );
-
-        enrichedLinks.push({
-          ...link,
-          character: linkCharacter || null
-        });
-      }
-    }
-
-    const enrichedSkills = [];
-    if (Array.isArray(member.skills)) {
-      for (const skillId of member.skills) {
-        try {
-          const skill = await db.collection('skills').findOne(
-            { _id: new ObjectId(skillId) },
-            { projection: { name: 1 } }
-          );
-          if (skill) {
-            enrichedSkills.push(skill);
-          }
-        } catch (error) {
-          // Skip invalid skill ids
-          continue;
-        }
-      }
-    }
-
-    const enrichedAccessories = [];
-    if (Array.isArray(member.accessories)) {
-      for (const accessory of member.accessories) {
-        try {
-          const accessoryDoc = await db.collection('accessories').findOne(
-            { _id: new ObjectId(accessory.id_accessory) },
-            { projection: { name: 1, code: 1 } }
-          );
-
-          let subeffectDoc = null;
-          if (accessory.id_subeffect) {
-            subeffectDoc = await db.collection('accessories_subeffect').findOne(
-              { _id: new ObjectId(accessory.id_subeffect) },
-              { projection: { name: 1 } }
-            );
-          }
-
-          enrichedAccessories.push({
-            accessory: accessoryDoc || null,
-            subeffect: subeffectDoc || null
-          });
-        } catch (error) {
-          // Skip invalid accessory ids
-          continue;
-        }
-      }
-    }
-
-    enrichedTeam.push({
-      ...member,
-      character: character || null,
-      links: enrichedLinks,
-      skills: enrichedSkills,
-      accessories: enrichedAccessories
-    });
-  }
-
-  return enrichedTeam;
+const loadByIds = async (db, collection, ids, projection) => {
+  const validIds = [...new Set(ids.filter((id) => id && ObjectId.isValid(id)).map(String))];
+  if (validIds.length === 0) return new Map();
+  const docs = await db.collection(collection)
+    .find({ _id: { $in: validIds.map((id) => new ObjectId(id)) } }, { projection })
+    .toArray();
+  return new Map(docs.map((doc) => [doc._id.toString(), doc]));
 };
+
+const withoutSoulTraits = (character) => {
+  if (!character) return null;
+  const rest = { ...character };
+  delete rest.soul_traits;
+  return rest;
+};
+
+// Attaches characters, links, skills and accessories to several teams with one query per collection.
+// Invalid skill ids are dropped, and so are accessories with an invalid accessory or sub-effect id.
+export const enrichTeams = async (teams, db) => {
+  const members = teams.flatMap((team) => (Array.isArray(team) ? team : []));
+  const accessories = members.flatMap((m) => (Array.isArray(m.accessories) ? m.accessories : []));
+
+  const [characters, skills, accessoryDocs, subeffects] = await Promise.all([
+    loadByIds(db, 'characters', members.flatMap((m) => [
+      m.id_character,
+      ...(Array.isArray(m.links) ? m.links.map((l) => l.id_character) : []),
+    ]), CHARACTER_FIELDS),
+    loadByIds(db, 'skills', members.flatMap((m) => (Array.isArray(m.skills) ? m.skills : [])), { name: 1 }),
+    loadByIds(db, 'accessories', accessories.map((a) => a.id_accessory), { name: 1, code: 1 }),
+    loadByIds(db, 'accessories_subeffect', accessories.map((a) => a.id_subeffect), { name: 1 }),
+  ]);
+
+  const enrichMember = (member) => {
+    if (!member.id_character) return member;
+    return {
+      ...member,
+      character: withoutSoulTraits(characters.get(String(member.id_character))),
+      links: (Array.isArray(member.links) ? member.links : []).map((link) => (
+        link.id_character ? { ...link, character: characters.get(String(link.id_character)) || null } : link
+      )),
+      skills: (Array.isArray(member.skills) ? member.skills : [])
+        .map((id) => skills.get(String(id)))
+        .filter(Boolean),
+      accessories: (Array.isArray(member.accessories) ? member.accessories : [])
+        .filter((a) => ObjectId.isValid(a.id_accessory) && (!a.id_subeffect || ObjectId.isValid(a.id_subeffect)))
+        .map((a) => ({
+          accessory: accessoryDocs.get(String(a.id_accessory)) || null,
+          subeffect: a.id_subeffect ? subeffects.get(String(a.id_subeffect)) || null : null,
+        })),
+    };
+  };
+
+  return teams.map((team) => (Array.isArray(team) ? team.map(enrichMember) : []));
+};
+
+export const enrichTeamWithCharacters = async (team, db) => (await enrichTeams([team], db))[0];
