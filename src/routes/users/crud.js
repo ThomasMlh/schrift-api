@@ -9,7 +9,6 @@ import {
   upsertPrimaryAccount, deriveMirrorFields, assertRoleAvailable, assertBbsIdAvailable,
   getAccountsWithoutGuild, getAllAccounts
 } from '../../utils/bbsAccounts.js';
-import players from '../../assets/joueurs.json' with { type: "json" };
 import { logger } from '../../utils/logger.js';
 import { sendHiddenServiceError } from '../../utils/httpErrors.js';
 import { notifyGuildChange } from './notifications.js';
@@ -34,24 +33,8 @@ router.post('/', requireAdmin, async (req, res) => {
       return res.json({ success: true, created: false, message: 'Utilisateur déjà existant', user: existingUser });
     }
 
-    // Try to link a known player/guild (same logic as the Discord login)
-    let playerInfo = null;
-    if (players.joueurs && Array.isArray(players.joueurs)) {
-      playerInfo = players.joueurs.find(p => p.id_discord === discordId);
-    }
-
-    let guildeInfo = null;
-    if (playerInfo && playerInfo.guilde) {
-      const extractGuildName = playerInfo.guilde.split(' ')[1];
-      guildeInfo = await req.db.collection('guildes').findOne({ name: extractGuildName });
-    }
-
-    const bbsAccounts = upsertPrimaryAccount([], {
-      bbsId: playerInfo?.id_bbs || null,
-      bbsName: playerInfo?.pseudo_bbs || null,
-      guildeId: guildeInfo?._id?.toString() || null,
-      role: playerInfo?.statut ? playerInfo.statut.toLowerCase() : null
-    });
+    // No bbs account yet: it is linked later from the admin
+    const bbsAccounts = [];
     const mirror = deriveMirrorFields(bbsAccounts);
 
     const newUser = {
