@@ -2,7 +2,7 @@ import { getGameMonths } from '../../src/services/podiumService/index.js';
 
 const rotation = (position, start_date, end_date) => ({ position, rotation_id: `r${position}`, start_date, end_date });
 
-// Weekly pairs: Tuesday-Thursday then Friday-Sunday, like the game
+// Weekly pairs as stored: Tuesday-Thursday then Friday-Sunday (really Monday-Thursday then Thursday-Sunday)
 const cycle4 = {
   _id: 'c4',
   rotations: [
@@ -24,17 +24,18 @@ describe('getGameMonths', () => {
   const byKey = Object.fromEntries(months.map((m) => [m.key, m]));
 
   it('assigns a week overlapping two months to the month it starts in', () => {
-    expect(byKey['2026-09'].rotations.map((r) => r.rotation_id)).toEqual(['r3', 'r4', 'r11', 'r12']);
+    expect(byKey['2026-09'].rotations.map((r) => r.rotation_id)).toEqual(['r11', 'r12']);
     expect(byKey['2026-10'].rotations.map((r) => r.rotation_id)).toEqual(['r13', 'r14', 'r19', 'r20']);
   });
 
-  it('uses the first rotation of the week, not its Monday, when a month starts on a Tuesday', () => {
-    expect(byKey['2026-08'].rotations.map((r) => r.rotation_id)).toEqual(['r1', 'r2']);
-    expect(byKey['2026-09'].start_date).toBe('01/09/2026');
+  it('uses the real start of the week, the day before the stored date', () => {
+    // Stored Tuesday 01/09 really starts on Monday 31/08: the week belongs to August
+    expect(byKey['2026-08'].rotations.map((r) => r.rotation_id)).toEqual(['r1', 'r2', 'r3', 'r4']);
+    expect(byKey['2026-09'].start_date).toBe('28/09/2026');
   });
 
   it('exposes the period, the number of weeks and the progress state', () => {
-    expect(byKey['2026-10']).toMatchObject({ start_date: '06/10/2026', end_date: '01/11/2026', weeks: 2, in_progress: true });
+    expect(byKey['2026-10']).toMatchObject({ start_date: '05/10/2026', end_date: '01/11/2026', weeks: 2, in_progress: true });
     expect(byKey['2026-09'].in_progress).toBe(false);
   });
 

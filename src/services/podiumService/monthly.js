@@ -12,19 +12,27 @@ const formatDate = (ts) => {
   const d = new Date(ts);
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
 };
+// Stored start dates are one day late: a rotation really starts the day before (front:
+// getRotationRealDates), so game weeks run Monday to Sunday.
+const realStartOf = (startDate) => {
+  const stored = parseDate(startDate);
+  if (!stored) return 0;
+  const d = new Date(stored);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1).getTime();
+};
 const mondayOf = (ts) => {
   const d = new Date(ts);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime();
 };
 
-// Rotations grouped into game weeks (Tuesday to Sunday, keyed by calendar week), and each week
-// assigned to the month of its first day. A week overlapping two months therefore counts once, in
+// Rotations grouped into game weeks (Monday to Sunday with real dates), and each week assigned to
+// the month of its first day. A week overlapping two months therefore counts once, in
 // the month it starts.
 export const getGameMonths = (cycles, now = Date.now()) => {
   const weeks = new Map();
   for (const cycle of cycles) {
     for (const rotation of cycle.rotations || []) {
-      const start = parseDate(rotation.start_date);
+      const start = realStartOf(rotation.start_date);
       if (!start || !rotation.rotation_id) continue;
       const end = parseDate(rotation.end_date) || start;
       const key = mondayOf(start);
