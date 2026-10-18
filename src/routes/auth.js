@@ -3,7 +3,6 @@ import jwt from 'jsonwebtoken';
 import { requireDb } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { upsertPrimaryAccount, deriveMirrorFields, buildGuildRoles } from '../utils/bbsAccounts.js';
-import players from '../assets/joueurs.json' with { type: "json" };
 import { logger } from '../utils/logger.js';
 
 const router = express.Router();
@@ -206,33 +205,13 @@ const completeDiscordLogin = async (req, tokenData) => {
             };
         }
         
-        let playerInfo = null;
-        if (players.joueurs && Array.isArray(players.joueurs)) {
-            playerInfo = players.joueurs.find(p => p.id_discord === userData.id);
-        }
-
-        let guildeInfo = null;
-        if (playerInfo && playerInfo.guilde) {
-            // Look the guild up by name
-            const extractGuildName = playerInfo.guilde.split(' ')[1];
-            guildeInfo = await req.db.collection('guildes').findOne({
-                name: extractGuildName
-            });
-        }
-
-        let roleInfo = null;
-        if (playerInfo && playerInfo.statut) {
-            roleInfo = playerInfo.statut.toLowerCase();
-        }
-
-        // The "main" bbs account keeps its historical meaning: once linked (manually or from the external
-        // roster) it is never overwritten by playerInfo on later logins. Alt accounts are only managed from
-        // the admin (users routes).
-        const bbsId = existingUser?.bbs_id || playerInfo?.id_bbs || null;
-        const bbsName = existingUser?.bbs_name || playerInfo?.pseudo_bbs || null;
-        const guildeId = existingUser?.guilde_id || guildeInfo?._id?.toString() || null;
-        const role = existingUser?.role || roleInfo || null;
-        const bbsAccounts = upsertPrimaryAccount(existingUser?.bbs_accounts, { bbsId, bbsName, guildeId, role });
+        // The bbs accounts, guild and role are managed from the admin: login never changes them.
+        const bbsAccounts = upsertPrimaryAccount(existingUser?.bbs_accounts, {
+            bbsId: existingUser?.bbs_id || null,
+            bbsName: existingUser?.bbs_name || null,
+            guildeId: existingUser?.guilde_id || null,
+            role: existingUser?.role || null
+        });
         const mirror = deriveMirrorFields(bbsAccounts);
 
         // Create or update the user. Discord tokens are NOT stored in the database.
