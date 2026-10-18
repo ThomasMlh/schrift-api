@@ -7,6 +7,7 @@ import { computeStatMax, convertDateToFormat, reorderCharactersByReleaseDate } f
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 import { logger } from '../utils/logger.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
+import { ensureIndexes } from '../services/dbIndexes.js';
 
 const router = express.Router();
 
@@ -431,32 +432,11 @@ router.get("/names", async (req, res) => {
   }
 });
 
+// Kept for existing callers: creates every index, characters included
 router.post("/admin/create-indexes", requireAdmin, async (req, res) => {
   try {
-    await Promise.all([
-      // Text index for search
-      req.db.collection("characters").createIndex({
-        search_name: "text",
-        name: "text"
-      }),
-      req.db.collection("characters").createIndex({ search_name: 1 }),
-      req.db.collection("characters").createIndex({ affinity: 1 }),
-      // Compound index
-      req.db.collection("characters").createIndex({
-        affinity: 1,
-        search_name: 1
-      }),
-      req.db.collection("characters").createIndex({ categories: 1 }),
-      req.db.collection("characters").createIndex({ killers: 1 }),
-      req.db.collection("characters").createIndex({ release_date: 1 }),
-      req.db.collection("characters").createIndex({ rarity: 1 }),
-      req.db.collection("characters").createIndex({ status: 1 })
-    ]);
-
-    res.json({
-      success: true,
-      message: "Index créés avec succès pour optimiser les performances"
-    });
+    const result = await ensureIndexes(req.db);
+    res.json({ success: true, message: "Index créés avec succès pour optimiser les performances", ...result });
   } catch (error) {
     res.status(500).json({
       success: false,
