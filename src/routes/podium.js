@@ -1,7 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
-import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMisses, getDraftProposal, getDraftReplacement } from '../services/podiumService/index.js';
+import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMonthly, getPodiumMonths, getPodiumMisses, getDraftProposal, getDraftReplacement } from '../services/podiumService/index.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { USER_DISPLAY } from '../utils/projections.js';
 import { publishCycleRecap, getCycleRecap } from '../services/cycleRecap.js';
@@ -39,6 +39,26 @@ router.get('/weekly', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error) {
     sendStatusCodeError(res, error, 'Erreur serveur lors de la creation du podium hebdomadaire');
+  }
+});
+
+// GET months available for the monthly podium
+router.get('/months', async (req, res) => {
+  try {
+    const result = await getPodiumMonths(req.db);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    sendStatusCodeError(res, error, 'Erreur serveur lors de la récupération des mois');
+  }
+});
+
+// GET monthly podium
+router.get('/monthly', async (req, res) => {
+  try {
+    const result = await getPodiumMonthly(req.db, req.query);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    sendStatusCodeError(res, error, 'Erreur serveur lors de la creation du podium mensuel');
   }
 });
 
