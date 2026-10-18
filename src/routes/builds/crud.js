@@ -6,7 +6,7 @@ import { USER_BUILD } from '../../utils/projections.js';
 import { notifyDiscord } from '../../utils/notifyDiscord.js';
 import { getUserDisplayName } from '../../utils/nameMatching.js';
 import { logger } from '../../utils/logger.js';
-import { enrichWithUser, enrichWithRotation, enrichTeamWithCharacters } from './enrich.js';
+import { enrichWithUser, enrichWithRotation, enrichTeamWithCharacters, enrichTeams } from './enrich.js';
 import { removeScreenshot } from '../../services/buildScreenshots.js';
 
 const router = express.Router();
@@ -66,16 +66,13 @@ router.get('/', async (req, res) => {
       rotations.forEach(r => rotationMap.set(r._id.toString(), r));
     }
 
-    const enrichedBuilds = [];
-    for (const build of builds) {
-      const enrichedTeam = await enrichTeamWithCharacters(build.team, req.db);
-      enrichedBuilds.push({
-        ...build,
-        team: enrichedTeam,
-        user: userMap.get(build.user_id) || null,
-        rotation: rotationMap.get(build.rotation_id) || null
-      });
-    }
+    const enrichedTeams = await enrichTeams(builds.map(b => b.team), req.db);
+    const enrichedBuilds = builds.map((build, i) => ({
+      ...build,
+      team: enrichedTeams[i],
+      user: userMap.get(build.user_id) || null,
+      rotation: rotationMap.get(build.rotation_id) || null
+    }));
 
     const totalCount = await req.db.collection('builds').countDocuments(filter);
 
