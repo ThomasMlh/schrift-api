@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { syncDiscordProfiles } from '../utils/botClient.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
+import { ensureIndexes } from '../services/dbIndexes.js';
 
 const router = express.Router();
 
@@ -113,6 +114,15 @@ router.post('/sync-profiles', requireAdmin, async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err) {
     sendStatusCodeError(res, err, 'Erreur lors de la synchronisation des profils Discord');
+  }
+});
+
+// POST create the database indexes (admin "Tools" button)
+router.post('/create-indexes', requireAdmin, async (req, res) => {
+  try {
+    res.json({ success: true, ...(await ensureIndexes(req.db)) });
+  } catch (err) {
+    sendStatusCodeError(res, err, 'Erreur lors de la création des index');
   }
 });
 
