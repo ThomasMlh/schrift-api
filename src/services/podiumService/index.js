@@ -4,7 +4,8 @@ export { getPodium, getPodiumFull } from './podium.js';
 export { getPodiumWeekly } from './weekly.js';
 export { getPodiumMonthly, getPodiumMonths, getGameMonths, getPlayerMonthlyAverages } from './monthly.js';
 export { getPodiumMisses } from './misses.js';
-export { getMonthScoreFilter } from './monthly.js';
+export { getMonthScoreFilter, getMonthlyWinners } from './monthly.js';
+export { computeMonthlyWinners } from './monthlyWinners.js';
 export { getDraftProposal, getDraftReplacement } from './draft.js';
 
 // Helpers covered by tests/podiumService/podiumService.test.js

@@ -1,79 +1,21 @@
-import { parseDate } from '../killerRecords.js';
+import { getGameMonths } from './gameMonths.js';
+import { computeMonthlyWinners } from './monthlyWinners.js';
 import { attachTopAchievements } from './achievementBadges.js';
+import { attachIdentity } from '../playerTrends.js';
 import {
   getMinScoresForRanking, getGuildScoreMatch, lookupUserAndGuild, overrideGuildName, applyRanks, paginate, keepBbsIds,
 } from './helpers.js';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const MONTH_KEY = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
-const pad = (n) => String(n).padStart(2, '0');
-const formatDate = (ts) => {
-  const d = new Date(ts);
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
-};
-// Stored start dates are one day late: a rotation really starts the day before (front:
-// getRotationRealDates), so game weeks run Monday to Sunday.
-const realStartOf = (startDate) => {
-  const stored = parseDate(startDate);
-  if (!stored) return 0;
-  const d = new Date(stored);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1).getTime();
-};
-const mondayOf = (ts) => {
-  const d = new Date(ts);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime();
-};
-
-// Rotations grouped into game weeks (Monday to Sunday with real dates), and each week assigned to
-// the month of its first day. A week overlapping two months therefore counts once, in
-// the month it starts.
-export const getGameMonths = (cycles, now = Date.now()) => {
-  const weeks = new Map();
-  for (const cycle of cycles) {
-    for (const rotation of cycle.rotations || []) {
-      const start = realStartOf(rotation.start_date);
-      if (!start || !rotation.rotation_id) continue;
-      const end = parseDate(rotation.end_date) || start;
-      const key = mondayOf(start);
-      const week = weeks.get(key) ?? { start, end, rotations: [] };
-      week.start = Math.min(week.start, start);
-      week.end = Math.max(week.end, end);
-      week.rotations.push({ cycle_id: cycle._id.toString(), rotation_id: rotation.rotation_id, start });
-      weeks.set(key, week);
-    }
-  }
-
-  const months = new Map();
-  for (const week of weeks.values()) {
-    const d = new Date(week.start);
-    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
-    const month = months.get(key) ?? { key, start: week.start, end: week.end, weeks: 0, rotations: [] };
-    month.start = Math.min(month.start, week.start);
-    month.end = Math.max(month.end, week.end);
-    month.weeks += 1;
-    month.rotations.push(...week.rotations);
-    months.set(key, month);
-  }
-
-  return [...months.values()]
-    .sort((a, b) => b.start - a.start)
-    .map((m) => ({
-      key: m.key,
-      start_date: formatDate(m.start),
-      end_date: formatDate(m.end),
-      weeks: m.weeks,
-      in_progress: m.start <= now && now < m.end + DAY_MS,
-      rotations: m.rotations,
-    }));
-};
+export { getGameMonths };
 
 const loadCycles = (db) => db.collection('cycles').find({}, { projection: { rotations: 1 } }).toArray();
 
 // Available months, most recent first (without the rotation details)
 export const getPodiumMonths = async (db) => {
   const months = getGameMonths(await loadCycles(db));
-  return { months: months.map(({ rotations, ...month }) => ({ ...month, rotations: rotations.length })) };
+  return { months: months.map(({ rotations, ends_at: _endsAt, ...month }) => ({ ...month, rotations: rotations.length })) };
 };
 
 // Score filter matching the rotations of a game month, or null when the month has no guild week
@@ -244,4 +186,32 @@ export const getPlayerMonthlyAverages = async (db, bbsId) => {
       averageScore: Math.round(sum / count),
       scoreCount: count,
     }));
+};
+
+// Winners of every finished month (top 3 players and best guild), most recent first
+export const getMonthlyWinners = async (db) => {
+  const [cycles, scores, minScoresPerCycle, guilds] = await Promise.all([
+    loadCycles(db),
+    db.collection('scores')
+      .find({ bbs_id: { $ne: null } }, { projection: { bbs_id: 1, bbs_name: 1, user_id: 1, cycle_id: 1, rotation_id: 1, guild_id: 1, score: 1 } })
+      .sort({ created_at: 1 })
+      .toArray(),
+    getMinScoresForRanking(db),
+    db.collection('guildes').find({}, { projection: { name: 1, disabled: 1 } }).toArray(),
+  ]);
+  const activeGuildIds = new Set(guilds.filter((g) => !g.disabled).map((g) => g._id.toString()));
+  const guildNames = new Map(guilds.map((g) => [g._id.toString(), g.name]));
+  const months = computeMonthlyWinners({ cycles, scores, minScoresPerCycle, activeGuildIds });
+
+  const players = await attachIdentity(db, months.flatMap((m) => m.players));
+  let offset = 0;
+  return months.map(({ ends_at: _endsAt, players: monthPlayers, guild, ...month }) => {
+    const withIdentity = players.slice(offset, offset + monthPlayers.length);
+    offset += monthPlayers.length;
+    return {
+      ...month,
+      players: withIdentity.map(({ user_id: _userId, guild_id: _guildId, ...player }) => player),
+      guild: guild ? { ...guild, name: guildNames.get(guild.guild_id) ?? null } : null,
+    };
+  });
 };

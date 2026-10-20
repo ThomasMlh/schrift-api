@@ -1,7 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
-import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMonthly, getPodiumMonths, getPlayerMonthlyAverages, getPodiumMisses, getDraftProposal, getDraftReplacement } from '../services/podiumService/index.js';
+import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMonthly, getPodiumMonths, getPlayerMonthlyAverages, getMonthlyWinners, getPodiumMisses, getDraftProposal, getDraftReplacement } from '../services/podiumService/index.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { USER_DISPLAY } from '../utils/projections.js';
 import { publishCycleRecap, getCycleRecap } from '../services/cycleRecap.js';
@@ -49,6 +49,15 @@ router.get('/months', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error) {
     sendStatusCodeError(res, error, 'Erreur serveur lors de la récupération des mois');
+  }
+});
+
+// GET winners of every finished month (top 3 players and best guild)
+router.get('/monthly/winners', async (req, res) => {
+  try {
+    res.json({ success: true, months: await getMonthlyWinners(req.db) });
+  } catch (error) {
+    sendStatusCodeError(res, error, 'Erreur serveur lors du calcul du palmarès mensuel');
   }
 });
 
