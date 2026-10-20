@@ -11,6 +11,7 @@ import { USER_DISPLAY, USER_DISPLAY_WITH_ID } from "../../utils/projections.js";
 import { resolveScoreAccounts } from "../../utils/bbsAccounts.js";
 import { logger } from '../../utils/logger.js';
 import { sendStatusCodeError } from '../../utils/httpErrors.js';
+import { rejectLockedCycles } from '../../services/scoreLock.js';
 
 const router = express.Router();
 
@@ -67,6 +68,8 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
 
     // Each bbs_id must belong to the target user_id and guild
     const accountMap = await resolveScoreAccounts(req.db, scores);
+
+    if (await rejectLockedCycles(req, res, scores.map((score) => score.cycle_id))) return;
 
     // Reject duplicates within the request
     const duplicateCheck = new Set();

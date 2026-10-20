@@ -11,6 +11,7 @@ import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { getGuildAccountRoster, resolveScoreAccounts } from '../utils/bbsAccounts.js';
 import sharp from 'sharp';
 import { logger } from '../utils/logger.js';
+import { rejectLockedCycles } from '../services/scoreLock.js';
 
 const router = express.Router();
 
@@ -219,6 +220,7 @@ router.post('/submit-batch', async (req, res) => {
     if (!canManageGuild(req.user, guild_id)) {
       return res.status(403).json({ success: false, message: 'Accès refusé à cette guilde' });
     }
+    if (await rejectLockedCycles(req, res, [cycle_id])) return;
     
     if (scores.length === 0) {
       return res.status(400).json({

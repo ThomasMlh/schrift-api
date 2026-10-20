@@ -14,6 +14,7 @@ import { resolveScoreAccounts } from "../../utils/bbsAccounts.js";
 import { escapeRegex } from "../../utils/regexUtils.js";
 import { logger } from '../../utils/logger.js';
 import { sendServerError, sendStatusCodeError } from '../../utils/httpErrors.js';
+import { rejectLockedCycles } from '../../services/scoreLock.js';
 
 const router = express.Router();
 
@@ -338,6 +339,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
         message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez saisir des scores que pour vos guildes.`
       });
     }
+    if (await rejectLockedCycles(req, res, [cycle_id])) return;
 
     // The bbs_id must belong to the target user_id and guild
     const accountMap = await resolveScoreAccounts(req.db, [{ user_id, bbs_id, guild_id }]);
@@ -468,6 +470,7 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
         message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez modifier que des scores de vos guildes.`
       });
     }
+    if (await rejectLockedCycles(req, res, [existingScore.cycle_id, cycle_id])) return;
 
     const updateData = {
       updated_at: new Date()
@@ -685,6 +688,7 @@ router.delete("/:id", requireScoresAccess, async (req, res) => {
         message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez supprimer que des scores de vos guildes.`
       });
     }
+    if (await rejectLockedCycles(req, res, [existingScore.cycle_id])) return;
 
     const result = await req.db.collection("scores").deleteOne({ _id: existingScore._id });
 
