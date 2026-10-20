@@ -1,4 +1,4 @@
-import { getGameMonths } from '../../src/services/podiumService/index.js';
+import { getGameMonths, getPlayerMonthlyAverages } from '../../src/services/podiumService/index.js';
 
 const rotation = (position, start_date, end_date) => ({ position, rotation_id: `r${position}`, start_date, end_date });
 
@@ -49,5 +49,27 @@ describe('getGameMonths', () => {
 
   it('ignores rotations without a date', () => {
     expect(getGameMonths([{ _id: 'c', rotations: [{ rotation_id: 'x' }] }])).toEqual([]);
+  });
+});
+
+describe('getPlayerMonthlyAverages', () => {
+  const fakeDb = (cycles, scores) => ({
+    collection: (name) => ({
+      find: () => ({ toArray: async () => (name === 'cycles' ? cycles : scores) }),
+    }),
+  });
+
+  it('averages the account scores per game month, oldest first', async () => {
+    const scores = [
+      { cycle_id: 'c4', rotation_id: 'r13', score: 600 },
+      { cycle_id: 'c4', rotation_id: 'r20', score: 400 },
+      { cycle_id: 'c4', rotation_id: 'r11', score: 300 },
+      { cycle_id: 'unknown', rotation_id: 'x', score: 999 },
+    ];
+    const months = await getPlayerMonthlyAverages(fakeDb([cycle4, cycle5], scores), 'p1');
+    expect(months.map((m) => [m.key, m.averageScore, m.scoreCount])).toEqual([
+      ['2026-09', 300, 1],
+      ['2026-10', 500, 2],
+    ]);
   });
 });
