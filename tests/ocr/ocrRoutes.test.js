@@ -2,7 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import ocrRouter from '../../src/routes/ocr.js';
 import { setDb } from '../../src/config/database.js';
 
@@ -77,6 +77,20 @@ describe('POST /api/ocr/submit-batch', () => {
   it('rejects an unauthenticated request with 401', async () => {
     const res = await request(app).post('/api/ocr/submit-batch').send({});
     expect(res.status).toBe(401);
+  });
+
+  it('refuses a chef submitting scores for another guild', async () => {
+    const { guildId, cycleId, userId } = await seedFixtures();
+    const chef = await db.collection('users').insertOne({
+      bbs_accounts: [{ bbs_id: 'bbs-chef', guilde_id: new ObjectId().toString(), role: 'chef' }],
+    });
+    const res = await request(app)
+      .post('/api/ocr/submit-batch')
+      .set('Authorization', `Bearer ${jwt.sign({ _id: chef.insertedId.toString() }, JWT_SECRET)}`)
+      .send({ guild_id: guildId, cycle_id: cycleId, rotation_id: 'r1', scores: [{ user_id: userId, bbs_id: 'bbs-1', raw_score: 1000 }] });
+
+    expect(res.status).toBe(403);
+    expect(await db.collection('scores').countDocuments()).toBe(0);
   });
 
   it('inserts the scores and triggers both the text recap and the podium screenshot', async () => {

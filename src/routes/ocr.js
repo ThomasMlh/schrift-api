@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireDb, requireScoresAccess } from '../middleware/auth.js';
+import { requireDb, requireScoresAccess, canManageGuild } from '../middleware/auth.js';
 import { processBatchScreenshots, SCREENSHOTTER_CONFIGS } from '../utils/ocrProcessor.js';
 import { computeDifferential } from '../services/scoreDifferential.js';
 import { notifyPersonalRecords } from '../services/killerRecords.js';
@@ -49,6 +49,10 @@ router.post('/batch-guild-ranking', async (req, res) => {
         success: false,
         message: 'guild_id, cycle_id, rotation_id et screenshotter_id sont requis'
       });
+    }
+
+    if (!canManageGuild(req.user, guild_id)) {
+      return res.status(403).json({ success: false, message: 'Accès refusé à cette guilde' });
     }
     
     if (!screenshots || !Array.isArray(screenshots) || screenshots.length === 0) {
@@ -210,6 +214,10 @@ router.post('/submit-batch', async (req, res) => {
         success: false,
         message: 'guild_id, cycle_id, rotation_id et scores sont requis'
       });
+    }
+
+    if (!canManageGuild(req.user, guild_id)) {
+      return res.status(403).json({ success: false, message: 'Accès refusé à cette guilde' });
     }
     
     if (scores.length === 0) {
