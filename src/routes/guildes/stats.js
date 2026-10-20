@@ -3,13 +3,18 @@ import { ObjectId } from 'mongodb';
 import { logger } from '../../utils/logger.js';
 import { sendServerErrorWithFlag } from '../../utils/httpErrors.js';
 import { CLEAR_SCORE_THRESHOLD } from '../../utils/scoreThresholds.js';
+import { getMonthScoreFilter } from '../../services/podiumService/index.js';
 
 const router = express.Router();
 
-// GET every guild's ranking for a cycle
+// GET every guild's ranking for a cycle, or for a game month (?month=YYYY-MM)
 router.get('/rankings', async (req, res) => {
   try {
-    const cycleId = req.query.cycle_id;
+    const { cycle_id: cycleId, month } = req.query;
+    const monthFilter = month ? await getMonthScoreFilter(req.db, String(month)) : null;
+    if (month && !monthFilter) {
+      return res.status(404).json({ success: false, message: `Aucune semaine de guilde en ${month}` });
+    }
 
     const guildes = await req.db.collection('guildes').find({ disabled: { $ne: true } }).toArray();
     if (guildes.length === 0) return res.json({ success: true, data: [] });
@@ -17,6 +22,7 @@ router.get('/rankings', async (req, res) => {
     const guildIds = guildes.map(g => g._id.toString());
     const scoresQuery = { guild_id: { $in: guildIds } };
     if (cycleId) scoresQuery.cycle_id = cycleId;
+    if (monthFilter) Object.assign(scoresQuery, monthFilter);
 
     const allScores = await req.db.collection('scores').find(scoresQuery, { projection: { guild_id: 1, score: 1 } }).toArray();
 

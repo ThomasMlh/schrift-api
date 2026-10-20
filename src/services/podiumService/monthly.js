@@ -198,3 +198,16 @@ export const getPodiumMonthly = async (db, { month, ranking_type = 'average', gu
     }
   };
 };
+
+// Score filter matching the rotations of a game month, or null when the month has no guild week
+export const getMonthScoreFilter = async (db, monthKey) => {
+  const target = getGameMonths(await loadCycles(db)).find((m) => m.key === monthKey);
+  if (!target) return null;
+  const rotationsByCycle = new Map();
+  for (const { cycle_id, rotation_id } of target.rotations) {
+    rotationsByCycle.set(cycle_id, [...(rotationsByCycle.get(cycle_id) ?? []), rotation_id]);
+  }
+  return {
+    $or: [...rotationsByCycle].map(([cycleId, rotationIds]) => ({ cycle_id: cycleId, rotation_id: { $in: rotationIds } })),
+  };
+};
