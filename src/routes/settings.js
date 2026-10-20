@@ -1,5 +1,6 @@
 import express from 'express';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
+import { getScoreLockDays } from '../services/scoreLock.js';
 import { sanitizeDisabledTypes } from '../utils/notificationTypes.js';
 import { sendServerErrorWithFlag } from '../utils/httpErrors.js';
 
@@ -62,6 +63,35 @@ router.put('/podium', requireAdmin, async (req, res) => {
     );
 
     res.json({ success: true, message: 'Seuil du podium mis à jour', min_scores_for_ranking: value });
+  } catch (err) {
+    sendServerErrorWithFlag(res, err);
+  }
+});
+
+// GET the number of days after a cycle ends before its scores are locked for leaders/officers
+router.get('/scores', requireAdmin, async (req, res) => {
+  try {
+    res.json({ success: true, lock_after_days: await getScoreLockDays(req.db) });
+  } catch (err) {
+    sendServerErrorWithFlag(res, err);
+  }
+});
+
+// PUT the lock delay (0 = never locked)
+router.put('/scores', requireAdmin, async (req, res) => {
+  try {
+    const value = parseInt(req.body.lock_after_days, 10);
+    if (isNaN(value) || value < 0 || value > 365) {
+      return res.status(400).json({ success: false, message: 'lock_after_days doit être un entier entre 0 et 365' });
+    }
+
+    await req.db.collection('app_settings').updateOne(
+      { _id: 'scores' },
+      { $set: { lock_after_days: value } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, message: 'Verrouillage des scores mis à jour', lock_after_days: value });
   } catch (err) {
     sendServerErrorWithFlag(res, err);
   }

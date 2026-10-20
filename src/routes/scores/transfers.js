@@ -9,6 +9,7 @@ import { USER_DISPLAY } from "../../utils/projections.js";
 import { findAccount } from "../../utils/bbsAccounts.js";
 import { logger } from '../../utils/logger.js';
 import { sendServerError, sendStatusCodeError } from '../../utils/httpErrors.js';
+import { rejectLockedCycles } from '../../services/scoreLock.js';
 
 const router = express.Router();
 
@@ -45,6 +46,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
         return res.status(400).json({ success: false, message: "guild_id requis (vous gérez plusieurs guildes)" });
       }
     }
+    if (await rejectLockedCycles(req, res, [cycle_id])) return;
 
     const cycle = await req.db.collection("cycles").findOne({
       _id: new ObjectId(cycle_id)
@@ -288,6 +290,7 @@ router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
         message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez modifier que des scores de vos guildes.`
       });
     }
+    if (await rejectLockedCycles(req, res, [existingScore.cycle_id])) return;
 
     const targetUser = await req.db.collection("users").findOne({ _id: new ObjectId(target_user_id) });
     if (!targetUser) {

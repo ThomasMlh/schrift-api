@@ -6,6 +6,7 @@ import { USER_SCORES_LOOKUP } from '../utils/projections.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
 import { sendServerError } from '../utils/httpErrors.js';
+import { getScoreLockDays, isCycleLocked } from '../services/scoreLock.js';
 
 const router = express.Router();
 
@@ -36,7 +37,10 @@ router.get('/', async (req, res) => {
       return dateB.getTime() - dateA.getTime();
     });
 
-    const paginatedCycles = cycles.slice(skip, skip + limit);
+    // scores_locked: leaders/officers can no longer change this cycle's scores (admins still can)
+    const lockDays = await getScoreLockDays(req.db);
+    const paginatedCycles = cycles.slice(skip, skip + limit)
+      .map((cycle) => ({ ...cycle, scores_locked: isCycleLocked(cycle, lockDays) }));
     const totalCount = cycles.length;
 
     res.json({
