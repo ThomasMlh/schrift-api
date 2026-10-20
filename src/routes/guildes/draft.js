@@ -5,6 +5,7 @@ import { getUserDisplayName } from '../../utils/nameMatching.js';
 import { notifyDiscord } from '../../utils/notifyDiscord.js';
 import { findAccount, upsertPrimaryAccount, updateAccount, deriveMirrorFields } from '../../utils/bbsAccounts.js';
 import { logger } from '../../utils/logger.js';
+import { checkWaitlistPlaces } from '../../services/recruitment.js';
 import { sendStatusCodeError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
@@ -223,6 +224,9 @@ router.post('/draft', requireAdmin, async (req, res) => {
     } catch (notifErr) {
       logger.error('[draft] Erreur lors des notifications Discord:', notifErr.message);
     }
+
+    // A freed place may concern candidates on the waiting list
+    await checkWaitlistPlaces(req.db);
 
     res.json({
       success: true,

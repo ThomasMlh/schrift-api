@@ -5,6 +5,7 @@ import { notifyDiscord } from '../../utils/notifyDiscord.js';
 import { getUserDisplayName } from '../../utils/nameMatching.js';
 import { upsertPrimaryAccount, deriveMirrorFields, findAccount, assertRoleAvailable, updateAccount } from '../../utils/bbsAccounts.js';
 import { logger } from '../../utils/logger.js';
+import { checkWaitlistPlaces } from '../../services/recruitment.js';
 import { sendHiddenServiceError } from '../../utils/httpErrors.js';
 import { notifyGuildChange } from './notifications.js';
 
@@ -139,6 +140,9 @@ router.put('/:userId/guild', requireAdmin, validateObjectIdParam('userId', "Form
         logger.error('[users/guild] Erreur notification Discord:', e.message)
       );
     }
+
+    // A freed place may concern candidates on the waiting list
+    await checkWaitlistPlaces(req.db);
 
     res.json({ success: true, message: `${getUserDisplayName(user, 'Utilisateur')} déplacé vers la nouvelle guilde` });
   } catch (error) {

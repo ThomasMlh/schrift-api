@@ -8,6 +8,7 @@ import {
   renameAccountBbsId, assertBbsIdAvailable
 } from '../../utils/bbsAccounts.js';
 import { logger } from '../../utils/logger.js';
+import { checkWaitlistPlaces } from '../../services/recruitment.js';
 import { sendHiddenServiceError } from '../../utils/httpErrors.js';
 import { notifyAccountGuildMove, notifyAccountRoleChange } from './notifications.js';
 
@@ -128,6 +129,9 @@ router.put('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('user
       logger.error('[users/accounts PUT] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
+    // A freed place may concern candidates on the waiting list
+    await checkWaitlistPlaces(req.db);
+
     res.json({ success: true, message: 'Compte bbs mis à jour avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {
     sendHiddenServiceError(res, error, 'Erreur lors de la mise à jour du compte bbs:');
@@ -164,6 +168,9 @@ router.delete('/:userId/accounts/:bbsId', requireAdmin, validateObjectIdParam('u
         logger.error('[users/accounts DELETE] Erreur notification Discord (non bloquant):', notifErr.message);
       }
     }
+
+    // A freed place may concern candidates on the waiting list
+    await checkWaitlistPlaces(req.db);
 
     res.json({ success: true, message: 'Compte bbs retiré avec succès', bbs_accounts: bbsAccounts });
   } catch (error) {

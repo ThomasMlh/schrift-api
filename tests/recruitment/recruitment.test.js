@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient } from 'mongodb';
 import recruitmentRouter from '../../src/routes/recruitment.js';
+import { checkWaitlistPlaces } from '../../src/services/recruitment.js';
 
 jest.setTimeout(60000);
 
@@ -22,6 +23,8 @@ beforeAll(async () => {
   await client.connect();
   db = client.db('schrift-test');
   app = express();
+  // One address per application, so the hourly rate limit does not leak across tests
+  app.set('trust proxy', 1);
   app.use(express.json());
   app.locals.db = db;
   app.use('/api/recruitment', recruitmentRouter);
@@ -36,6 +39,9 @@ afterEach(async () => {
   const collections = await db.listCollections().toArray();
   await Promise.all(collections.map((c) => db.collection(c.name).deleteMany({})));
 });
+
+let ipCounter = 0;
+const apply = (body) => request(app).post('/api/recruitment/applications').set('X-Forwarded-For', `10.0.0.${++ipCounter}`).send(body);
 
 const admin = { Authorization: `Bearer ${jwt.sign({ discord_id: 'admin', is_admin: true }, JWT_SECRET)}` };
 
@@ -59,7 +65,7 @@ describe('recruitment', () => {
   });
 
   it('stores an application and lets an admin review it', async () => {
-    const sent = await request(app).post('/api/recruitment/applications').send({ bbs_name: 'Ichigo', discord: 'ichigo#1', message: 'Salut' });
+    const sent = await apply({ bbs_name: 'Ichigo', discord: 'ichigo#1', message: 'Salut' });
     expect(sent.status).toBe(201);
 
     const list = await request(app).get('/api/recruitment/applications').set(admin);
@@ -71,17 +77,95 @@ describe('recruitment', () => {
   });
 
   it('rejects incomplete, bot and closed-recruitment applications', async () => {
-    expect((await request(app).post('/api/recruitment/applications').send({ bbs_name: 'X' })).status).toBe(400);
+    expect((await apply({ bbs_name: 'X' })).status).toBe(400);
 
-    const bot = await request(app).post('/api/recruitment/applications').send({ bbs_name: 'X', discord: 'y', website: 'spam' });
+    const bot = await apply({ bbs_name: 'X', discord: 'y', website: 'spam' });
     expect(bot.status).toBe(201);
     expect(await db.collection('applications').countDocuments()).toBe(0);
 
     await request(app).put('/api/recruitment/settings').set(admin).send({ is_open: false, guild_capacity: 30 });
-    expect((await request(app).post('/api/recruitment/applications').send({ bbs_name: 'X', discord: 'y' })).status).toBe(403);
+    expect((await apply({ bbs_name: 'X', discord: 'y' })).status).toBe(403);
   });
 
   it('keeps applications admin-only', async () => {
     expect((await request(app).get('/api/recruitment/applications')).status).toBe(401);
+  });
+
+  it('gives the candidate a private tracking link', async () => {
+    const sent = await apply({ bbs_name: 'Rukia', discord: 'rukia' });
+    expect(sent.body.tracking_token).toEqual(expect.any(String));
+    expect(await db.collection('applications').findOne({ tracking_hash: sent.body.tracking_token })).toBeNull();
+
+    const tracked = await request(app).get(`/api/recruitment/track/${sent.body.tracking_token}`);
+    expect(tracked.body.application).toMatchObject({ bbs_name: 'Rukia', status: 'new', waitlist_position: null });
+    expect(tracked.body.application.discord).toBeUndefined();
+    expect((await request(app).get('/api/recruitment/track/wrong')).status).toBe(404);
+
+    const list = await request(app).get('/api/recruitment/applications').set(admin);
+    expect(list.body.applications[0].tracking_hash).toBeUndefined();
+  });
+
+  it('puts applications on the waiting list when every guild is full', async () => {
+    const { insertedId } = await db.collection('guildes').insertOne({ name: 'A' });
+    await db.collection('app_settings').insertOne({ _id: 'recruitment', guild_capacity: 1 });
+    await db.collection('users').insertOne({ bbs_accounts: [{ bbs_id: '1', guilde_id: insertedId.toString() }] });
+
+    expect((await request(app).get('/api/recruitment')).body.is_full).toBe(true);
+    await apply({ bbs_name: 'First', discord: 'a' });
+    const second = await apply({ bbs_name: 'Second', discord: 'b' });
+    expect(second.body.status).toBe('waitlist');
+
+    const tracked = await request(app).get(`/api/recruitment/track/${second.body.tracking_token}`);
+    expect(tracked.body.application.waitlist_position).toBe(2);
+  });
+
+  it('warns the leaders once when a place frees up for waiting candidates', async () => {
+    process.env.DISCORD_CHANNEL_GLOBAL_CHEF = 'chefs';
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) });
+    try {
+      const { insertedId } = await db.collection('guildes').insertOne({ name: 'A' });
+      await db.collection('app_settings').insertOne({ _id: 'recruitment', guild_capacity: 1 });
+      const { insertedId: userId } = await db.collection('users').insertOne({ bbs_accounts: [{ bbs_id: '1', guilde_id: insertedId.toString() }] });
+      await db.collection('applications').insertOne({ bbs_name: 'W', status: 'waitlist', created_at: new Date() });
+
+      expect((await checkWaitlistPlaces(db)).alerted).toBe(false);
+      await db.collection('users').updateOne({ _id: userId }, { $set: { 'bbs_accounts.0.guilde_id': null } });
+      expect((await checkWaitlistPlaces(db)).alerted).toBe(true);
+      expect((await checkWaitlistPlaces(db)).alerted).toBe(false);
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body).toMatchObject({ channel_id: 'chefs' });
+      expect(body.content).toContain('A (1 place)');
+
+      // Full again, then a new free place: warned again
+      await db.collection('users').updateOne({ _id: userId }, { $set: { 'bbs_accounts.0.guilde_id': insertedId.toString() } });
+      await checkWaitlistPlaces(db);
+      await db.collection('users').updateOne({ _id: userId }, { $set: { 'bbs_accounts.0.guilde_id': null } });
+      expect((await checkWaitlistPlaces(db)).alerted).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+      delete process.env.DISCORD_CHANNEL_GLOBAL_CHEF;
+    }
+  });
+
+  it('accepts a candidate into a guild and creates their profile', async () => {
+    const { insertedId: guildId } = await db.collection('guildes').insertOne({ name: 'A' });
+    const sent = await apply({ bbs_name: 'Renji', bbs_id: '777', discord: 'renji' });
+
+    const noGuild = await request(app).post(`/api/recruitment/applications/${sent.body._id}/accept`).set(admin).send({});
+    expect(noGuild.status).toBe(400);
+
+    const accepted = await request(app).post(`/api/recruitment/applications/${sent.body._id}/accept`).set(admin)
+      .send({ guild_id: guildId.toString(), create_player: true, welcome_message: 'Bienvenue Renji !' });
+    expect(accepted.body).toMatchObject({ success: true, player: { bbs_id: '777' }, welcome: 'no_channel' });
+
+    const user = await db.collection('users').findOne({ 'bbs_accounts.bbs_id': '777' });
+    expect(user.bbs_accounts[0]).toMatchObject({ bbs_name: 'Renji', guilde_id: guildId.toString(), role: 'membre' });
+    const tracked = await request(app).get(`/api/recruitment/track/${sent.body.tracking_token}`);
+    expect(tracked.body.application).toMatchObject({ status: 'accepted', guild_name: 'A' });
+
+    // The bbs account now exists: a second profile cannot be created
+    const again = await request(app).post(`/api/recruitment/applications/${sent.body._id}/accept`).set(admin)
+      .send({ guild_id: guildId.toString(), create_player: true });
+    expect(again.status).toBe(400);
   });
 });
