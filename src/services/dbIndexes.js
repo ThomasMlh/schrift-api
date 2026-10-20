@@ -25,6 +25,8 @@ export const INDEXES = [
 
   { collection: 'guild_goals', key: { guild_id: 1, cycle_id: 1 } },
 
+  { collection: 'applications', key: { status: 1, created_at: -1 } },
+
   { collection: 'characters', key: { search_name: 'text', name: 'text' } },
   { collection: 'characters', key: { search_name: 1 } },
   { collection: 'characters', key: { affinity: 1, search_name: 1 } },

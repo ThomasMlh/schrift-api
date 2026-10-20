@@ -23,6 +23,7 @@ import settingsRouter from './settings.js';
 import activityRouter from './activity.js';
 import discordRouter from './discord.js';
 import albumsRouter from './albums.js';
+import recruitmentRouter from './recruitment.js';
 
 const router = express.Router();
 
@@ -50,5 +51,6 @@ router.use('/settings', settingsRouter);
 router.use('/activity', activityRouter);
 router.use('/discord', discordRouter);
 router.use('/albums', albumsRouter);
+router.use('/recruitment', recruitmentRouter);
 
 export default router;
