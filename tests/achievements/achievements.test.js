@@ -147,6 +147,26 @@ describe('podium, records and progression achievements', () => {
     expect(carol.elite.value).toBe(1);
   });
 
+  it('gives player of the month to the best average of each finished game month', async () => {
+    // Daily rotations from 01/01/2025 (really 31/12/2024): the first one belongs to the December week
+    const c1 = await seedCycle('C1', new Date(2025, 0, 1), 14);
+    await db.collection('scores').insertMany([
+      score(c1, 0, 'alice', 600), score(c1, 0, 'bob', 500),
+      score(c1, 6, 'alice', 400), score(c1, 6, 'bob', 500),
+    ]);
+
+    const now = new Date(2025, 2, 1).getTime();
+    const alice = await achievementsOf('alice', { now });
+    const bob = await achievementsOf('bob', { now });
+    expect(alice.player_of_month.value).toBe(1); // December
+    expect(bob.player_of_month.value).toBe(1); // January
+    expect(bob.player_of_month.current_tier).toBe('bronze');
+
+    // January is not finished yet on 10/01
+    const during = await achievementsOf('bob', { now: new Date(2025, 0, 10).getTime() });
+    expect(during.player_of_month.value).toBe(0);
+  });
+
   it('measures progression between ended cycles with enough scores, and the best of the guild', async () => {
     const shared = Object.values((await db.collection('rotations').insertMany(
       Array.from({ length: 10 }, (_, i) => ({ killer: `K${i}` }))
@@ -214,6 +234,6 @@ describe('rarity, cache and route', () => {
     const first = (list) => list.find((a) => a.code === 'first_step');
     expect(first(res.body.data[0].achievements).current_tier).toBe('bronze');
     expect(first(res.body.data[1].achievements).current_tier).toBeNull();
-    expect(res.body.data[0].achievements).toHaveLength(26);
+    expect(res.body.data[0].achievements).toHaveLength(27);
   });
 });

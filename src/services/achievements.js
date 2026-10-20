@@ -1,5 +1,6 @@
 import { loadComparableScores, cycleTimestamp, parseDate } from './killerRecords.js';
 import { getMinScoresForRanking } from './podiumService/helpers.js';
+import { computeMonthlyWinners } from './podiumService/monthlyWinners.js';
 import { CLEAR_SCORE_THRESHOLD } from '../utils/scoreThresholds.js';
 
 /**
@@ -32,7 +33,7 @@ export const ACHIEVEMENT_NAMES_FR = {
   diligent: 'Assidu', full_cycle: 'Cycle complet', flawless: 'Sans faute', unstoppable: 'Inarrêtable',
   loyal: 'Fidèle', comeback: 'Le retour', improving: 'En progrès', revelation: 'Révélation',
   on_a_roll: 'Sur sa lancée', podium: 'Sur le podium', leader: 'Meneur', elite: 'Élite',
-  number_one: 'Numéro un', week_king: 'Roi de la semaine', versatile: 'Touche-à-tout',
+  number_one: 'Numéro un', week_king: 'Roi de la semaine', player_of_month: 'Joueur du mois', versatile: 'Touche-à-tout',
 };
 
 const t = (bronze, silver, gold, platinum) => [
@@ -66,6 +67,7 @@ export const ACHIEVEMENTS = [
   { code: 'elite', category: 'podium', unit: 'count', tiers: t(1, 3, 5) },
   { code: 'number_one', category: 'podium', unit: 'flag', tiers: t(undefined, undefined, undefined, 1) },
   { code: 'week_king', category: 'podium', unit: 'count', tiers: t(1, 5, 15) },
+  { code: 'player_of_month', category: 'podium', unit: 'count', tiers: t(1, 3, 6) },
   { code: 'versatile', category: 'versatility', unit: 'count', tiers: t(3, 8, 15, 20) },
 ];
 
@@ -245,8 +247,21 @@ const buildContext = async (db, now) => {
     for (const [bbs, total] of totals) if (total === best) push(weekKingDates, bbs, at);
   }
 
+  // Player of the month: first of the monthly podium of a finished game month (ties share it)
+  const playerOfMonthDates = new Map();
+  const monthlyWinners = computeMonthlyWinners({
+    cycles,
+    scores: allScores,
+    minScoresPerCycle: minScores,
+    now,
+  });
+  for (const month of monthlyWinners) {
+    for (const p of month.players) if (p.rank === 1) push(playerOfMonthDates, p.bbs_id, month.ends_at);
+  }
+
   const context = {
     now, cycles, cycleInfo, byAccount, cycleStats, absoluteRecord, podiumDates, progressions, revelationDates, weekKingDates,
+    playerOfMonthDates,
   };
   context.results = new Map([...byAccount.keys()].map((bbs) => [bbs, evaluateAccount(context, bbs)]));
   context.rarity = computeRarity(context.results);
@@ -347,6 +362,7 @@ const evaluateAccount = (ctx, bbs) => {
   timelines.elite = countTimeline(ctx.podiumDates.elite.get(bbs) || []);
   timelines.number_one = countTimeline(ctx.podiumDates.number_one.get(bbs) || []);
   timelines.week_king = countTimeline(ctx.weekKingDates.get(bbs) || []);
+  timelines.player_of_month = countTimeline(ctx.playerOfMonthDates.get(bbs) || []);
 
   const firstClearByKiller = new Map();
   for (const s of values) if (s.v >= CLEAR_SCORE_THRESHOLD && !firstClearByKiller.has(s.rotation)) firstClearByKiller.set(s.rotation, s.at);
