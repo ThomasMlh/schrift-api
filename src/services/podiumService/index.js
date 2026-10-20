@@ -3,8 +3,8 @@
 export { getPodium, getPodiumFull } from './podium.js';
 export { getPodiumWeekly } from './weekly.js';
 export { getPodiumMonthly, getPodiumMonths, getGameMonths } from './monthly.js';
-export { getMonthScoreFilter } from './monthly.js';
 export { getPodiumMisses } from './misses.js';
+export { getMonthScoreFilter } from './monthly.js';
 export { getDraftProposal, getDraftReplacement } from './draft.js';
 
 // Helpers covered by tests/podiumService/podiumService.test.js

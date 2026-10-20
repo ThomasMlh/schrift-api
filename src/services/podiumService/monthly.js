@@ -76,6 +76,19 @@ export const getPodiumMonths = async (db) => {
   return { months: months.map(({ rotations, ...month }) => ({ ...month, rotations: rotations.length })) };
 };
 
+// Score filter matching the rotations of a game month, or null when the month has no guild week
+export const getMonthScoreFilter = async (db, monthKey) => {
+  const target = getGameMonths(await loadCycles(db)).find((m) => m.key === monthKey);
+  if (!target) return null;
+  const rotationsByCycle = new Map();
+  for (const { cycle_id, rotation_id } of target.rotations) {
+    rotationsByCycle.set(cycle_id, [...(rotationsByCycle.get(cycle_id) ?? []), rotation_id]);
+  }
+  return {
+    $or: [...rotationsByCycle].map(([cycleId, rotationIds]) => ({ cycle_id: cycleId, rotation_id: { $in: rotationIds } })),
+  };
+};
+
 // Monthly podium: average (or total) of the scores of every rotation of the month's weeks, across
 // cycles. Without a month, the month in progress (or the most recent one) is used.
 export const getPodiumMonthly = async (db, { month, ranking_type = 'average', guild_name, page = 1, limit = 50 }) => {
@@ -199,15 +212,3 @@ export const getPodiumMonthly = async (db, { month, ranking_type = 'average', gu
   };
 };
 
-// Score filter matching the rotations of a game month, or null when the month has no guild week
-export const getMonthScoreFilter = async (db, monthKey) => {
-  const target = getGameMonths(await loadCycles(db)).find((m) => m.key === monthKey);
-  if (!target) return null;
-  const rotationsByCycle = new Map();
-  for (const { cycle_id, rotation_id } of target.rotations) {
-    rotationsByCycle.set(cycle_id, [...(rotationsByCycle.get(cycle_id) ?? []), rotation_id]);
-  }
-  return {
-    $or: [...rotationsByCycle].map(([cycleId, rotationIds]) => ({ cycle_id: cycleId, rotation_id: { $in: rotationIds } })),
-  };
-};
