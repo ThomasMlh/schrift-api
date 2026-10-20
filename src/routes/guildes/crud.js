@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireAdmin, requireScoresAccess } from '../../middleware/auth.js';
+import { requireAdmin, requireScoresAccess, canManageGuild } from '../../middleware/auth.js';
 import { getUserDisplayName } from '../../utils/nameMatching.js';
 import { notifyDiscord } from '../../utils/notifyDiscord.js';
 import { sanitizeDisabledTypes } from '../../utils/notificationTypes.js';
@@ -96,7 +96,7 @@ router.put('/:id', requireScoresAccess, async (req, res) => {
       return res.status(400).json({ success: false, message: 'ID de guilde invalide' });
     }
     if (!req.user.hasFullAccess) {
-      if (!(req.user.allowedGuildIds || []).includes(guildeId)) {
+      if (!canManageGuild(req.user, guildeId)) {
         return res.status(403).json({ success: false, message: 'Accès refusé à cette guilde' });
       }
       const guild = await req.db.collection('guildes').findOne({ _id: new ObjectId(guildeId) }, { projection: { name: 1 } });
@@ -170,7 +170,7 @@ router.post('/:id/test-notification', requireScoresAccess, async (req, res) => {
     if (!channel_id || !channel_id.trim()) {
       return res.status(400).json({ success: false, message: 'channel_id requis' });
     }
-    if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(guildeId)) {
+    if (!canManageGuild(req.user, guildeId)) {
       return res.status(403).json({ success: false, message: 'Accès refusé à cette guilde' });
     }
 

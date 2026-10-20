@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireScoresAccess } from '../../middleware/auth.js';
+import { requireScoresAccess, canManageGuild } from '../../middleware/auth.js';
 import { getGuildGoals, setGuildGoals } from '../../services/guildGoals.js';
 import { resolveCycle } from '../../services/guildTools.js';
 import { sendStatusCodeError } from '../../utils/httpErrors.js';
@@ -36,7 +36,7 @@ router.get('/:id/goals', async (req, res) => {
 // Body: { cycle_id, goals: [{ type, target }] }; an empty list removes the goals.
 router.put('/:id/goals', requireScoresAccess, async (req, res) => {
   try {
-    if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(req.params.id)) {
+    if (!canManageGuild(req.user, req.params.id)) {
       return res.status(403).json({ success: false, message: 'Accès refusé à cette guilde' });
     }
     const guild = await findGuild(req, res);

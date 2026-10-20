@@ -47,7 +47,9 @@ router.post('/:userId/ban', requireAdmin, validateObjectIdParam('userId', "Forma
           is_banned: true,
           ban_reason: reason || null,
           banned_at: new Date(),
-          banned_by: req.user.discord_id
+          banned_by: req.user.discord_id,
+          // Ends the session: the access token is then rejected by the auth middlewares
+          refresh_token_hash: null
         }
       }
     );

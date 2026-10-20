@@ -52,7 +52,12 @@ afterEach(async () => {
   await Promise.all(collections.map((c) => db.collection(c.name).deleteMany({})));
 });
 
-const chefToken = (guildId) => jwt.sign({ _id: new ObjectId().toString(), guild_roles: [{ guilde_id: guildId, role: 'chef' }] }, JWT_SECRET);
+// The middleware reads leader grants from the database: the chef's user must exist there
+const chefToken = async (guildId) => {
+  const _id = new ObjectId();
+  await db.collection('users').insertOne({ _id, bbs_accounts: [{ guilde_id: guildId, role: 'chef' }] });
+  return jwt.sign({ _id: _id.toString() }, JWT_SECRET);
+};
 const adminToken = () => jwt.sign({ _id: new ObjectId().toString(), is_admin: true }, JWT_SECRET);
 
 const fmt = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
@@ -90,7 +95,7 @@ describe('GET /api/scores/missing', () => {
     ]);
 
     const res = await request(app).get('/api/scores/missing').query({ cycle_id: ctx.cycleId })
-      .set('Authorization', `Bearer ${chefToken(ctx.guildId)}`);
+      .set('Authorization', `Bearer ${await chefToken(ctx.guildId)}`);
 
     expect(res.status).toBe(200);
     expect(res.body.members_count).toBe(2);
@@ -107,7 +112,7 @@ describe('GET /api/scores/missing', () => {
     await db.collection('guildes').insertOne({ name: 'Autre' });
     expect((await request(app).get('/api/scores/missing').set('Authorization', `Bearer ${adminToken()}`)).status).toBe(400);
     const other = await request(app).get('/api/scores/missing').query({ guild_id: new ObjectId().toString() })
-      .set('Authorization', `Bearer ${chefToken(ctx.guildId)}`);
+      .set('Authorization', `Bearer ${await chefToken(ctx.guildId)}`);
     expect(other.status).toBe(403);
   });
 });
@@ -121,7 +126,7 @@ describe('missing scores of members who joined during the cycle', () => {
     );
 
     const res = await request(app).get('/api/scores/missing').query({ cycle_id: ctx.cycleId })
-      .set('Authorization', `Bearer ${chefToken(ctx.guildId)}`);
+      .set('Authorization', `Bearer ${await chefToken(ctx.guildId)}`);
 
     expect(res.body.rotations.map((r) => [r.position, r.missing.map((m) => m.bbs_id)])).toEqual([
       [4, ['alice', 'bob']], [3, ['alice', 'bob']], [2, ['alice']], [1, ['alice']],
@@ -130,7 +135,7 @@ describe('missing scores of members who joined during the cycle', () => {
 
   it('lets a chef mark that a member joined after a rotation', async () => {
     const ctx = await seed();
-    const auth = { Authorization: `Bearer ${chefToken(ctx.guildId)}` };
+    const auth = { Authorization: `Bearer ${await chefToken(ctx.guildId)}` };
 
     const res = await request(app).post('/api/scores/missing/joined-after').set(auth)
       .send({ bbs_id: 'bob', cycle_id: ctx.cycleId, rotation_id: ctx.rotations[2] });
@@ -162,7 +167,7 @@ describe('GET /api/scores/preparation', () => {
 
     const res = await request(app).get('/api/scores/preparation')
       .query({ cycle_id: insertedId.toString(), rotation_id: older.rotations[0] })
-      .set('Authorization', `Bearer ${chefToken(older.guildId)}`);
+      .set('Authorization', `Bearer ${await chefToken(older.guildId)}`);
 
     expect(res.status).toBe(200);
     expect(res.body.rotation).toMatchObject({ killer: 'Arrancar', position: 1 });
@@ -184,7 +189,7 @@ describe('guild goals', () => {
     ]);
 
     const put = await request(app).put(`/api/guildes/${ctx.guildId}/goals`)
-      .set('Authorization', `Bearer ${chefToken(ctx.guildId)}`)
+      .set('Authorization', `Bearer ${await chefToken(ctx.guildId)}`)
       .send({ cycle_id: ctx.cycleId, goals: [{ type: 'average', target: 550_000_000 }, { type: 'clear_rate', target: 50 }, { type: 'participation', target: 30 }] });
     expect(put.status).toBe(200);
 
@@ -216,7 +221,7 @@ describe('guild goals', () => {
 
   it('validates goals and refuses another guild', async () => {
     const ctx = await seed();
-    const auth = { Authorization: `Bearer ${chefToken(ctx.guildId)}` };
+    const auth = { Authorization: `Bearer ${await chefToken(ctx.guildId)}` };
     expect((await request(app).put(`/api/guildes/${ctx.guildId}/goals`).set(auth).send({ cycle_id: ctx.cycleId, goals: [{ type: 'nope', target: 1 }] })).status).toBe(400);
     expect((await request(app).put(`/api/guildes/${ctx.guildId}/goals`).set(auth).send({ cycle_id: ctx.cycleId, goals: [{ type: 'clear_rate', target: 150 }] })).status).toBe(400);
     expect((await request(app).put(`/api/guildes/${new ObjectId()}/goals`).set(auth).send({ cycle_id: ctx.cycleId, goals: [] })).status).toBe(403);

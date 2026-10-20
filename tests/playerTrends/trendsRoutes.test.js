@@ -42,7 +42,12 @@ afterEach(async () => {
 });
 
 const adminToken = () => jwt.sign({ id: 'admin-1', is_admin: true }, JWT_SECRET);
-const chefToken = (guildId) => jwt.sign({ id: 'chef-1', role: 'chef', guild_roles: [{ guilde_id: guildId, role: 'chef' }] }, JWT_SECRET);
+// The middleware reads leader grants from the database: the chef's user must exist there
+const chefToken = async (guildId) => {
+  const _id = new ObjectId();
+  await db.collection('users').insertOne({ _id, bbs_accounts: [{ guilde_id: guildId, role: 'chef' }] });
+  return jwt.sign({ _id: _id.toString() }, JWT_SECRET);
+};
 const memberToken = () => jwt.sign({ id: 'member-1' }, JWT_SECRET);
 
 // A guild where one member (alice) collapses on the latest cycle
@@ -85,12 +90,12 @@ describe('GET /api/scores/decline-alerts', () => {
     const own = await seedDecline('g1');
     const other = await seedDecline('g2');
 
-    const res = await request(app).get('/api/scores/decline-alerts').set('Authorization', `Bearer ${chefToken(own)}`);
+    const res = await request(app).get('/api/scores/decline-alerts').set('Authorization', `Bearer ${await chefToken(own)}`);
     expect(res.status).toBe(200);
     expect(res.body.alerts.map((a) => a.bbs_id)).toEqual(['g1-alice']);
 
     const forbidden = await request(app).get('/api/scores/decline-alerts').query({ guild_id: other })
-      .set('Authorization', `Bearer ${chefToken(own)}`);
+      .set('Authorization', `Bearer ${await chefToken(own)}`);
     expect(forbidden.status).toBe(403);
   });
 });

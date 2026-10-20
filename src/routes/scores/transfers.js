@@ -1,6 +1,6 @@
 import express from "express";
 import { ObjectId } from "mongodb";
-import { requireScoresAccess } from "../../middleware/auth.js";
+import { requireScoresAccess, canManageGuild } from "../../middleware/auth.js";
 import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { buildRotationIndexMap, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
 import { recordScoreChange } from "../../services/scoreHistory.js";
@@ -36,7 +36,7 @@ router.post("/transfer-rotation", requireScoresAccess, async (req, res) => {
     if (!req.user.hasFullAccess) {
       const allowedGuildIds = req.user.allowedGuildIds || [];
       if (guild_id) {
-        if (!allowedGuildIds.includes(guild_id)) {
+        if (!canManageGuild(req.user, guild_id)) {
           return res.status(403).json({ success: false, message: `Accès refusé à la guilde ${guild_id}` });
         }
       } else if (allowedGuildIds.length === 1) {
@@ -282,14 +282,11 @@ router.put("/:id/transfer-account", requireScoresAccess, async (req, res) => {
     }
 
     // The score keeps its guild, so leader/officer rights are only checked on the existing score's guild.
-    if (!req.user.hasFullAccess) {
-      const allowedGuildIds = req.user.allowedGuildIds || [];
-      if (!allowedGuildIds.includes(existingScore.guild_id)) {
-        return res.status(403).json({
-          success: false,
-          message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez modifier que des scores de vos guildes.`
-        });
-      }
+    if (!canManageGuild(req.user, existingScore.guild_id)) {
+      return res.status(403).json({
+        success: false,
+        message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez modifier que des scores de vos guildes.`
+      });
     }
 
     const targetUser = await req.db.collection("users").findOne({ _id: new ObjectId(target_user_id) });

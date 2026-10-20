@@ -49,7 +49,12 @@ afterEach(async () => {
 
 const adminId = new ObjectId();
 const adminToken = () => jwt.sign({ _id: adminId.toString(), is_admin: true }, JWT_SECRET);
-const chefToken = (guildId) => jwt.sign({ _id: new ObjectId().toString(), guild_roles: [{ guilde_id: guildId, role: 'chef' }] }, JWT_SECRET);
+// The middleware reads leader grants from the database: the chef's user must exist there
+const chefToken = async (guildId) => {
+  const _id = new ObjectId();
+  await db.collection('users').insertOne({ _id, bbs_accounts: [{ guilde_id: guildId, role: 'chef' }] });
+  return jwt.sign({ _id: _id.toString() }, JWT_SECRET);
+};
 
 // One guild, one member (alice) and a cycle of 2 rotations (base + differential)
 const seed = async () => {
@@ -109,10 +114,10 @@ describe('score history', () => {
     // A score transferred FROM the leader's guild stays visible to them
     await recordScoreChange(db, { action: 'update', before: { _id: new ObjectId(), score: 3, bbs_id: 'c', guild_id: own }, after: { guild_id: other } });
 
-    const res = await request(app).get('/api/scores/history').set('Authorization', `Bearer ${chefToken(own)}`);
+    const res = await request(app).get('/api/scores/history').set('Authorization', `Bearer ${await chefToken(own)}`);
     expect(res.body.entries.map((e) => e.bbs_id).sort()).toEqual(['a', 'c']);
 
-    const forbidden = await request(app).get('/api/scores/history').query({ guild_id: other }).set('Authorization', `Bearer ${chefToken(own)}`);
+    const forbidden = await request(app).get('/api/scores/history').query({ guild_id: other }).set('Authorization', `Bearer ${await chefToken(own)}`);
     expect(forbidden.status).toBe(403);
 
     const byScore = await request(app).get('/api/scores/history').query({ score_id: scoreId.toString() }).set('Authorization', `Bearer ${adminToken()}`);
@@ -177,12 +182,12 @@ describe('score anomalies', () => {
     const { insertedId } = await db.collection('scores').insertOne(score(current, r1, 'alice', 5000, guildId));
 
     const other = await request(app).post(`/api/scores/${insertedId}/anomaly-review`)
-      .set('Authorization', `Bearer ${chefToken(new ObjectId().toString())}`);
+      .set('Authorization', `Bearer ${await chefToken(new ObjectId().toString())}`);
     expect(other.status).toBe(403);
 
-    const reviewed = await request(app).post(`/api/scores/${insertedId}/anomaly-review`).set('Authorization', `Bearer ${chefToken(guildId)}`);
+    const reviewed = await request(app).post(`/api/scores/${insertedId}/anomaly-review`).set('Authorization', `Bearer ${await chefToken(guildId)}`);
     expect(reviewed.status).toBe(200);
-    const res = await request(app).get('/api/scores/anomalies').set('Authorization', `Bearer ${chefToken(guildId)}`);
+    const res = await request(app).get('/api/scores/anomalies').set('Authorization', `Bearer ${await chefToken(guildId)}`);
     expect(res.body.anomalies).toEqual([]);
 
     await db.collection('scores').updateOne({ _id: insertedId }, { $set: { score: 6000, raw_score: 6000 } });

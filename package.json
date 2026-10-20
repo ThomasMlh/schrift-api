@@ -11,8 +11,7 @@
     "vercel-build": "echo 'Building for Vercel'",
     "test": "jest",
     "test:watch": "jest --watch",
-    "lint": "eslint src/ tests/",
-    "setup-admin": "node setup-admin.js"
+    "lint": "eslint src/ tests/"
   },
   "keywords": [],
   "author": "",

@@ -367,6 +367,9 @@ router.post('/refresh', authLimiter, async (req, res) => {
         if (!user) {
             return res.status(401).json({ success: false, message: 'Refresh token révoqué' });
         }
+        if (user.is_banned) {
+            return res.status(403).json({ success: false, message: 'Votre compte a été banni.', reason: user.ban_reason || null });
+        }
 
         const newToken = jwt.sign({
             _id: user._id,

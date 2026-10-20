@@ -22,3 +22,8 @@ export const USER_FULL = {
   bbs_accounts: 1,
   is_authorized: 1, is_banned: 1, ban_reason: 1, banned_at: 1
 };
+
+// Same without the moderation details (ban reason and date), which only admins may read
+export const USER_PUBLIC = Object.fromEntries(
+  Object.entries(USER_FULL).filter(([field]) => !['ban_reason', 'banned_at'].includes(field))
+);
