@@ -10,6 +10,6 @@ export { getDraftProposal, getDraftReplacement } from './draft.js';
 // Helpers covered by tests/podiumService/podiumService.test.js
 export {
   getMinScoresForRanking, getCurrentGuildBbsIds, getUnguildedBbsIds,
-  buildGuildMatch, overrideGuildName, applyRanks, paginate,
+  buildGuildMatch, overrideGuildName, applyRanks, paginate, keepBbsIds,
   isCycleInProgress, getGuildScoreMatch, getGuildBbsIdsForCycle
 } from './helpers.js';
