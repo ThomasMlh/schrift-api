@@ -143,6 +143,14 @@ export const applyRanks = (results, scoreKey) => {
   });
 }
 
+// Keeps the ranked rows of some accounts only (?bbs_ids=a,b: "followed players" filter). Applied after
+// ranking so each row keeps its overall rank.
+export const keepBbsIds = (results, bbsIds) => {
+  if (bbsIds === undefined || bbsIds === null) return results;
+  const ids = new Set((Array.isArray(bbsIds) ? bbsIds : String(bbsIds).split(',')).map((id) => id.trim()).filter(Boolean));
+  return results.filter((row) => ids.has(row.bbs_id));
+};
+
 // Paginates an already sorted array
 export const paginate = (results, page, limit) => {
   const skip = (page - 1) * limit;

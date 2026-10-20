@@ -1,9 +1,9 @@
 import { ObjectId } from 'mongodb';
 import { attachTopAchievements } from './achievementBadges.js';
-import { getGuildScoreMatch, lookupUserByUserId, overrideGuildName, applyRanks, paginate } from './helpers.js';
+import { getGuildScoreMatch, lookupUserByUserId, overrideGuildName, applyRanks, paginate, keepBbsIds } from './helpers.js';
 
 // Weekly podium (2 consecutive rotations)
-export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild_name, page = 1, limit = 50 }) => {
+export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild_name, bbs_ids, page = 1, limit = 50 }) => {
   if (!cycle_name) {
     const err = new Error('Le paramètre cycle_name est obligatoire');
     err.statusCode = 400;
@@ -150,7 +150,7 @@ export const getPodiumWeekly = async (db, { cycle_name, year, week_number, guild
   const allResults = await db.collection('scores').aggregate(pipeline).toArray();
   overrideGuildName(allResults, currentGuildName);
   const resultsWithRank = applyRanks(allResults, 'week_total_score');
-  const { items: data, pagination } = paginate(resultsWithRank, pageNumber, limitNumber);
+  const { items: data, pagination } = paginate(keepBbsIds(resultsWithRank, bbs_ids), pageNumber, limitNumber);
   await attachTopAchievements(db, data);
 
   const totalWeekScore = allResults.reduce((sum, p) => sum + (p.week_total_score || 0), 0);

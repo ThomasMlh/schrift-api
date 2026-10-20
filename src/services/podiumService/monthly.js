@@ -1,7 +1,7 @@
 import { parseDate } from '../killerRecords.js';
 import { attachTopAchievements } from './achievementBadges.js';
 import {
-  getMinScoresForRanking, getGuildScoreMatch, lookupUserAndGuild, overrideGuildName, applyRanks, paginate,
+  getMinScoresForRanking, getGuildScoreMatch, lookupUserAndGuild, overrideGuildName, applyRanks, paginate, keepBbsIds,
 } from './helpers.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -78,7 +78,7 @@ export const getPodiumMonths = async (db) => {
 
 // Monthly podium: average (or total) of the scores of every rotation of the month's weeks, across
 // cycles. Without a month, the month in progress (or the most recent one) is used.
-export const getPodiumMonthly = async (db, { month, ranking_type = 'average', guild_name, page = 1, limit = 50 }) => {
+export const getPodiumMonthly = async (db, { month, ranking_type = 'average', guild_name, bbs_ids, page = 1, limit = 50 }) => {
   if (month && !MONTH_KEY.test(month)) {
     const err = new Error('month doit être au format AAAA-MM');
     err.statusCode = 400;
@@ -170,7 +170,7 @@ export const getPodiumMonthly = async (db, { month, ranking_type = 'average', gu
 
   const allResults = await db.collection('scores').aggregate(pipeline).toArray();
   overrideGuildName(allResults, guild?.name);
-  const { items: data, pagination } = paginate(applyRanks(allResults, scoreKey), pageNumber, limitNumber);
+  const { items: data, pagination } = paginate(keepBbsIds(applyRanks(allResults, scoreKey), bbs_ids), pageNumber, limitNumber);
   await attachTopAchievements(db, data);
 
   return {

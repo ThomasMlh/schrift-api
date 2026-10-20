@@ -3,7 +3,7 @@ import { getProgression, attachIdentity } from '../playerTrends.js';
 import { attachTopAchievements } from './achievementBadges.js';
 import {
   getMinScoresForRanking, lookupUserAndGuild, getGuildScoreMatch, getGuildBbsIdsForCycle,
-  overrideGuildName, applyRanks, paginate
+  overrideGuildName, applyRanks, paginate, keepBbsIds
 } from './helpers.js';
 
 // Podium (top 10, no pagination)
@@ -74,7 +74,7 @@ export const getPodium = async (db, { cycle_id, guild_id }) => {
 }
 
 // Full paginated podium (by cycle_name, optional rotation_id)
-export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_name, ranking_type = 'average', page = 1, limit = 50 }) => {
+export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_name, ranking_type = 'average', bbs_ids, page = 1, limit = 50 }) => {
   if (!cycle_name) {
     const err = new Error('Le paramètre cycle_name est obligatoire');
     err.statusCode = 400;
@@ -135,7 +135,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
 
   if (!rotation_id && normalizedRankingType === 'progression') {
     return getProgressionPodium(db, {
-      cycle, cycle_name, guildId, guild_name, currentGuildName, minScores, pageNumber, limitNumber,
+      cycle, cycle_name, guildId, guild_name, currentGuildName, minScores, bbs_ids, pageNumber, limitNumber,
     });
   }
 
@@ -212,7 +212,7 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
   overrideGuildName(allResults, currentGuildName);
   const scoreKey = rotation_id ? 'score' : (normalizedRankingType === 'max' ? 'totalScore' : 'averageScore');
   const resultsWithRank = applyRanks(allResults, scoreKey);
-  const { items: data, pagination } = paginate(resultsWithRank, pageNumber, limitNumber);
+  const { items: data, pagination } = paginate(keepBbsIds(resultsWithRank, bbs_ids), pageNumber, limitNumber);
   await attachTopAchievements(db, data);
 
   let rotationInfo = null;
@@ -258,11 +258,11 @@ export const getPodiumFull = async (db, { cycle_name, year, rotation_id, guild_n
 }
 
 // "progression" ranking: increase of the average versus the previous cycle (in %).
-const getProgressionPodium = async (db, { cycle, cycle_name, guildId, guild_name, currentGuildName, minScores, pageNumber, limitNumber }) => {
+const getProgressionPodium = async (db, { cycle, cycle_name, guildId, guild_name, currentGuildName, minScores, bbs_ids, pageNumber, limitNumber }) => {
   const bbsIds = guildId ? await getGuildBbsIdsForCycle(db, cycle, guildId) : null;
   const { previousCycle, rows } = await getProgression(db, { cycle, bbsIds, minScores });
   const withIdentity = overrideGuildName(await attachIdentity(db, rows), currentGuildName);
-  const { items: data, pagination } = paginate(applyRanks(withIdentity, 'progressionPercent'), pageNumber, limitNumber);
+  const { items: data, pagination } = paginate(keepBbsIds(applyRanks(withIdentity, 'progressionPercent'), bbs_ids), pageNumber, limitNumber);
   await attachTopAchievements(db, data);
 
   return {
