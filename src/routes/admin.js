@@ -3,6 +3,7 @@ import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { syncDiscordProfiles } from '../utils/botClient.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 import { ensureIndexes } from '../services/dbIndexes.js';
+import { getDataHealth } from '../services/dataHealth.js';
 
 const router = express.Router();
 
@@ -47,6 +48,15 @@ router.post('/create-indexes', requireAdmin, async (req, res) => {
     res.json({ success: true, ...(await ensureIndexes(req.db)) });
   } catch (err) {
     sendStatusCodeError(res, err, 'Erreur lors de la création des index');
+  }
+});
+
+// GET data checks (admin "Data health" tab)
+router.get('/data-health', requireAdmin, async (req, res) => {
+  try {
+    res.json({ success: true, checks: await getDataHealth(req.db), checked_at: new Date() });
+  } catch (err) {
+    sendStatusCodeError(res, err, 'Erreur lors de la vérification des données');
   }
 });
 
