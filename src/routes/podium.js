@@ -1,7 +1,7 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
-import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMonthly, getPodiumMonths, getPodiumMisses, getDraftProposal, getDraftReplacement } from '../services/podiumService/index.js';
+import { getPodium, getPodiumFull, getPodiumWeekly, getPodiumMonthly, getPodiumMonths, getPlayerMonthlyAverages, getPodiumMisses, getDraftProposal, getDraftReplacement } from '../services/podiumService/index.js';
 import { getUserDisplayName } from '../utils/nameMatching.js';
 import { USER_DISPLAY } from '../utils/projections.js';
 import { publishCycleRecap, getCycleRecap } from '../services/cycleRecap.js';
@@ -49,6 +49,15 @@ router.get('/months', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error) {
     sendStatusCodeError(res, error, 'Erreur serveur lors de la récupération des mois');
+  }
+});
+
+// GET a bbs account's average per month
+router.get('/monthly/player/:bbsId', async (req, res) => {
+  try {
+    res.json({ success: true, months: await getPlayerMonthlyAverages(req.db, req.params.bbsId) });
+  } catch (error) {
+    sendStatusCodeError(res, error, 'Erreur serveur lors du calcul des moyennes mensuelles');
   }
 });
 

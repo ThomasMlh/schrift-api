@@ -198,3 +198,37 @@ export const getPodiumMonthly = async (db, { month, ranking_type = 'average', gu
     }
   };
 };
+
+// Average of a bbs account per game month (same week grouping as the monthly podium), oldest first
+export const getPlayerMonthlyAverages = async (db, bbsId) => {
+  const months = getGameMonths(await loadCycles(db));
+  const monthByRotation = new Map();
+  for (const month of months) {
+    for (const { cycle_id, rotation_id } of month.rotations) monthByRotation.set(`${cycle_id}|${rotation_id}`, month);
+  }
+
+  const scores = await db.collection('scores')
+    .find({ bbs_id: bbsId }, { projection: { cycle_id: 1, rotation_id: 1, score: 1 } })
+    .toArray();
+
+  const totals = new Map();
+  for (const { cycle_id, rotation_id, score } of scores) {
+    const month = monthByRotation.get(`${cycle_id}|${rotation_id}`);
+    if (!month || typeof score !== 'number') continue;
+    const entry = totals.get(month.key) ?? { month, sum: 0, count: 0 };
+    entry.sum += score;
+    entry.count += 1;
+    totals.set(month.key, entry);
+  }
+
+  return [...totals.values()]
+    .sort((a, b) => a.month.key.localeCompare(b.month.key))
+    .map(({ month, sum, count }) => ({
+      key: month.key,
+      start_date: month.start_date,
+      end_date: month.end_date,
+      in_progress: month.in_progress,
+      averageScore: Math.round(sum / count),
+      scoreCount: count,
+    }));
+};
