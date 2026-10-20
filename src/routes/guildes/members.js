@@ -8,6 +8,7 @@ import {
   upsertPrimaryAccount, updateAccount, deriveMirrorFields
 } from '../../utils/bbsAccounts.js';
 import { logger } from '../../utils/logger.js';
+import { checkWaitlistPlaces } from '../../services/recruitment.js';
 import { sendServerError, sendStatusCodeError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
@@ -123,6 +124,9 @@ router.delete('/:id/members/:userId', requireAdmin, async (req, res) => {
       logger.error('[guildes/remove-member] Erreur notification Discord (non bloquant):', notifErr.message);
     }
 
+    // A freed place may concern candidates on the waiting list
+    await checkWaitlistPlaces(req.db);
+
     res.json({ success: true, message: 'Utilisateur retiré de la guilde' });
   } catch (err) {
     const status = err.statusCode || 500;
@@ -175,6 +179,9 @@ router.delete('/:guildeId/membres/:userId', requireAdmin, async (req, res) => {
     } catch (notifErr) {
       logger.error('[guildes/remove-membre] Erreur notification Discord (non bloquant):', notifErr.message);
     }
+
+    // A freed place may concern candidates on the waiting list
+    await checkWaitlistPlaces(req.db);
 
     res.json({
       success: true,
