@@ -113,3 +113,29 @@ describe('PATCH /api/guildes/:id/toggle-disable (crud.js, requireAdmin)', () => 
     expect(res.status).toBe(401);
   });
 });
+
+describe('GET /api/guildes/rankings?month=', () => {
+  it('ranks guilds on the scores of the month only', async () => {
+    const { insertedIds } = await db.collection('guildes').insertMany([{ name: 'A' }, { name: 'B' }]);
+    const [a, b] = Object.values(insertedIds).map((id) => id.toString());
+    const { insertedId: cycleId } = await db.collection('cycles').insertOne({
+      name: 'C', year: 2026, rotations: [
+        { rotation_id: 'sep', position: 1, start_date: '22/09/2026', end_date: '24/09/2026' },
+        { rotation_id: 'oct', position: 2, start_date: '06/10/2026', end_date: '08/10/2026' },
+      ],
+    });
+    const cycle_id = cycleId.toString();
+    await db.collection('scores').insertMany([
+      { guild_id: a, cycle_id, rotation_id: 'oct', score: 500 },
+      { guild_id: b, cycle_id, rotation_id: 'oct', score: 600 },
+      { guild_id: a, cycle_id, rotation_id: 'sep', score: 9000 },
+    ]);
+
+    const res = await request(app).get('/api/guildes/rankings').query({ month: '2026-10' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((g) => [g.name, g.averageScore])).toEqual([['B', 600], ['A', 500]]);
+
+    const unknown = await request(app).get('/api/guildes/rankings').query({ month: '2020-01' });
+    expect(unknown.status).toBe(404);
+  });
+});
