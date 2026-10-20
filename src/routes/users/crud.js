@@ -1,9 +1,9 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireAdmin, validateObjectIdParam } from '../../middleware/auth.js';
+import { requireAdmin, optionalAuth, validateObjectIdParam } from '../../middleware/auth.js';
 import { getUserDisplayName } from '../../utils/nameMatching.js';
 import { parsePaginationParams, buildPaginationMeta } from '../../utils/pagination.js';
-import { USER_FULL } from '../../utils/projections.js';
+import { USER_FULL, USER_PUBLIC } from '../../utils/projections.js';
 import { escapeRegex } from '../../utils/regexUtils.js';
 import {
   upsertPrimaryAccount, deriveMirrorFields, assertRoleAvailable, assertBbsIdAvailable,
@@ -116,7 +116,7 @@ router.post('/manual', requireAdmin, async (req, res) => {
 });
 
 // GET users with pagination (public)
-router.get('/', async (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
 
@@ -168,7 +168,7 @@ router.get('/', async (req, res) => {
     }
 
     const users = await req.db.collection('users')
-      .find(query, { projection: USER_FULL })
+      .find(query, { projection: req.user?.is_admin ? USER_FULL : USER_PUBLIC })
       .sort({ last_login: -1 })
       .skip(skip)
       .limit(limit)
@@ -249,12 +249,12 @@ router.get('/accounts', async (req, res) => {
 });
 
 // GET a user by id
-router.get('/:userId', validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
+router.get('/:userId', optionalAuth, validateObjectIdParam('userId', "Format d'ID utilisateur invalide"), async (req, res) => {
   try {
     const { userId } = req.params;
     const user = await req.db.collection('users').findOne(
       { _id: new ObjectId(userId) },
-      { projection: USER_FULL }
+      { projection: req.user?.is_admin ? USER_FULL : USER_PUBLIC }
     );
 
     if (!user) {
