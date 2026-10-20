@@ -1,6 +1,6 @@
 import express from "express";
 import { ObjectId } from "mongodb";
-import { requireScoresAccess } from "../../middleware/auth.js";
+import { requireScoresAccess, canManageGuild } from "../../middleware/auth.js";
 import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { compareEntities } from "../../services/scoreComparison.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
@@ -332,7 +332,7 @@ router.post("/", requireScoresAccess, async (req, res) => {
     }
 
     // Leaders/officers can only write scores for guilds they manage
-    if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(guild_id)) {
+    if (!canManageGuild(req.user, guild_id)) {
       return res.status(403).json({
         success: false,
         message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez saisir des scores que pour vos guildes.`
@@ -461,15 +461,12 @@ router.put("/:id", requireScoresAccess, async (req, res) => {
     }
 
     // Leaders/officers need access to the current guild AND the target guild when it changes
-    if (!req.user.hasFullAccess) {
-      const allowedGuildIds = req.user.allowedGuildIds || [];
-      const targetGuildId = guild_id || existingScore.guild_id;
-      if (!allowedGuildIds.includes(existingScore.guild_id) || !allowedGuildIds.includes(targetGuildId)) {
-        return res.status(403).json({
-          success: false,
-          message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez modifier que des scores de vos guildes.`
-        });
-      }
+    const targetGuildId = guild_id || existingScore.guild_id;
+    if (!canManageGuild(req.user, existingScore.guild_id) || !canManageGuild(req.user, targetGuildId)) {
+      return res.status(403).json({
+        success: false,
+        message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez modifier que des scores de vos guildes.`
+      });
     }
 
     const updateData = {
@@ -682,7 +679,7 @@ router.delete("/:id", requireScoresAccess, async (req, res) => {
     if (!existingScore) {
       return res.status(404).json({ success: false, message: "Score non trouvé" });
     }
-    if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(existingScore.guild_id)) {
+    if (!canManageGuild(req.user, existingScore.guild_id)) {
       return res.status(403).json({
         success: false,
         message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez supprimer que des scores de vos guildes.`

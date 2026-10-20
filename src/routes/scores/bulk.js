@@ -1,6 +1,6 @@
 import express from "express";
 import { ObjectId } from "mongodb";
-import { requireScoresAccess } from "../../middleware/auth.js";
+import { requireScoresAccess, canManageGuild } from "../../middleware/auth.js";
 import { notifyDiscord } from "../../utils/notifyDiscord.js";
 import { buildRotationIndexMap, computeDifferential, recalculateAffectedDifferentials } from "../../services/scoreDifferential.js";
 import { notifyPersonalRecords } from "../../services/killerRecords.js";
@@ -56,17 +56,13 @@ router.post("/bulk", requireScoresAccess, async (req, res) => {
       guildIds.add(guild_id);
     }
 
-    if (!req.user.hasFullAccess) {
-      // Leaders/officers can only submit scores for guilds they manage
-      const allowedGuildIds = req.user.allowedGuildIds || [];
-      const invalidGuilds = Array.from(guildIds).filter(guildId => !allowedGuildIds.includes(guildId));
-
-      if (invalidGuilds.length > 0) {
-        return res.status(403).json({
-          success: false,
-          message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez saisir des scores que pour vos guildes (${allowedGuildIds.join(', ')}). Guildes non autorisées détectées : ${invalidGuilds.join(', ')}`
-        });
-      }
+    // Leaders/officers can only submit scores for guilds they manage
+    const invalidGuilds = Array.from(guildIds).filter(guildId => !canManageGuild(req.user, guildId));
+    if (invalidGuilds.length > 0) {
+      return res.status(403).json({
+        success: false,
+        message: `Accès refusé. En tant que ${req.user.role}, vous ne pouvez saisir des scores que pour vos guildes (${(req.user.allowedGuildIds || []).join(', ')}). Guildes non autorisées détectées : ${invalidGuilds.join(', ')}`
+      });
     }
 
     // Each bbs_id must belong to the target user_id and guild

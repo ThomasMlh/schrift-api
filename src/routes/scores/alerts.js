@@ -1,6 +1,6 @@
 import express from 'express';
 import { ObjectId } from 'mongodb';
-import { requireScoresAccess } from '../../middleware/auth.js';
+import { requireScoresAccess, canManageGuild } from '../../middleware/auth.js';
 import { getDeclineAlerts } from '../../services/playerTrends.js';
 import { getScoreAnomalies, reviewScoreAnomaly } from '../../services/scoreAnomalies.js';
 import { getScoreHistory, isScoreHistoryAction } from '../../services/scoreHistory.js';
@@ -35,9 +35,8 @@ const resolveGuildScope = async (req, { adminDefault = 'active' } = {}) => {
       .map((g) => g._id.toString());
   }
 
-  const allowed = req.user.allowedGuildIds || [];
-  if (guild_id && !allowed.includes(guild_id)) throw new ScopeError(403, 'Accès refusé à cette guilde');
-  return guild_id ? [guild_id] : allowed;
+  if (guild_id && !canManageGuild(req.user, guild_id)) throw new ScopeError(403, 'Accès refusé à cette guilde');
+  return guild_id ? [guild_id] : req.user.allowedGuildIds || [];
 };
 
 // A single guild: the requested one (?guild_id=), or the only guild the leader manages.
@@ -98,7 +97,7 @@ router.post('/:id/anomaly-review', requireScoresAccess, async (req, res) => {
     }
     const score = await req.db.collection('scores').findOne({ _id: new ObjectId(req.params.id) });
     if (!score) return res.status(404).json({ success: false, message: 'Score non trouvé' });
-    if (!req.user.hasFullAccess && !(req.user.allowedGuildIds || []).includes(score.guild_id)) {
+    if (!canManageGuild(req.user, score.guild_id)) {
       return res.status(403).json({ success: false, message: 'Accès refusé à ce score' });
     }
 
