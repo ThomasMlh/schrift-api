@@ -211,4 +211,3 @@ export const getPodiumMonthly = async (db, { month, ranking_type = 'average', gu
     }
   };
 };
-
