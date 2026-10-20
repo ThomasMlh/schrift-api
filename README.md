@@ -24,7 +24,6 @@ npm run dev             # nodemon, http://localhost:3000
 |---|---|
 | `MONGODB_URI` | MongoDB connection URI |
 | `JWT_SECRET` | Secret used to sign JWTs |
-| `PASSWORD_SALT` | Salt used for hashing (local admin account) |
 | `FRONTEND_URL` | Extra CORS-allowed origin besides the front-end |
 | `PORT` | HTTP port (dev only, defaults to 3000) |
 
@@ -39,7 +38,6 @@ Locally, the connection points to the `schrift-test` database; in production (`N
 | `npm test` / `npm run test:watch` | Jest tests (`tests/**/*.test.js`) |
 | `npm run lint` | ESLint on `src/` |
 | `npm run build` | Transpiles via Babel into `dist/` (cPanel deployment) |
-| `npm run setup-admin` | Creates/resets the local admin account |
 
 ## Structure
 
@@ -70,9 +68,12 @@ A user (`users`) can have several linked in-game accounts (`bbs_accounts: [{ bbs
 
 ## Authentication
 
-Login via Discord OAuth (code exchange handled in `routes/auth.js`), then a JWT is issued and expected as `Authorization: Bearer <token>` on protected routes. Two guard levels (`src/middleware/auth.js`):
+Login via Discord OAuth (code exchange handled in `routes/auth.js`), then a JWT is issued and expected as `Authorization: Bearer <token>` on protected routes. Guards (`src/middleware/auth.js`):
 - `requireAdmin`: requires `is_admin` in the token.
-- `requireScoresAccess`: admin, or a chef/sous-chef account on the targeted guild (via `guild_roles`).
+- `requireAuth`: any logged-in user whose account still exists and is not banned.
+- `requireScoresAccess`: admin, or a user with a chef/sous-chef account. Grants are read from the database on each request (not from the token), so a ban, demotion or guild change applies immediately. Routes then check the targeted guild with `canManageGuild(req.user, guildId)`.
+
+Banning a user revokes their refresh token; `/auth/refresh` also rejects banned accounts.
 
 ## Deployment
 

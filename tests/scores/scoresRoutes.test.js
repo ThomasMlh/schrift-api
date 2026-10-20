@@ -139,7 +139,8 @@ describe('DELETE /api/scores/:id (crud.js, requireScoresAccess)', () => {
     const { insertedId } = await db.collection('scores').insertOne({
       cycle_id: 'c1', rotation_id: 'r1', bbs_id: 'bbs-1', guild_id: 'other-guild', score: 100, raw_score: 100,
     });
-    const chefToken = jwt.sign({ id: 'chef-1', guild_roles: [{ guilde_id: 'my-guild', role: 'chef' }] }, JWT_SECRET);
+    const { insertedId: chefId } = await db.collection('users').insertOne({ bbs_accounts: [{ guilde_id: 'my-guild', role: 'chef' }] });
+    const chefToken = jwt.sign({ _id: chefId.toString() }, JWT_SECRET);
     const res = await request(app)
       .delete(`/api/scores/${insertedId.toString()}`)
       .set('Authorization', `Bearer ${chefToken}`);

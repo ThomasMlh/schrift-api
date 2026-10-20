@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { requireAdmin, requireScoresAccess, optionalAuth, validateObjectIdParam } from '../../src/middleware/auth.js';
+import { requireAdmin, requireAuth, requireScoresAccess, canManageGuild, optionalAuth, validateObjectIdParam } from '../../src/middleware/auth.js';
 
 const JWT_SECRET = 'test-secret';
 
@@ -64,87 +64,144 @@ describe('requireAdmin', () => {
   });
 });
 
+// Minimal db: users looked up by _id (the middleware reads the current grants from there)
+const fakeDb = (users) => ({
+  collection: () => ({
+    findOne: async ({ _id }) => users.find((u) => String(u._id) === String(_id)) ?? null,
+  }),
+});
+const USER_ID = '64b000000000000000000001';
+const chefReq = (users, payload = {}) => ({
+  headers: { authorization: `Bearer ${makeToken({ _id: USER_ID, ...payload })}` },
+  db: fakeDb(users),
+});
+
 describe('requireScoresAccess', () => {
-  it('returns 401 when no token is provided', () => {
+  it('returns 401 when no token is provided', async () => {
     const req = { headers: {} };
     const res = mockRes();
     const next = jest.fn();
 
-    requireScoresAccess(req, res, next);
+    await requireScoresAccess(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
   });
 
-  it('grants full access to admin users', () => {
+  it('grants full access to admin users', async () => {
     const token = makeToken({ id: '1', is_admin: true });
     const req = { headers: { authorization: `Bearer ${token}` } };
     const res = mockRes();
     const next = jest.fn();
 
-    requireScoresAccess(req, res, next);
+    await requireScoresAccess(req, res, next);
 
     expect(next).toHaveBeenCalled();
     expect(req.user.hasFullAccess).toBe(true);
   });
 
-  it('grants restricted access to a chef with a guilde_id (via guild_roles)', () => {
-    const token = makeToken({
-      id: '2',
-      role: 'chef',
-      guilde_id: 'guild-1',
-      guild_roles: [{ bbs_id: 'bbs-2', guilde_id: 'guild-1', role: 'chef' }]
-    });
-    const req = { headers: { authorization: `Bearer ${token}` } };
+  it('grants restricted access to the guild of a chef account', async () => {
+    const req = chefReq([{ _id: USER_ID, bbs_accounts: [{ bbs_id: 'bbs-2', guilde_id: 'guild-1', role: 'chef' }] }]);
     const res = mockRes();
     const next = jest.fn();
 
-    requireScoresAccess(req, res, next);
+    await requireScoresAccess(req, res, next);
 
     expect(next).toHaveBeenCalled();
     expect(req.user.hasFullAccess).toBe(false);
     expect(req.user.allowedGuildIds).toEqual(['guild-1']);
   });
 
-  it('grants access scoped to multiple guilds when the user has several chef/sous-chef accounts', () => {
-    const token = makeToken({
-      id: '2b',
-      guild_roles: [
-        { bbs_id: 'bbs-2', guilde_id: 'guild-1', role: 'chef' },
-        { bbs_id: 'bbs-2-alt', guilde_id: 'guild-2', role: 'sous-chef' }
-      ]
-    });
-    const req = { headers: { authorization: `Bearer ${token}` } };
+  it('grants access scoped to multiple guilds when the user has several chef/sous-chef accounts', async () => {
+    const req = chefReq([{ _id: USER_ID, bbs_accounts: [
+      { bbs_id: 'bbs-2', guilde_id: 'guild-1', role: 'chef' },
+      { bbs_id: 'bbs-2-alt', guilde_id: 'guild-2', role: 'sous-chef' },
+      { bbs_id: 'bbs-2-alt2', guilde_id: 'guild-3', role: 'membre' },
+    ] }]);
     const res = mockRes();
     const next = jest.fn();
 
-    requireScoresAccess(req, res, next);
+    await requireScoresAccess(req, res, next);
 
     expect(next).toHaveBeenCalled();
-    expect(req.user.hasFullAccess).toBe(false);
     expect(req.user.allowedGuildIds.sort()).toEqual(['guild-1', 'guild-2']);
   });
 
-  it('returns 403 when there are no guild_roles', () => {
-    const token = makeToken({ id: '3', role: 'chef' });
-    const req = { headers: { authorization: `Bearer ${token}` } };
+  it('uses the current database grants, not the stale ones of the token', async () => {
+    // Demoted since login: the token still claims the chef role
+    const req = chefReq(
+      [{ _id: USER_ID, bbs_accounts: [{ bbs_id: 'bbs-2', guilde_id: 'guild-1', role: 'membre' }] }],
+      { guild_roles: [{ bbs_id: 'bbs-2', guilde_id: 'guild-1', role: 'chef' }] }
+    );
     const res = mockRes();
     const next = jest.fn();
 
-    requireScoresAccess(req, res, next);
+    await requireScoresAccess(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('returns 403 for a role without sufficient permissions', () => {
-    const token = makeToken({ id: '4', role: 'membre' });
-    const req = { headers: { authorization: `Bearer ${token}` } };
+  it('returns 403 for a banned user, even with leader accounts', async () => {
+    const req = chefReq([{ _id: USER_ID, is_banned: true, bbs_accounts: [{ bbs_id: 'bbs-2', guilde_id: 'guild-1', role: 'chef' }] }]);
     const res = mockRes();
     const next = jest.fn();
 
-    requireScoresAccess(req, res, next);
+    await requireScoresAccess(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when the user no longer exists', async () => {
+    const req = chefReq([]);
+    const res = mockRes();
+    const next = jest.fn();
+
+    await requireScoresAccess(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for a user without leader accounts', async () => {
+    const req = chefReq([{ _id: USER_ID, bbs_accounts: [{ bbs_id: 'bbs-4', guilde_id: 'guild-1', role: 'membre' }] }]);
+    const res = mockRes();
+    const next = jest.fn();
+
+    await requireScoresAccess(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+});
+
+describe('requireAuth', () => {
+  it('lets an existing user through', async () => {
+    const req = chefReq([{ _id: USER_ID, bbs_accounts: [] }]);
+    const next = jest.fn();
+
+    await requireAuth(req, mockRes(), next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('returns 403 for a banned user', async () => {
+    const req = chefReq([{ _id: USER_ID, is_banned: true }]);
+    const res = mockRes();
+    const next = jest.fn();
+
+    await requireAuth(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe('canManageGuild', () => {
+  it('allows admins on any guild and leaders on their guilds only', () => {
+    expect(canManageGuild({ hasFullAccess: true }, 'g9')).toBe(true);
+    expect(canManageGuild({ hasFullAccess: false, allowedGuildIds: ['g1'] }, 'g1')).toBe(true);
+    expect(canManageGuild({ hasFullAccess: false, allowedGuildIds: ['g1'] }, 'g2')).toBe(false);
+    expect(canManageGuild({ hasFullAccess: false, allowedGuildIds: ['g1'] }, undefined)).toBe(false);
   });
 });
 

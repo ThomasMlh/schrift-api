@@ -73,8 +73,12 @@ afterEach(async () => {
 });
 
 const adminToken = () => jwt.sign({ id: 'admin-1', is_admin: true }, JWT_SECRET);
-const chefTokenFor = (guildeId) =>
-  jwt.sign({ id: 'chef-1', guild_roles: [{ bbs_id: 'bbs-chef', guilde_id: guildeId, role: 'chef' }] }, JWT_SECRET);
+// The middleware reads leader grants from the database: the chef's user must exist there
+const chefToken = async (guildId) => {
+  const _id = new ObjectId();
+  await db.collection('users').insertOne({ _id, bbs_accounts: [{ guilde_id: guildId, role: 'chef' }] });
+  return jwt.sign({ _id: _id.toString() }, JWT_SECRET);
+};
 
 describe('GET /api/discord/channels', () => {
   it('rejects an unauthenticated request with 401', async () => {
@@ -97,7 +101,7 @@ describe('GET /api/discord/channels', () => {
 
     const res = await request(app)
       .get('/api/discord/channels')
-      .set('Authorization', `Bearer ${chefTokenFor(guild.insertedId.toString())}`);
+      .set('Authorization', `Bearer ${await chefToken(guild.insertedId.toString())}`);
 
     expect(res.status).toBe(200);
     expect(res.body.channels.map((c) => c.id).sort()).toEqual(['chan-guild-a-chefs', 'chan-guild-a-general']);
@@ -108,7 +112,7 @@ describe('GET /api/discord/channels', () => {
 
     const res = await request(app)
       .get('/api/discord/channels')
-      .set('Authorization', `Bearer ${chefTokenFor(guild.insertedId.toString())}`);
+      .set('Authorization', `Bearer ${await chefToken(guild.insertedId.toString())}`);
 
     expect(res.status).toBe(200);
     expect(res.body.channels).toEqual([]);
@@ -135,7 +139,7 @@ describe('GET /api/discord/emojis', () => {
 
     const res = await request(app)
       .get('/api/discord/emojis')
-      .set('Authorization', `Bearer ${chefTokenFor(guild.insertedId.toString())}`);
+      .set('Authorization', `Bearer ${await chefToken(guild.insertedId.toString())}`);
 
     expect(res.status).toBe(200);
     expect(res.body.emojis.map((e) => e.id)).toEqual(['e1', 'e2']);
@@ -146,7 +150,7 @@ describe('GET /api/discord/emojis', () => {
 
     const res = await request(app)
       .get('/api/discord/emojis')
-      .set('Authorization', `Bearer ${chefTokenFor(guild.insertedId.toString())}`);
+      .set('Authorization', `Bearer ${await chefToken(guild.insertedId.toString())}`);
 
     expect(res.status).toBe(200);
     expect(res.body.emojis).toEqual([]);
@@ -191,7 +195,7 @@ describe('POST /api/discord/messages', () => {
 
     const res = await request(app)
       .post('/api/discord/messages')
-      .set('Authorization', `Bearer ${chefTokenFor(guild.insertedId.toString())}`)
+      .set('Authorization', `Bearer ${await chefToken(guild.insertedId.toString())}`)
       .send({ channel_id: 'chan-guild-a-general', content: 'Salut la guilde, <@u2> stp regarde ça', mention_user_ids: ['u2'] });
 
     expect(res.status).toBe(200);
@@ -207,7 +211,7 @@ describe('POST /api/discord/messages', () => {
 
     const res = await request(app)
       .post('/api/discord/messages')
-      .set('Authorization', `Bearer ${chefTokenFor(guild.insertedId.toString())}`)
+      .set('Authorization', `Bearer ${await chefToken(guild.insertedId.toString())}`)
       .send({ channel_id: 'chan-guild-b-chefs', content: 'Message pas pour moi' });
 
     expect(res.status).toBe(403);

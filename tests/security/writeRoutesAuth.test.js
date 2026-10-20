@@ -55,7 +55,12 @@ afterEach(async () => {
 
 const id = () => new ObjectId().toString();
 const memberToken = () => jwt.sign({ _id: id() }, JWT_SECRET);
-const chefToken = (guildId) => jwt.sign({ _id: id(), guild_roles: [{ guilde_id: guildId, role: 'chef' }] }, JWT_SECRET);
+// The middleware reads leader grants from the database: the chef's user must exist there
+const chefToken = async (guildId) => {
+  const _id = new ObjectId();
+  await db.collection('users').insertOne({ _id, bbs_accounts: [{ guilde_id: guildId, role: 'chef' }] });
+  return jwt.sign({ _id: _id.toString() }, JWT_SECRET);
+};
 
 const PROTECTED = [
   ['post', '/api/characters/admin/create-indexes'],
@@ -99,7 +104,7 @@ describe('PUT /api/guildes/:id for chefs', () => {
   it('lets a chef update the notifications of their own guild, but not rename it or touch another guild', async () => {
     const { insertedId } = await db.collection('guildes').insertOne({ name: 'Les Quincy' });
     const guildId = insertedId.toString();
-    const auth = { Authorization: `Bearer ${chefToken(guildId)}` };
+    const auth = { Authorization: `Bearer ${await chefToken(guildId)}` };
 
     const ok = await request(app).put(`/api/guildes/${guildId}`).set(auth)
       .send({ name: 'Les Quincy', discord_channel_id: '123', disabled_notification_types: ['scores'] });
