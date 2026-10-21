@@ -5,14 +5,10 @@ import { cleanObject } from '../utils/cleaners.js';
 import { SFTPClient } from '../utils/database.js';
 import { FTPUploader } from '../utils/ftp.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
-import { convertDateToFormat, parseCSV, reorderCharactersByReleaseDate } from '../utils/characterHelpers.js';
+import { parseCSV, reorderCharactersByReleaseDate } from '../utils/characterHelpers.js';
+import { buildCharacterMatcher, mapCharacterRow } from './characterSource.js';
+import { IMAGE_TARGETS, changedImageTargets, imagePath, uploadImageTarget } from './characterImages.js';
 import { logger } from '../utils/logger.js';
-
-const CANCEL_RESISTANCE_MAP = {
-  'Annul. Res. Bleue': 'B',
-  'Annul. Res. Rouge': 'R',
-  'Range Nullify': 'range'
-};
 
 const buildSftpConfig = () => {
   const config = {
@@ -36,12 +32,76 @@ const buildSftpConfig = () => {
   return config;
 }
 
-const splitField = (raw, key1, key2, key3) => {
-  if (raw?.trim()) return raw.split(',').map(s => s.trim()).filter(Boolean);
-  return [key1, key2, key3].filter(Boolean);
-}
+const PREVIEW_LIMIT = 50;
 
-export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) => {
+// What a sync would do, without writing anything
+export const buildSyncPreview = (totalRows, planned) => {
+  const counts = new Map();
+  for (const p of planned) counts.set(p.mapped.searchName, (counts.get(p.mapped.searchName) ?? 0) + 1);
+  const label = (p) => ({ search_name: p.mapped.searchName, name: p.mapped.data.name });
+
+  const inserted = planned.filter((p) => !p.character);
+  const renamed = planned.filter((p) => p.renamed);
+  const updated = planned.filter((p) => p.character);
+  const images = updated
+    .map((p) => ({ ...label(p), targets: changedImageTargets(p.character.source_images, p.mapped.data.source_images) }))
+    .filter((p) => p.targets.length > 0);
+
+  return {
+    dryRun: true,
+    message: `Simulation : ${inserted.length} personnages créés, ${updated.length} mis à jour (dont ${renamed.length} renommés), ${images.length} avec de nouvelles images`,
+    statistics: {
+      totalProcessed: totalRows,
+      inserted: inserted.length,
+      updated: updated.length,
+      renamed: renamed.length,
+      skipped: totalRows - planned.length,
+      imagesChanged: images.length,
+      silhouettes: planned.filter((p) => p.mapped.data.source_images.silhouette).length,
+    },
+    preview: {
+      inserted: inserted.slice(0, PREVIEW_LIMIT).map(label),
+      renamed: renamed.slice(0, PREVIEW_LIMIT).map((p) => ({ ...label(p), previous: p.character.search_name })),
+      images: images.slice(0, PREVIEW_LIMIT),
+      duplicates: [...counts].filter(([, n]) => n > 1).map(([search_name, count]) => ({ search_name, count })),
+    },
+  };
+};
+
+/**
+ * Uploads the pending targets of a character, plus any file missing from the bucket.
+ * Clears the pending list once everything is uploaded and bumps images_version so browsers reload them.
+ */
+export const uploadCharacterImages = async (db, ftp, character) => {
+  const pending = new Set(character.images_pending ?? []);
+  let uploaded = 0;
+  let complete = true;
+  const done = [];
+
+  for (const target of IMAGE_TARGETS) {
+    if (!character.source_images?.[target.sources[0]]) {
+      done.push(target.key);
+      continue;
+    }
+    if (!pending.has(target.key) && await ftp.fileExists(imagePath(target, character._id))) continue;
+    if (await uploadImageTarget(ftp, target, character.source_images, character._id)) {
+      uploaded++;
+      done.push(target.key);
+    } else {
+      complete = false;
+    }
+  }
+
+  const update = { $set: { images_uploaded: complete }, $pull: { images_pending: { $in: done } } };
+  if (uploaded > 0) update.$set.images_version = Date.now();
+  // A failed character waits before the next try, so the batch loop does not spin on it
+  if (complete) update.$unset = { images_failed_at: '' };
+  else update.$set.images_failed_at = new Date();
+  await db.collection('characters').updateOne({ _id: character._id }, update);
+  return { uploaded, complete };
+};
+
+export const syncCharactersFromSFTP = async (db, { uploadImages = false, dryRun = false } = {}) => {
   const sftpConfig = buildSftpConfig();
 
   if (!sftpConfig.host || !sftpConfig.username) {
@@ -98,7 +158,16 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
     throw err;
   }
 
-  // FTP connection when an upload is requested
+  const rows = characters.map((char, index) => ({ index, raw: char, mapped: mapCharacterRow(cleanObject(char)) }));
+  const valid = rows.filter((r) => r.mapped);
+  const stored = await db.collection('characters')
+    .find({}, { projection: { search_name: 1, name: 1, source_images: 1 } })
+    .toArray();
+  const match = buildCharacterMatcher(stored, new Set(valid.map((r) => r.mapped.searchName)));
+  const planned = valid.map((r) => ({ ...r, ...match(r.mapped) }));
+
+  if (dryRun) return buildSyncPreview(characters.length, planned);
+
   let ftpUploader = null;
   if (uploadImages) {
     try {
@@ -109,91 +178,58 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
     }
   }
 
-  let insertedCount = 0, updatedCount = 0, skippedCount = 0, imagesUploaded = 0, bannersCreated = 0;
+  let insertedCount = 0, updatedCount = 0, renamedCount = 0, imagesUploaded = 0, bannersCreated = 0;
+  let skippedCount = characters.length - valid.length;
   const errors = [];
 
-  for (const [index, char] of characters.entries()) {
+  for (const { index, raw, mapped, character, renamed } of planned) {
     try {
-      const c = cleanObject(char);
-      if (!c['Nom de recherche']?.trim()) { skippedCount++; continue; }
-
-      const searchName = c['Nom de recherche'].replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, '').trim();
-      const killers = splitField(c['Killers'], c['Killer 1'], c['Killer 2']);
-      const categories = splitField(c['Catégories'], c['Catégorie 1'], c['Catégorie 2']);
-      const soul_traits = splitField(c['Soul Traits'], c['Soul Trait 1'], c['Soul Trait 2']);
-      const ex_soul_traits = splitField(c['Ex Soul Traits'], c['Ex Soul Trait 1'], c['Ex Soul Trait 2']);
-      const immunities = splitField(c['Immunités'], c['Immunité 1'], c['Immunité 2'], c['Immunité 3']);
-
-      let bannerDoc = await db.collection('banners').findOne({ name: c['Loterie'], portail: c['Portail'] });
-      if (!bannerDoc && c['Loterie'] && c['Portail']) {
-        const newBanner = { name: c['Loterie'], portail: c['Portail'], url: c['URL Portail'] || '' };
+      const { banner } = mapped;
+      let bannerDoc = await db.collection('banners').findOne({ name: banner.name, portail: banner.portail });
+      if (!bannerDoc && banner.name && banner.portail) {
+        const newBanner = { name: banner.name, portail: banner.portail, url: banner.url || '' };
         const res = await db.collection('banners').insertOne(newBanner);
         bannerDoc = { _id: res.insertedId, ...newBanner };
         bannersCreated++;
-        if (ftpUploader && c['URL Portail']) {
-          const uploaded = await ftpUploader.downloadAndUpload(c['URL Portail'], `/bucket.bbs-schrift.fr/banners/${bannerDoc._id}.png`);
+        if (ftpUploader && banner.url) {
+          const uploaded = await ftpUploader.downloadAndUpload(banner.url, `/bucket.bbs-schrift.fr/banners/${bannerDoc._id}.png`);
           if (uploaded) imagesUploaded++;
         }
       }
 
-      const characterData = {
-        name: c['Nom personnage'] || '',
-        search_name: searchName,
-        affinity: c['Affinité'] || '',
-        rarity: c['Rareté'] || '',
-        categories,
-        killers,
-        soul_traits,
-        ex_soul_traits,
-        attack_type: c['Attaques Rouges ou Bleues'] === 'Attaques B' ? 'B' : 'R',
-        release_date: convertDateToFormat(c['Date sortie']),
-        resurrection_release: convertDateToFormat(c['Date résurrection']),
-        nad: c['NAD ou SAD'] === 'NAD' ? 'NAD' : false,
-        sad: c['NAD ou SAD'] === 'SAD' ? 'SAD' : false,
-        version: c['Version'] || '',
-        version_name: c['Nom version'] || '',
-        banner_id: bannerDoc ? bannerDoc._id : null,
-        stats: { end: c['END'] || null, atk: c['ATK'] || null, def: c['DEF'] || null, cct: c['CCT'] || null, pre: c['PRE'] || null },
-        immunities,
-        cancel_resistance: CANCEL_RESISTANCE_MAP[c['Annulation résistance Rouge/Bleue']] || null,
-        source_images: {
-          thumbnail: c['Link'] || null,
-          artwork: c['URL Artwork'] || null,
-          quote: c['URL Phrase'] || null,
-          attack: c['URL ATK'] || null
-        },
-        updated_at: new Date()
-      };
-
-      const existing = await db.collection('characters').findOne({ search_name: searchName });
+      const characterData = { ...mapped.data, banner_id: bannerDoc ? bannerDoc._id : null, updated_at: new Date() };
       let characterId;
 
-      if (existing) {
-        await db.collection('characters').updateOne({ search_name: searchName }, { $set: characterData });
-        characterId = existing._id;
+      if (character) {
+        const pending = changedImageTargets(character.source_images, characterData.source_images);
+        const update = { $set: characterData };
+        if (pending.length > 0) {
+          update.$set.images_uploaded = false;
+          update.$addToSet = { images_pending: { $each: pending } };
+        }
+        await db.collection('characters').updateOne({ _id: character._id }, update);
+        // Keeps the next rows of the file (same name twice) comparing against what was just written
+        character.source_images = characterData.source_images;
+        characterId = character._id;
         updatedCount++;
+        if (renamed) renamedCount++;
       } else {
-        characterData.created_at = new Date();
-        const res = await db.collection('characters').insertOne(characterData);
+        const res = await db.collection('characters').insertOne({
+          ...characterData,
+          images_uploaded: false,
+          images_pending: IMAGE_TARGETS.map((t) => t.key),
+          created_at: new Date(),
+        });
         characterId = res.insertedId;
         insertedCount++;
       }
 
-      if (ftpUploader && characterId) {
-        const imageFields = [
-          { field: 'Link', path: `/bucket.bbs-schrift.fr/characters/thumb/${characterId}.png` },
-          { field: 'URL Artwork', path: `/bucket.bbs-schrift.fr/characters/artwork/${characterId}.png` },
-          { field: 'URL Phrase', path: `/bucket.bbs-schrift.fr/characters/phrase/${characterId}.png` },
-          { field: 'URL ATK', path: `/bucket.bbs-schrift.fr/characters/attack/${characterId}.png` }
-        ];
-        for (const img of imageFields) {
-          if (!c[img.field]) continue;
-          if (existing && await ftpUploader.fileExists(img.path)) continue;
-          if (await ftpUploader.downloadAndUpload(c[img.field], img.path)) imagesUploaded++;
-        }
+      if (ftpUploader) {
+        const doc = await db.collection('characters').findOne({ _id: characterId }, { projection: { source_images: 1, images_pending: 1 } });
+        imagesUploaded += (await uploadCharacterImages(db, ftpUploader, doc)).uploaded;
       }
     } catch (charErr) {
-      errors.push({ index: index + 1, character: char['Nom personnage'] || char['Nom de recherche'] || 'Inconnu', error: charErr.message });
+      errors.push({ index: index + 1, character: raw['Nom personnage'] || raw['Nom de recherche'] || 'Inconnu', error: charErr.message });
       skippedCount++;
     }
   }
@@ -209,11 +245,12 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
     logger.error('⚠️ Erreur lors du tri automatique (non bloquant):', reorderErr);
   }
 
-  const message = `Synchronisation terminée: ${insertedCount} personnages créés, ${updatedCount} mis à jour, ${bannersCreated} bannières créées, ${imagesUploaded} images uploadées${reorderStats ? ` - Tri automatique: ${reorderStats.updated} personnages réorganisés` : ''}`;
+  const message = `Synchronisation terminée: ${insertedCount} personnages créés, ${updatedCount} mis à jour${renamedCount ? ` (dont ${renamedCount} renommés)` : ''}, ${bannersCreated} bannières créées, ${imagesUploaded} images uploadées${reorderStats ? ` - Tri automatique: ${reorderStats.updated} personnages réorganisés` : ''}`;
   const statistics = {
     totalProcessed: characters.length,
     inserted: insertedCount,
     updated: updatedCount,
+    renamed: renamedCount,
     skipped: skippedCount,
     bannersCreated,
     imagesUploaded,
@@ -226,16 +263,24 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false } = {}) 
   return { message, statistics, errors: errors.slice(0, 10) };
 }
 
+const RETRY_DELAY_MS = 60 * 60 * 1000;
+
+const imagesToUploadFilter = () => ({
+  source_images: { $exists: true },
+  images_uploaded: { $ne: true },
+  $or: [{ images_failed_at: { $exists: false } }, { images_failed_at: { $lt: new Date(Date.now() - RETRY_DELAY_MS) } }],
+});
+
 export const uploadImagesBatch = async (db, batchSize = 100) => {
   batchSize = Math.min(parseInt(batchSize) || 100, 200);
 
   const characters = await db.collection('characters')
-    .find({ source_images: { $exists: true }, images_uploaded: { $ne: true } })
+    .find(imagesToUploadFilter())
     .limit(batchSize)
     .toArray();
 
   if (characters.length === 0) {
-    const remaining = await db.collection('characters').countDocuments({ source_images: { $exists: true }, images_uploaded: { $ne: true } });
+    const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter());
     return { message: 'Toutes les images sont déjà uploadées', statistics: { processed: 0, uploaded: 0, remaining, errors: 0 }, errors: [] };
   }
 
@@ -254,27 +299,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
 
   for (const char of characters) {
     try {
-      const imageFields = [
-        { key: 'thumbnail', path: `/bucket.bbs-schrift.fr/characters/thumb/${char._id}.png` },
-        { key: 'artwork', path: `/bucket.bbs-schrift.fr/characters/artwork/${char._id}.png` },
-        { key: 'quote', path: `/bucket.bbs-schrift.fr/characters/phrase/${char._id}.png` },
-        { key: 'attack', path: `/bucket.bbs-schrift.fr/characters/attack/${char._id}.png` }
-      ];
-
-      let allUploaded = true;
-      for (const img of imageFields) {
-        const sourceUrl = char.source_images?.[img.key];
-        if (!sourceUrl || await ftpUploader.fileExists(img.path)) continue;
-        if (await ftpUploader.downloadAndUpload(sourceUrl, img.path)) {
-          uploaded++;
-        } else {
-          allUploaded = false;
-        }
-      }
-
-      if (allUploaded) {
-        await db.collection('characters').updateOne({ _id: char._id }, { $set: { images_uploaded: true } });
-      }
+      uploaded += (await uploadCharacterImages(db, ftpUploader, char)).uploaded;
       processed++;
     } catch (charErr) {
       errors.push({ character: char.search_name || char.name, error: charErr.message });
@@ -307,7 +332,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
     }
   }
 
-  const remaining = await db.collection('characters').countDocuments({ source_images: { $exists: true }, images_uploaded: { $ne: true } });
+  const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter());
   const message = `Batch terminé: ${uploaded} images uploadées pour ${processed} personnages, ${bannersUploaded} bannières, ${remaining} restants`;
   const statistics = { processed, uploaded, bannersUploaded, remaining, errors: errors.length };
 
