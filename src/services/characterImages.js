@@ -22,11 +22,11 @@ export const changedImageTargets = (previous = {}, next = {}) => IMAGE_TARGETS
   .filter((t) => t.sources.some((s) => (previous?.[s] ?? null) !== (next?.[s] ?? null)))
   .map((t) => t.key);
 
-// Silhouette scaled onto the artwork canvas (kept centered, never cropped), then drawn over it
+// Silhouette scaled onto the artwork canvas (never cropped, bottom aligned since the body is cut there), then drawn over it
 export const composeArtwork = async (artwork, silhouette) => {
   const { width, height } = await sharp(artwork).metadata();
   const overlay = await sharp(silhouette)
-    .resize(width, height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .resize(width, height, { fit: 'contain', position: 'bottom', background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .png()
     .toBuffer();
   return sharp(artwork).composite([{ input: overlay }]).png().toBuffer();

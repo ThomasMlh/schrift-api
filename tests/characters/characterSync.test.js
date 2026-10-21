@@ -77,6 +77,15 @@ describe('buildCharacterMatcher', () => {
     expect(match(row('Ichigo copy', 'https://src/thumb.png')).character).toBeNull();
   });
 
+  it('picks the only renamed character among variants sharing a thumbnail', () => {
+    const variants = [
+      { _id: 'k1', search_name: 'Kon Shop BB', source_images: { thumbnail: 'https://src/kon.png' } },
+      { _id: 'k2', search_name: 'Kon Event', source_images: { thumbnail: 'https://src/kon.png' } },
+    ];
+    const match = buildCharacterMatcher(variants, new Set(['Kon Event', 'Kon Force Shop BB']));
+    expect(match(row('Kon Force Shop BB', 'https://src/kon.png'))).toEqual({ character: variants[0], renamed: true });
+  });
+
   it('gives a renamed character to one row only', () => {
     const match = buildCharacterMatcher(stored, new Set(['X', 'Y']));
     expect(match(row('X', 'https://src/rukia.png')).character).toBe(stored[1]);

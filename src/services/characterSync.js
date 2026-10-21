@@ -33,6 +33,8 @@ const buildSftpConfig = () => {
 }
 
 const PREVIEW_LIMIT = 50;
+// The bot keeps the up-to-date character file at the SFTP root (/modules/database.json is a stale copy)
+const SOURCE_FILE_PATH = process.env.SFTP_CHARACTERS_PATH || '/database.json';
 
 // What a sync would do, without writing anything
 export const buildSyncPreview = (totalRows, planned) => {
@@ -121,12 +123,12 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false, dryRun 
     sftpClient = new SFTPClient();
     await sftpClient.connect(sftpConfig);
     try {
-      const exists = await sftpClient.client.exists('/modules/database.json');
-      if (!exists) throw new Error('Le fichier /modules/database.json n\'existe pas sur le serveur SFTP');
+      const exists = await sftpClient.client.exists(SOURCE_FILE_PATH);
+      if (!exists) throw new Error(`Le fichier ${SOURCE_FILE_PATH} n'existe pas sur le serveur SFTP`);
     } catch (existsErr) {
       logger.warn('⚠️ Impossible de vérifier l\'existence du fichier:', existsErr.message);
     }
-    const buffer = await sftpClient.client.get('/modules/database.json');
+    const buffer = await sftpClient.client.get(SOURCE_FILE_PATH);
     fileContent = buffer.toString('utf8');
   } catch (sftpErr) {
     const err = new Error('Erreur lors de la connexion SFTP ou du téléchargement: ' + sftpErr.message);

@@ -97,9 +97,7 @@ export const buildCharacterMatcher = (characters, fileSearchNames) => {
   const byThumbnail = new Map();
   for (const c of characters) {
     const url = c.source_images?.thumbnail;
-    if (!url) continue;
-    // A thumbnail shared by two characters cannot identify either of them
-    byThumbnail.set(url, byThumbnail.has(url) ? null : c);
+    if (url) byThumbnail.set(url, [...(byThumbnail.get(url) ?? []), c]);
   }
   const claimed = new Set();
 
@@ -107,11 +105,13 @@ export const buildCharacterMatcher = (characters, fileSearchNames) => {
     const direct = bySearchName.get(mapped.searchName);
     if (direct) return { character: direct, renamed: false };
     const url = mapped.data.source_images.thumbnail;
-    const byUrl = url ? byThumbnail.get(url) : null;
-    // Only take over a character whose own name is gone from the file, and only once
-    if (byUrl && !fileSearchNames.has(byUrl.search_name) && !claimed.has(byUrl._id.toString())) {
-      claimed.add(byUrl._id.toString());
-      return { character: byUrl, renamed: true };
+    // Variants can share a thumbnail: only characters whose own name is gone from the file are candidates,
+    // each taken once, and the match must be unambiguous
+    const candidates = (url ? byThumbnail.get(url) ?? [] : [])
+      .filter((c) => !fileSearchNames.has(c.search_name) && !claimed.has(c._id.toString()));
+    if (candidates.length === 1) {
+      claimed.add(candidates[0]._id.toString());
+      return { character: candidates[0], renamed: true };
     }
     return { character: null, renamed: false };
   };
