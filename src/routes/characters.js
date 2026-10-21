@@ -446,10 +446,13 @@ router.post("/admin/create-indexes", requireAdmin, async (req, res) => {
   }
 });
 
-// POST update characters from the SFTP source
+// POST update characters from the SFTP source (dryRun: report what would change, write nothing)
 router.post("/update", requireAdmin, async (req, res) => {
   try {
-    const result = await syncCharactersFromSFTP(req.db, { uploadImages: req.body?.uploadImages === true });
+    const result = await syncCharactersFromSFTP(req.db, {
+      uploadImages: req.body?.uploadImages === true,
+      dryRun: req.body?.dryRun === true,
+    });
     res.json({ success: true, ...result });
   } catch (error) {
     sendStatusCodeError(res, error, "Erreur serveur lors de la synchronisation", "❌ Erreur lors de la mise à jour via SFTP:");
