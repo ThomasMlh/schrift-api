@@ -46,12 +46,23 @@ describe('computeRaffleTickets', () => {
     expect(result.get('tieB').breakdown.top5_rotations).toBe(4);
   });
 
-  it('measures homogeneity on the worst rotation against the guild average', () => {
+  it('measures homogeneity on the worst rotation against the guild median', () => {
     const result = byId(computeRaffleTickets({ rotations, scores: scoresFor(sevenPlayers), monthEnd: MONTH_END }));
-    // Guild average is about 619.49M on every rotation
+    // Guild median is 619.7M on every rotation
+    expect(result.get('p5').worst_gap).toBe(100_000);
     expect(result.get('p1').breakdown.homogeneity).toBe(2);
-    expect(result.get('p6').breakdown.homogeneity).toBe(2);
+    expect(result.get('p5').breakdown.homogeneity).toBe(1);
+    expect(result.get('p6').breakdown.homogeneity).toBe(1);
     expect(result.get('p7').breakdown.homogeneity).toBe(0);
+  });
+
+  it('is not pulled down by a player who scored 0', () => {
+    const players = [...sevenPlayers.slice(0, 6), { id: 'absent', base: 619_000_000, dips: { r2: 619_000_000 } }];
+    const result = byId(computeRaffleTickets({ rotations, scores: scoresFor(players), monthEnd: MONTH_END }));
+    // An average would drop to about 531M on r2 and hide the 200k gap of p6
+    expect(result.get('p6').worst_gap).toBe(200_000);
+    expect(result.get('p6').breakdown.homogeneity).toBe(1);
+    expect(result.get('absent').breakdown.homogeneity).toBe(0);
   });
 
   it('treats a missed rotation as the worst one', () => {
