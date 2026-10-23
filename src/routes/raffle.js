@@ -1,5 +1,5 @@
 import express from 'express';
-import { requireDb, requireAdmin, requireScoresAccess, canManageGuild } from '../middleware/auth.js';
+import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 import {
   addBonusTicket, cancelGuildDraw, drawGuildRaffle, getGuildRaffle, getRaffleMonths, getRaffleSettings,
@@ -7,17 +7,10 @@ import {
 } from '../services/raffle/index.js';
 
 const router = express.Router();
-router.use(requireDb);
+// Admin only: the raffle is run from the admin panel
+router.use(requireDb, requireAdmin);
 
-// Leaders and officers act on their own guild only, admins on every guild
-const requireGuildManager = [requireScoresAccess, (req, res, next) => {
-  if (!canManageGuild(req.user, req.params.guildId)) {
-    return res.status(403).json({ success: false, message: 'Accès refusé à cette guilde' });
-  }
-  next();
-}];
-
-// GET settings and months. Public: everyone can follow the raffle.
+// GET settings and months
 router.get('/', async (req, res) => {
   try {
     const [settings, months] = await Promise.all([getRaffleSettings(req.db), getRaffleMonths(req.db)]);
@@ -35,7 +28,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/settings', requireAdmin, async (req, res) => {
+router.put('/settings', async (req, res) => {
   try {
     res.json({ success: true, settings: await saveRaffleSettings(req.db, req.body ?? {}) });
   } catch (err) {
@@ -43,7 +36,7 @@ router.put('/settings', requireAdmin, async (req, res) => {
   }
 });
 
-// GET a guild's tickets for a month. Public.
+// GET a guild's tickets for a month
 router.get('/:month/guilds/:guildId', async (req, res) => {
   try {
     res.json({ success: true, ...(await getGuildRaffle(req.db, { month: req.params.month, guildId: req.params.guildId })) });
@@ -53,7 +46,7 @@ router.get('/:month/guilds/:guildId', async (req, res) => {
 });
 
 // PUT { s_rank }: the guild moved up to or stayed in rank S this month
-router.put('/:month/guilds/:guildId/s-rank', requireGuildManager, async (req, res) => {
+router.put('/:month/guilds/:guildId/s-rank', async (req, res) => {
   try {
     await setGuildSRank(req.db, { month: req.params.month, guildId: req.params.guildId, sRank: req.body?.s_rank === true, user: req.user });
     res.json({ success: true });
@@ -63,7 +56,7 @@ router.put('/:month/guilds/:guildId/s-rank', requireGuildManager, async (req, re
 });
 
 // PUT { kind: 'farm'|'qg', period: 1|2, checked, bbs_name }
-router.put('/:month/guilds/:guildId/players/:bbsId/guild-life', requireGuildManager, async (req, res) => {
+router.put('/:month/guilds/:guildId/players/:bbsId/guild-life', async (req, res) => {
   try {
     await setGuildLifeTicket(req.db, {
       month: req.params.month,
@@ -82,7 +75,7 @@ router.put('/:month/guilds/:guildId/players/:bbsId/guild-life', requireGuildMana
 });
 
 // PUT { since: 'YYYY-MM' | null }: arrival date in Schrift, for the seniority tickets
-router.put('/guilds/:guildId/players/:bbsId/since', requireGuildManager, async (req, res) => {
+router.put('/guilds/:guildId/players/:bbsId/since', async (req, res) => {
   try {
     await setSchriftSince(req.db, { guildId: req.params.guildId, bbsId: req.params.bbsId, since: req.body?.since ?? null, user: req.user });
     res.json({ success: true });
@@ -92,7 +85,7 @@ router.put('/guilds/:guildId/players/:bbsId/since', requireGuildManager, async (
 });
 
 // POST { label, count, bbs_name }: one-off activity tickets
-router.post('/:month/guilds/:guildId/players/:bbsId/bonus', requireGuildManager, async (req, res) => {
+router.post('/:month/guilds/:guildId/players/:bbsId/bonus', async (req, res) => {
   try {
     await addBonusTicket(req.db, {
       month: req.params.month,
@@ -109,7 +102,7 @@ router.post('/:month/guilds/:guildId/players/:bbsId/bonus', requireGuildManager,
   }
 });
 
-router.delete('/:month/guilds/:guildId/bonus/:ticketId', requireGuildManager, async (req, res) => {
+router.delete('/:month/guilds/:guildId/bonus/:ticketId', async (req, res) => {
   try {
     await removeBonusTicket(req.db, { month: req.params.month, guildId: req.params.guildId, ticketId: req.params.ticketId });
     res.json({ success: true });
@@ -119,7 +112,7 @@ router.delete('/:month/guilds/:guildId/bonus/:ticketId', requireGuildManager, as
 });
 
 // POST { announce }: draws the winner of a finished month, once
-router.post('/:month/guilds/:guildId/draw', requireGuildManager, async (req, res) => {
+router.post('/:month/guilds/:guildId/draw', async (req, res) => {
   try {
     const result = await drawGuildRaffle(req.db, {
       month: req.params.month,
@@ -133,7 +126,7 @@ router.post('/:month/guilds/:guildId/draw', requireGuildManager, async (req, res
   }
 });
 
-router.delete('/:month/guilds/:guildId/draw', requireAdmin, async (req, res) => {
+router.delete('/:month/guilds/:guildId/draw', async (req, res) => {
   try {
     await cancelGuildDraw(req.db, { month: req.params.month, guildId: req.params.guildId });
     res.json({ success: true });
