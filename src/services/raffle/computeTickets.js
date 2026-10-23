@@ -16,13 +16,19 @@ export const RAFFLE_RULES = {
 
 const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
 
+const median = (values) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
+
 // Rank 1 = best; equal scores share the rank
 const rankBy = (entries, value) => {
   const sorted = [...entries].sort((a, b) => value(b) - value(a));
   return new Map(sorted.map((e) => [e, 1 + sorted.filter((o) => value(o) > value(e)).length]));
 };
 
-// Worst rotation of the month, measured as the gap below the guild average on that rotation
+// Worst rotation of the month, measured as the gap below the guild median on that rotation
 export const homogeneityTickets = (worstGap) => {
   if (worstGap === null) return 0;
   if (worstGap < RAFFLE_RULES.homogeneityFull) return 2;
@@ -54,17 +60,17 @@ export const computeRaffleTickets = ({
   for (const p of players) if (p.bbs_id) ensure(p.bbs_id, p.bbs_name);
   const list = [...byPlayer.values()];
 
-  // Top 5 of each rotation, and gap to the guild average on each rotation
+  // Top 5 of each rotation, and gap to the guild median on each rotation
   const rotationTops = new Map(list.map((p) => [p.bbs_id, 0]));
   const worstGaps = new Map(list.map((p) => [p.bbs_id, null]));
   const playedRotations = [...monthRotations].filter((key) => list.some((p) => p.scores.has(key)));
   for (const key of playedRotations) {
     const entries = list.filter((p) => p.scores.has(key));
     const ranks = rankBy(entries, (p) => p.scores.get(key));
-    const average = entries.reduce((sum, p) => sum + p.scores.get(key), 0) / entries.length;
+    const reference = median(entries.map((p) => p.scores.get(key)));
     for (const p of entries) {
       if (ranks.get(p) <= RAFFLE_RULES.rotationTop) rotationTops.set(p.bbs_id, rotationTops.get(p.bbs_id) + 1);
-      const gap = average - p.scores.get(key);
+      const gap = reference - p.scores.get(key);
       worstGaps.set(p.bbs_id, Math.max(worstGaps.get(p.bbs_id) ?? -Infinity, gap));
     }
   }
