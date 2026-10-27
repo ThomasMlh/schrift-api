@@ -3,7 +3,7 @@ import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 import {
   addBonusTicket, cancelGuildDraw, drawGuildRaffle, getGuildRaffle, getRaffleMonths, getRaffleSettings,
-  removeBonusTicket, saveRaffleSettings, setGuildLifeTicket, setGuildSRank, setSchriftSince,
+  removeBonusTicket, saveRaffleSettings, setGuildLifeTicket, setGuildRank, setSchriftSince,
 } from '../services/raffle/index.js';
 
 const router = express.Router();
@@ -45,13 +45,15 @@ router.get('/:month/guilds/:guildId', async (req, res) => {
   }
 });
 
-// PUT { s_rank }: the guild moved up to or stayed in rank S this month
-router.put('/:month/guilds/:guildId/s-rank', async (req, res) => {
+// PUT { rank: 'S'|'A1'|'A2', tickets }: tickets every member earned this month for reaching or keeping the rank
+router.put('/:month/guilds/:guildId/rank', async (req, res) => {
   try {
-    await setGuildSRank(req.db, { month: req.params.month, guildId: req.params.guildId, sRank: req.body?.s_rank === true, user: req.user });
+    await setGuildRank(req.db, {
+      month: req.params.month, guildId: req.params.guildId, rank: req.body?.rank, tickets: req.body?.tickets, user: req.user,
+    });
     res.json({ success: true });
   } catch (err) {
-    sendStatusCodeError(res, err, 'Erreur serveur lors de la mise à jour du rang S');
+    sendStatusCodeError(res, err, 'Erreur serveur lors de la mise à jour du rang');
   }
 });
 

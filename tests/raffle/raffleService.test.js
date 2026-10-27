@@ -1,7 +1,7 @@
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient } from 'mongodb';
 import {
-  addBonusTicket, cancelGuildDraw, drawGuildRaffle, getGuildRaffle, saveRaffleSettings, setGuildLifeTicket, setGuildSRank, setSchriftSince,
+  addBonusTicket, cancelGuildDraw, drawGuildRaffle, getGuildRaffle, saveRaffleSettings, setGuildLifeTicket, setGuildRank, setSchriftSince,
 } from '../../src/services/raffle/index.js';
 
 jest.setTimeout(60000);
@@ -23,11 +23,12 @@ beforeAll(async () => {
   otherGuildId = (await db.collection('guildes').insertOne({ name: 'B' })).insertedId.toString();
   await saveRaffleSettings(db, { guild_ids: [guildId] });
 
-  // Two finished game weeks of September 2026 (stored start dates are one day late)
+  // Two finished game weeks of September 2026 and one of October (stored start dates are one day late)
   const cycleId = (await db.collection('cycles').insertOne({
     name: 'C', year: 2026, rotations: [
       { rotation_id: 'r1', position: 1, start_date: '08/09/2026', end_date: '10/09/2026' },
       { rotation_id: 'r2', position: 2, start_date: '15/09/2026', end_date: '17/09/2026' },
+      { rotation_id: 'r3', position: 3, start_date: '06/10/2026', end_date: '08/10/2026' },
     ],
   })).insertedId.toString();
   await db.collection('scores').insertMany(['r1', 'r2'].flatMap((rotation_id) => [
@@ -49,7 +50,7 @@ describe('raffle service', () => {
   });
 
   it('adds the leaders\' tickets to the computed ones', async () => {
-    await setGuildSRank(db, { month: '2026-09', guildId, sRank: true, user });
+    await setGuildRank(db, { month: '2026-09', guildId, rank: 'A1', tickets: 3, user });
     await setGuildLifeTicket(db, { month: '2026-09', guildId, bbsId: '2', bbsName: 'Rukia', kind: 'farm', period: 1, checked: true, user });
     // Checking the same box twice keeps one ticket
     await setGuildLifeTicket(db, { month: '2026-09', guildId, bbsId: '2', bbsName: 'Rukia', kind: 'farm', period: 1, checked: true, user });
@@ -58,10 +59,26 @@ describe('raffle service', () => {
 
     const raffle = await getGuildRaffle(db, { month: '2026-09', guildId });
     const rukia = raffle.players.find((p) => p.bbs_id === '2');
-    expect(raffle.s_rank).toBe(true);
-    expect(rukia.breakdown).toMatchObject({ top5_rotations: 2, top5_month: 1, s_rank: 1, collective_gap: 1, farm: 1, bonus: 2 });
+    expect(raffle).toMatchObject({ rank: 'A1', rank_tickets: 3 });
+    expect(rukia.breakdown).toMatchObject({ top5_rotations: 2, top5_month: 1, rank: 3, collective_gap: 1, farm: 1, bonus: 2 });
     expect(rukia.bonuses[0]).toMatchObject({ label: 'Quiz', count: 2 });
     expect(raffle.players.find((p) => p.bbs_id === '1').discord_id).toBe('42');
+  });
+
+  it('checks the rank and its tickets, and keeps the rank for the next months', async () => {
+    await expect(setGuildRank(db, { month: '2026-09', guildId, rank: 'B', tickets: 1, user })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(setGuildRank(db, { month: '2026-09', guildId, rank: 'S', tickets: 5, user })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(setGuildRank(db, { month: '2026-09', guildId, rank: 'S', tickets: 1.5, user })).rejects.toMatchObject({ statusCode: 400 });
+    await setGuildRank(db, { month: '2026-09', guildId, rank: 'A2', tickets: 4, user });
+    const next = await getGuildRaffle(db, { month: '2026-10', guildId });
+    expect(next).toMatchObject({ rank: 'A2', rank_tickets: 0 });
+  });
+
+  it('reads the former S rank switch as one ticket', async () => {
+    await db.collection('raffle_months').updateOne({ _id: `2026-10:${guildId}` }, { $set: { month: '2026-10', guild_id: guildId, s_rank: true } }, { upsert: true });
+    const raffle = await getGuildRaffle(db, { month: '2026-10', guildId });
+    expect(raffle.rank_tickets).toBe(1);
+    expect(raffle.players.every((p) => p.breakdown.rank === 1)).toBe(true);
   });
 
   it('uses the arrival date entered by a leader for seniority', async () => {
