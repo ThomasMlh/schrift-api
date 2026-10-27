@@ -244,9 +244,10 @@ router.get("/", async (req, res) => {
             { portail: { $regex: searchTerm, $options: "i" } }
           ]
         })
-        .project({ _id: 1 })
+        .project({ _id: 1, gacha_group_id: 1 })
         .toArray();
       const bannerIds = matchingBanners.map((b) => b._id);
+      const summonIds = matchingBanners.map((b) => b.gacha_group_id).filter(Boolean);
 
       query.$or = [
         { search_name: { $regex: searchTerm, $options: "i" } },
@@ -254,7 +255,8 @@ router.get("/", async (req, res) => {
         { version: { $regex: searchTerm, $options: "i" } },
         { version_name: { $regex: searchTerm, $options: "i" } },
         { "game_version.fr": { $regex: searchTerm, $options: "i" } },
-        ...(bannerIds.length > 0 ? [{ banner_id: { $in: bannerIds } }] : [])
+        ...(bannerIds.length > 0 ? [{ banner_id: { $in: bannerIds } }] : []),
+        ...(summonIds.length > 0 ? [{ "banners.gacha_group_id": { $in: summonIds } }] : [])
       ];
     }
 

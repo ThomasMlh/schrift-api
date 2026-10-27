@@ -10,6 +10,8 @@ import { parseCsv } from './csv.js';
 const FTP_PATH = () => process.env.GAME_DB_FTP_PATH || '/game-db';
 const RMFS_URL = () => process.env.GAME_RMFS_URL || 'https://bucket.bbs-schrift.fr/rmfs';
 
+export const rmfsUrl = (path) => `${RMFS_URL()}/${path}`;
+
 // Game images of a unit in rmfs; the quote does not exist for every unit
 export const rmfsImages = (game) => (game.resource_2d_id ? {
   thumbnail: `${RMFS_URL()}/Characters/${game.resource_2d_id}/thumb.png`,

@@ -8,6 +8,7 @@ import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { parseCSV, reorderCharactersByReleaseDate } from '../utils/characterHelpers.js';
 import { buildCharacterMatcher, mapCharacterRow } from './characterSource.js';
 import { IMAGE_TARGETS, changedImageTargets, imagePath, uploadImageTarget } from './characterImages.js';
+import { GAME_BANNER_SOURCE, pendingGameBanners, uploadGameBanners } from './gameDb/banners.js';
 import { logger } from '../utils/logger.js';
 
 const buildSftpConfig = () => {
@@ -299,7 +300,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
     .limit(batchSize)
     .toArray();
 
-  if (characters.length === 0) {
+  if (characters.length === 0 && await pendingGameBanners(db) === 0) {
     const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter());
     return { message: 'Toutes les images sont déjà uploadées', statistics: { processed: 0, uploaded: 0, remaining, errors: 0 }, errors: [] };
   }
@@ -326,12 +327,15 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
     }
   }
 
+  // Summon visuals of the game, copied once from rmfs to the bucket
+  const summons = await uploadGameBanners(db, ftpUploader, batchSize);
+
   try { await ftpUploader.disconnect(); } catch { /* Ignore disconnect errors */ }
 
   // Missing banners
-  let bannersUploaded = 0;
+  let bannersUploaded = summons.uploaded;
   const bannersToUpload = await db.collection('banners')
-    .find({ url: { $exists: true, $ne: '' }, images_uploaded: { $ne: true } })
+    .find({ source: { $ne: GAME_BANNER_SOURCE }, url: { $exists: true, $ne: '' }, images_uploaded: { $ne: true } })
     .limit(batchSize)
     .toArray();
 
@@ -352,7 +356,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
     }
   }
 
-  const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter());
+  const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter()) + await pendingGameBanners(db);
   const message = `Batch terminé: ${uploaded} images uploadées pour ${processed} personnages, ${bannersUploaded} bannières, ${remaining} restants`;
   const statistics = { processed, uploaded, bannersUploaded, remaining, errors: errors.length };
 
