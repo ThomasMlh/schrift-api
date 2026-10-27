@@ -31,6 +31,8 @@ export const newCharacter = (game, now = new Date()) => ({
   ...gameUpdate(game, {}, now),
   search_name: toSearchName([game.name, game.game_version?.fr].filter(Boolean).join(' ').replace(/[/,]/g, ' ')).replace(/\s+/g, ' '),
   version_name: null,
+  // Same shape as the existing labels ("Force Burn The Witch Ninny Spangcole"), used by album tiles
+  version: [game.affinity, (game.game_version?.fr ?? '').replace(/^version\s+/i, ''), game.name].filter(Boolean).join(' '),
   source_images: rmfsImages(game.resource_2d_id),
   images_pending: ['thumbnail', 'artwork'],
   images_uploaded: false,

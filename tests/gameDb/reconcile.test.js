@@ -64,7 +64,7 @@ describe('character documents', () => {
 
   it('creates a new character waiting for its images', () => {
     expect(newCharacter({ ...built, game_version: { fr: 'version Noël' } }, now)).toMatchObject({
-      game_id: 61758, search_name: 'Ichibe Hyosube version Noël', images_pending: ['thumbnail', 'artwork'], created_at: now,
+      game_id: 61758, search_name: 'Ichibe Hyosube version Noël', version: 'Force Noël Ichibe Hyosube', images_pending: ['thumbnail', 'artwork'], created_at: now,
       source_images: { thumbnail: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/thumb.png', artwork: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/stand_gacha.png' },
     });
   });
