@@ -3,6 +3,7 @@
  * fields entered by hand on the site (version_name, banner, NAD/SAD, immunities, images...) are kept.
  */
 import { toSearchName } from '../characterSource.js';
+import { rmfsImages } from './source.js';
 
 // Fields always taken from the game
 const GAME_FIELDS = [
@@ -11,8 +12,9 @@ const GAME_FIELDS = [
   'filter_types', 'resurrection',
 ];
 
-// Fields the game only sometimes knows: an empty game value keeps the site value
-const fillField = (gameValue, siteValue) => (gameValue === null || gameValue === undefined ? siteValue ?? null : gameValue);
+// Release dates (banner vs game data dates) and the attack color can differ from what the site entered:
+// the site value wins, the game only fills a missing one
+const fillField = (gameValue, siteValue) => siteValue ?? gameValue ?? null;
 
 // $set of an existing site character, its _id (used by albums, builds and image names) never changes
 export const gameUpdate = (game, doc, now = new Date()) => ({
@@ -29,9 +31,21 @@ export const newCharacter = (game, now = new Date()) => ({
   ...gameUpdate(game, {}, now),
   search_name: toSearchName([game.name, game.game_version?.fr].filter(Boolean).join(' ')),
   version_name: null,
-  images_pending: true,
+  source_images: rmfsImages(game.resource_2d_id),
+  images_pending: ['thumbnail', 'artwork'],
+  images_uploaded: false,
   created_at: now,
 });
+
+// A character whose game visual changed takes the new rmfs images; the first link keeps the current ones
+export const imageUpdate = (game, doc) => {
+  if (!doc.resource_2d_id || doc.resource_2d_id === game.resource_2d_id) return null;
+  const images = rmfsImages(game.resource_2d_id);
+  return {
+    set: { 'source_images.thumbnail': images.thumbnail, 'source_images.artwork': images.artwork, 'source_images.silhouette': null, images_uploaded: false },
+    pending: ['thumbnail', 'artwork'],
+  };
+};
 
 // Fields that changed, for the sync preview
 export const changedFields = (update, doc) => Object.keys(update)

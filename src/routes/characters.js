@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { cleanObject } from "../utils/cleaners.js";
 import { requireAdmin, requireDb } from "../middleware/auth.js";
 import { syncCharactersFromSFTP, uploadImagesBatch } from "../services/characterSync.js";
+import { syncCharactersFromGame } from "../services/gameDb/gameSync.js";
 import { computeStatMax, convertDateToFormat, reorderCharactersByReleaseDate } from "../utils/characterHelpers.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 import { logger } from '../utils/logger.js';
@@ -456,6 +457,16 @@ router.post("/update", requireAdmin, async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error) {
     sendStatusCodeError(res, error, "Erreur serveur lors de la synchronisation", "❌ Erreur lors de la mise à jour via SFTP:");
+  }
+});
+
+
+// POST { dryRun }: sync from the game master tables (simulation by default)
+router.post("/game-sync", requireAdmin, async (req, res) => {
+  try {
+    res.json({ success: true, ...(await syncCharactersFromGame(req.db, { dryRun: req.body?.dryRun !== false })) });
+  } catch (error) {
+    sendStatusCodeError(res, error, "Erreur serveur lors de la synchronisation avec les tables du jeu", "❌ Erreur synchro tables du jeu:");
   }
 });
 

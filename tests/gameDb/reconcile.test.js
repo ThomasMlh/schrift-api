@@ -50,6 +50,11 @@ describe('character documents', () => {
   const now = new Date('2026-10-28T00:00:00Z');
   const built = { ...game(61758, '1872'), attack_type: null, release_date: null, resurrection: { release_date: '28/10/2026' }, traits: { passive: [] } };
 
+  it('fills dates and attack color only when the site has none', () => {
+    const update = gameUpdate({ ...built, attack_type: 'R', release_date: '30/08/2025' }, { attack_type: 'B', resurrection_release: null }, now);
+    expect(update).toMatchObject({ attack_type: 'B', release_date: '30/08/2025', resurrection_release: '28/10/2026' });
+  });
+
   it('keeps the site value when the game has none, and never touches hand-entered fields', () => {
     const update = gameUpdate(built, { attack_type: 'B', release_date: '31/08/2025', version_name: 'Maillots', banner_id: 'x' }, now);
     expect(update).toMatchObject({ game_id: 61758, attack_type: 'B', release_date: '31/08/2025', resurrection_release: '28/10/2026', game_synced_at: now });
@@ -59,7 +64,8 @@ describe('character documents', () => {
 
   it('creates a new character waiting for its images', () => {
     expect(newCharacter({ ...built, game_version: { fr: 'version Noël' } }, now)).toMatchObject({
-      game_id: 61758, search_name: 'Ichibe Hyosube version Noël', images_pending: true, created_at: now,
+      game_id: 61758, search_name: 'Ichibe Hyosube version Noël', images_pending: ['thumbnail', 'artwork'], created_at: now,
+      source_images: { thumbnail: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/thumb.png', artwork: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/stand_gacha.png' },
     });
   });
 

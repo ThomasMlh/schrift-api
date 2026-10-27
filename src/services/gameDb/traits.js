@@ -49,7 +49,7 @@ export const passiveTrait = (dict, row) => {
 
 // Ability node of the soul tree (m_soul_piece)
 export const treeTrait = (dict, type, value) => {
-  const ref = Number(value) >= REFERENCE_MIN ? String(value) : undefined;
+  const ref = Number(value) >= REFERENCE_MIN ? String(value) : null;
   return { kind: 'tree', type, value: ref ? null : numberOrNull(value), ref, text: abilityText(dict, type, value) };
 };
 
