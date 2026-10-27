@@ -13,7 +13,11 @@ export const IMAGE_TARGETS = [
   { key: 'quote', folder: 'phrase', sources: ['quote'] },
   { key: 'quote_en', folder: 'phrase-en', sources: ['quote_en'] },
   { key: 'attack', folder: 'attack', sources: ['attack'] },
+  { key: 'banner', folder: 'banner', sources: ['banner'] },
 ];
+
+// Image read from the game files: kept even when a later file source would change it
+const isGameImage = (url) => url.includes('/rmfs/');
 
 export const imagePath = (target, characterId) => `${BUCKET_ROOT}/${target.folder}/${characterId}.png`;
 
@@ -34,18 +38,34 @@ export const composeArtwork = async (artwork, silhouette) => {
 
 const download = async (url) => {
   const response = await fetch(url);
-  if (!response.ok) throw new Error(`HTTP ${response.status} pour ${url}`);
+  if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status} pour ${url}`), { status: response.status });
   return Buffer.from(await response.arrayBuffer());
 };
 
+// The game artwork sits at the bottom of a square canvas, the rest is transparent
+export const trimTransparent = (image) => sharp(image).trim().png().toBuffer();
+
 /**
- * Uploads one target. Returns true when the stored file matches the source; a missing silhouette
- * still uploads the plain artwork but returns false so the next batch tries again.
+ * Uploads one target. Returns true when the stored file matches the source, 'missing' when a game
+ * image does not exist (not every unit has a quote or a banner in the game files), false to retry:
+ * a missing silhouette still uploads the plain artwork but returns false so the next batch tries again.
  */
 export const uploadImageTarget = async (ftp, target, sources, characterId) => {
   const path = imagePath(target, characterId);
   const main = sources?.[target.sources[0]];
   if (!main) return true;
+
+  if (isGameImage(main)) {
+    try {
+      const image = await download(main);
+      await ftp.uploadBuffer(target.key === 'artwork' ? await trimTransparent(image) : image, path);
+      return true;
+    } catch (err) {
+      if (err.status === 404 || err.status === 403) return 'missing';
+      logger.error(`❌ Image du jeu ${target.key} ${characterId}:`, err.message);
+      return false;
+    }
+  }
 
   if (target.key !== 'artwork' || !sources.silhouette) {
     return ftp.downloadAndUpload(main, path);

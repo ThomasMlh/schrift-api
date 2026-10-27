@@ -79,6 +79,7 @@ export const uploadCharacterImages = async (db, ftp, character) => {
   let uploaded = 0;
   let complete = true;
   const done = [];
+  const missing = [];
 
   for (const target of IMAGE_TARGETS) {
     if (!character.source_images?.[target.sources[0]]) {
@@ -86,7 +87,11 @@ export const uploadCharacterImages = async (db, ftp, character) => {
       continue;
     }
     if (!pending.has(target.key) && await ftp.fileExists(imagePath(target, character._id))) continue;
-    if (await uploadImageTarget(ftp, target, character.source_images, character._id)) {
+    const result = await uploadImageTarget(ftp, target, character.source_images, character._id);
+    if (result === 'missing') {
+      missing.push(target.sources[0]);
+      done.push(target.key);
+    } else if (result) {
       uploaded++;
       done.push(target.key);
     } else {
@@ -95,6 +100,8 @@ export const uploadCharacterImages = async (db, ftp, character) => {
   }
 
   const update = { $set: { images_uploaded: complete }, $pull: { images_pending: { $in: done } } };
+  // The game has no such image for this unit: forget the source so the site does not show it
+  for (const source of missing) update.$set[`source_images.${source}`] = null;
   if (uploaded > 0) update.$set.images_version = Date.now();
   // A failed character waits before the next try, so the batch loop does not spin on it
   if (complete) update.$unset = { images_failed_at: '' };
@@ -273,7 +280,12 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false, dryRun 
 
 const RETRY_DELAY_MS = 60 * 60 * 1000;
 
+// Outside production the API uses a copy of the prod characters with the same ids, and image files are
+// named after the id on the shared bucket: only characters created by the game sync, unknown to prod, are uploaded
+const devOnlyFilter = () => (process.env.NODE_ENV === 'production' ? {} : { created_by_game_sync: true });
+
 const imagesToUploadFilter = () => ({
+  ...devOnlyFilter(),
   source_images: { $exists: true },
   images_uploaded: { $ne: true },
   $or: [{ images_failed_at: { $exists: false } }, { images_failed_at: { $lt: new Date(Date.now() - RETRY_DELAY_MS) } }],

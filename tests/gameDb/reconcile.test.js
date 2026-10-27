@@ -1,5 +1,5 @@
 import { reconcileCharacters } from '../../src/services/gameDb/reconcile.js';
-import { changedFields, gameUpdate, newCharacter } from '../../src/services/gameDb/characterDocuments.js';
+import { changedFields, gameUpdate, imageUpdate, newCharacter } from '../../src/services/gameDb/characterDocuments.js';
 
 const stats = (end) => ({ end, atk: 600, def: 300, cct: 300, pre: 800 });
 const game = (gameId, visual, extra = {}) => ({
@@ -64,9 +64,32 @@ describe('character documents', () => {
 
   it('creates a new character waiting for its images', () => {
     expect(newCharacter({ ...built, game_version: { fr: 'version Noël' } }, now)).toMatchObject({
-      game_id: 61758, search_name: 'Ichibe Hyosube version Noël', version: 'Force Noël Ichibe Hyosube', images_pending: ['thumbnail', 'artwork'], created_at: now,
-      source_images: { thumbnail: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/thumb.png', artwork: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/stand_gacha.png' },
+      game_id: 61758, search_name: 'Ichibe Hyosube version Noël', version: 'Force Noël Ichibe Hyosube', images_pending: ['thumbnail', 'artwork', 'quote'], created_at: now,
+      source_images: {
+        thumbnail: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/thumb.png',
+        artwork: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/stand_gacha.png',
+        quote: 'https://bucket.bbs-schrift.fr/rmfs/CharacterGacha/TexturesDialog/dialog_1872.png',
+        banner: null,
+      },
     });
+  });
+
+  it('points the images to the game files and uploads only the changed ones', () => {
+    const game = { ...built, banner_image: 'Shop/Limited/bn_gacha_character_1758' };
+    const rmfs = 'https://bucket.bbs-schrift.fr/rmfs';
+    const legacy = { source_images: { thumbnail: 'https://bbs-simulator/x.png', artwork: 'a', silhouette: 's', attack: 'att', quote_en: 'en' } };
+    const update = imageUpdate(game, legacy);
+    expect(update.pending).toEqual(['thumbnail', 'artwork', 'quote', 'banner']);
+    expect(update.set).toMatchObject({
+      'source_images.thumbnail': `${rmfs}/Characters/1872/thumb.png`,
+      'source_images.banner': `${rmfs}/Shop/Limited/bn_gacha_character_1758.png`,
+      'source_images.silhouette': null,
+      'source_images.attack': 'att',
+      'source_images.quote_en': 'en',
+    });
+    // Once stored, nothing changes until the game files do
+    const stored = Object.fromEntries(Object.entries(update.set).filter(([k]) => k.startsWith('source_images.')).map(([k, v]) => [k.slice('source_images.'.length), v]));
+    expect(imageUpdate(game, { source_images: stored })).toBeNull();
   });
 
   it('lists the changed fields for the preview', () => {

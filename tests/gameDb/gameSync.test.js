@@ -105,7 +105,7 @@ describe('POST /api/characters/game-sync', () => {
     const linked = await db.collection('characters').findOne({ _id: siteId });
     expect(linked).toMatchObject({ game_id: 61001, search_name: 'Ichigo Bankai', version_name: 'Bankai', release_date: '30/12/2024', killers: ['Hollow'] });
     const created = await db.collection('characters').findOne({ game_id: 65115 });
-    expect(created).toMatchObject({ name: 'Ichigo Refine', affinity: 'Vitesse', release_date: '01/01/2025', images_pending: ['thumbnail', 'artwork'] });
+    expect(created).toMatchObject({ name: 'Ichigo Refine', affinity: 'Vitesse', release_date: '01/01/2025', images_pending: ['thumbnail', 'artwork', 'quote'] });
   });
 
   it('filters the list by game ability and resurrection, and lists the game filter in /meta', async () => {

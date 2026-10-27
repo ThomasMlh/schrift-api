@@ -10,9 +10,12 @@ import { parseCsv } from './csv.js';
 const FTP_PATH = () => process.env.GAME_DB_FTP_PATH || '/game-db';
 const RMFS_URL = () => process.env.GAME_RMFS_URL || 'https://bucket.bbs-schrift.fr/rmfs';
 
-export const rmfsImages = (resource2dId) => (resource2dId ? {
-  thumbnail: `${RMFS_URL()}/Characters/${resource2dId}/thumb.png`,
-  artwork: `${RMFS_URL()}/Characters/${resource2dId}/stand_gacha.png`,
+// Game images of a unit in rmfs; the quote and the banner do not exist for every unit
+export const rmfsImages = (game) => (game.resource_2d_id ? {
+  thumbnail: `${RMFS_URL()}/Characters/${game.resource_2d_id}/thumb.png`,
+  artwork: `${RMFS_URL()}/Characters/${game.resource_2d_id}/stand_gacha.png`,
+  quote: `${RMFS_URL()}/CharacterGacha/TexturesDialog/dialog_${game.resource_2d_id}.png`,
+  banner: game.banner_image ? `${RMFS_URL()}/${game.banner_image}.png` : null,
 } : {});
 
 const downloadText = async (ftp, remotePath) => {

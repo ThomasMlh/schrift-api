@@ -19,6 +19,9 @@ export const GAME_TABLES = [
   'm_character_filter_category',
   'm_ability_status_up_give_abnormality',
   'm_attack_collision',
+  'm_gacha',
+  'm_gacha_group',
+  'm_gacha_layout',
 ];
 
 const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
@@ -96,6 +99,28 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
   const attacksByGroup = groupBy(tables.m_character_attack, 'group_id');
   const statusUps = groupBy(tables.m_ability_status_up_give_abnormality ?? [], 'group_id');
   const collisions = new Map((tables.m_attack_collision ?? []).map((r) => [r.id, r]));
+  const gachas = new Map((tables.m_gacha ?? []).map((r) => [r.id, r]));
+  const gachaGroups = new Map((tables.m_gacha_group ?? []).map((r) => [r.id, r]));
+  const layoutsByUnit = groupBy(tables.m_gacha_layout ?? [], 'content_id');
+
+  // Summons featuring the unit, oldest first, and the banner picture the game shows for it
+  const bannersOf = (gameId) => {
+    const layouts = layoutsByUnit.get(gameId) ?? [];
+    const byGroup = new Map();
+    for (const layout of layouts) {
+      if (byGroup.has(layout.m_gacha_group_id)) continue;
+      const gacha = gachas.get(layout.m_gacha_id);
+      byGroup.set(layout.m_gacha_group_id, {
+        gacha_group_id: Number(layout.m_gacha_group_id),
+        name: dict.text(gachaGroups.get(layout.m_gacha_group_id)?.name),
+        start_date: gameDate(gacha?.start_date),
+        end_date: gameDate(gacha?.end_date),
+        sortKey: gacha?.start_date ?? '',
+      });
+    }
+    const banners = [...byGroup.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey)).map(({ sortKey: _sortKey, ...banner }) => banner);
+    return { banners, banner_image: layouts.find((l) => l.main_img_path)?.main_img_path ?? null };
+  };
   const characterRows = new Map(tables.m_character.map((r) => [r.id, r]));
   const resurrectionOf = new Map(tables.m_character_resurrect_map.map((r) => [r.before_m_character_id, r.after_m_character_id]));
 
@@ -165,6 +190,8 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
         categories: [...new Set([resource?.belong_type_1, resource?.belong_type_2].map((t) => BELONG_TYPES[t]).filter(Boolean))],
         is_growth_event: row.character_category === 'growth_event',
         special: dict.text(`extra_attack_information_${row.id}`),
+        quote: dict.text(row.gacha_message_dict_key),
+        ...bannersOf(row.id),
         profile: dict.text(row.profile),
         filter_types: [...new Set(allTraits.map((t) => filterType(t.type)))],
         resurrection,

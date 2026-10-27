@@ -4,12 +4,13 @@
  */
 import { toSearchName } from '../characterSource.js';
 import { rmfsImages } from './source.js';
+import { IMAGE_TARGETS, changedImageTargets } from '../characterImages.js';
 
 // Fields always taken from the game
 const GAME_FIELDS = [
   'game_id', 'resource_2d_id', 'identity', 'name', 'names', 'short_names', 'game_version', 'affinity', 'killers',
-  'categories', 'is_growth_event', 'stats', 'base_stats', 'stats_tiers', 'traits', 'special', 'profile',
-  'filter_types', 'resurrection',
+  'categories', 'is_growth_event', 'stats', 'base_stats', 'stats_tiers', 'traits', 'special', 'profile', 'quote',
+  'filter_types', 'resurrection', 'banners', 'banner_image',
 ];
 
 // Release dates can differ from what the site entered (banner vs game data dates): the site value wins,
@@ -33,19 +34,22 @@ export const newCharacter = (game, now = new Date()) => ({
   version_name: null,
   // Same shape as the existing labels ("Force Burn The Witch Ninny Spangcole"), used by album tiles
   version: [game.affinity, (game.game_version?.fr ?? '').replace(/^version\s+/i, ''), game.name].filter(Boolean).join(' '),
-  source_images: rmfsImages(game.resource_2d_id),
-  images_pending: ['thumbnail', 'artwork'],
+  source_images: rmfsImages(game),
+  images_pending: IMAGE_TARGETS.filter((target) => rmfsImages(game)[target.sources[0]]).map((target) => target.key),
   images_uploaded: false,
+  created_by_game_sync: true,
   created_at: now,
 });
 
-// A character whose game visual changed takes the new rmfs images; the first link keeps the current ones
+// Images come from the game files: the targets whose source changed are uploaded again.
+// The legacy silhouette is dropped, the game artwork is complete on its own.
 export const imageUpdate = (game, doc) => {
-  if (!doc.resource_2d_id || doc.resource_2d_id === game.resource_2d_id) return null;
-  const images = rmfsImages(game.resource_2d_id);
+  const next = { ...(doc.source_images ?? {}), ...rmfsImages(game), silhouette: null };
+  const pending = changedImageTargets(doc.source_images, next);
+  if (pending.length === 0) return null;
   return {
-    set: { 'source_images.thumbnail': images.thumbnail, 'source_images.artwork': images.artwork, 'source_images.silhouette': null, images_uploaded: false },
-    pending: ['thumbnail', 'artwork'],
+    set: Object.fromEntries([...Object.entries(next).map(([key, url]) => [`source_images.${key}`, url ?? null]), ['images_uploaded', false]]),
+    pending,
   };
 };
 
