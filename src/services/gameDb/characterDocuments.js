@@ -29,7 +29,7 @@ export const gameUpdate = (game, doc, now = new Date()) => ({
 // Document of a character the site does not have yet; its images are uploaded afterwards
 export const newCharacter = (game, now = new Date()) => ({
   ...gameUpdate(game, {}, now),
-  search_name: toSearchName([game.name, game.game_version?.fr].filter(Boolean).join(' ')),
+  search_name: toSearchName([game.name, game.game_version?.fr].filter(Boolean).join(' ').replace(/[/,]/g, ' ')).replace(/\s+/g, ' '),
   version_name: null,
   source_images: rmfsImages(game.resource_2d_id),
   images_pending: ['thumbnail', 'artwork'],

@@ -104,6 +104,12 @@ export const uploadCharacterImages = async (db, ftp, character) => {
 };
 
 export const syncCharactersFromSFTP = async (db, { uploadImages = false, dryRun = false } = {}) => {
+  // Once characters come from the game tables, this file would bring back old names and create duplicates
+  if (await db.collection('characters').findOne({ game_id: { $exists: true } }, { projection: { _id: 1 } })) {
+    const err = new Error('Les personnages sont synchronisés depuis les tables du jeu : utilisez la synchro du jeu');
+    err.statusCode = 409;
+    throw err;
+  }
   const sftpConfig = buildSftpConfig();
 
   if (!sftpConfig.host || !sftpConfig.username) {

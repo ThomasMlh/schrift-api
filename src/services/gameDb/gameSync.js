@@ -10,6 +10,7 @@ import { createDictionary } from './dictionary.js';
 import { reconcileCharacters } from './reconcile.js';
 import { buildTraitFilters } from './traitFilters.js';
 import { loadGameTables } from './source.js';
+import { mergeDuplicates } from './mergeDuplicates.js';
 
 const PREVIEW_LIMIT = 50;
 export const TRAIT_FILTERS_SETTING = 'game_trait_filters';
@@ -79,6 +80,7 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
     ...plan.created.map((doc) => ({ insertOne: { document: doc } })),
   ];
   if (ops.length > 0) await db.collection('characters').bulkWrite(ops, { ordered: false });
+  const merged = await mergeDuplicates(db, plan.duplicates);
   if (plan.created.length > 0 || plan.updates.some((u) => u.changes.includes('release_date'))) await reorderCharactersByReleaseDate(db);
-  return { dryRun: false, ...preview };
+  return { dryRun: false, ...preview, merged };
 };
