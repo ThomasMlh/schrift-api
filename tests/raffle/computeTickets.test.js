@@ -82,9 +82,9 @@ describe('computeRaffleTickets', () => {
 
   it('gives the collective tickets to every member', () => {
     const tight = sevenPlayers.slice(0, 6);
-    const result = computeRaffleTickets({ rotations, scores: scoresFor(tight), sRank: true, monthEnd: MONTH_END });
+    const result = computeRaffleTickets({ rotations, scores: scoresFor(tight), rankTickets: 3, monthEnd: MONTH_END });
     expect(result.collective_gap).toBe(500_000);
-    expect(result.players.every((p) => p.breakdown.s_rank === 1 && p.breakdown.collective_gap === 0)).toBe(true);
+    expect(result.players.every((p) => p.breakdown.rank === 3 && p.breakdown.collective_gap === 0)).toBe(true);
 
     const tighter = computeRaffleTickets({ rotations, scores: scoresFor(tight.slice(0, 5)), monthEnd: MONTH_END });
     expect(tighter.players.every((p) => p.breakdown.collective_gap === 1)).toBe(true);

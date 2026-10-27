@@ -10,6 +10,8 @@ export const RAFFLE_RULES = {
   homogeneityFull: 100_000,
   homogeneityHalf: 300_000,
   maxSeniorityTickets: 3,
+  ranks: ['S', 'A1', 'A2'],
+  maxRankTickets: 4,
   collectiveGap: 500_000,
   periods: 2,
 };
@@ -41,9 +43,10 @@ export const homogeneityTickets = (worstGap) => {
  * @param players extra players to list without scores (current members) [{ bbs_id, bbs_name }]
  * @param firstSeen Map bbs_id -> timestamp of the first known presence in the guilds
  * @param manual tickets entered by leaders [{ bbs_id, kind: 'farm'|'qg'|'bonus', period, count, label }]
+ * @param rankTickets tickets given to every member for reaching or keeping the guild's rank
  */
 export const computeRaffleTickets = ({
-  rotations, scores, players = [], firstSeen = new Map(), manual = [], sRank = false, monthEnd, maxTickets = 20,
+  rotations, scores, players = [], firstSeen = new Map(), manual = [], rankTickets = 0, monthEnd, maxTickets = 20,
 }) => {
   const rotationKey = (r) => `${r.cycle_id}|${r.rotation_id}`;
   const monthRotations = new Set(rotations.map(rotationKey));
@@ -108,7 +111,7 @@ export const computeRaffleTickets = ({
       top5_month: top5Month,
       homogeneity: homogeneityTickets(worstGap),
       seniority,
-      s_rank: sRank ? 1 : 0,
+      rank: rankTickets,
       collective_gap: tightGuild ? 1 : 0,
       farm: Math.min(farmPeriods.size, RAFFLE_RULES.periods),
       qg: Math.min(qgPeriods.size, RAFFLE_RULES.periods),

@@ -105,6 +105,18 @@ const loadIdentities = async (db, bbsIds) => {
   return byBbsId;
 };
 
+// Months saved before the rank field had a yes/no S rank switch worth 1 ticket
+const rankTicketsOf = (monthDoc) => (Number.isInteger(monthDoc?.rank_tickets) ? monthDoc.rank_tickets : monthDoc?.s_rank === true ? 1 : 0);
+
+// The guild's rank of the month, or the last one entered before it, S by default
+const guildRankAt = async (db, monthKey, guildId) => {
+  const doc = await db.collection('raffle_months').findOne(
+    { guild_id: guildId, month: { $lte: monthKey }, rank: { $in: RAFFLE_RULES.ranks } },
+    { sort: { month: -1 }, projection: { rank: 1 } }
+  );
+  return doc?.rank ?? RAFFLE_RULES.ranks[0];
+};
+
 export const getGuildRaffle = async (db, { month: monthKey, guildId }) => {
   const { settings, guild } = await assertRaffleGuild(db, guildId);
   const cycles = await loadCycles(db);
@@ -114,7 +126,7 @@ export const getGuildRaffle = async (db, { month: monthKey, guildId }) => {
   for (const { cycle_id, rotation_id } of month.rotations) {
     rotationsByCycle.set(cycle_id, [...(rotationsByCycle.get(cycle_id) ?? []), rotation_id]);
   }
-  const [scores, manual, monthDoc, members] = await Promise.all([
+  const [scores, manual, monthDoc, members, rank] = await Promise.all([
     db.collection('scores').find(
       { guild_id: guildId, $or: [...rotationsByCycle].map(([cycleId, ids]) => ({ cycle_id: cycleId, rotation_id: { $in: ids } })) },
       { projection: { bbs_id: 1, bbs_name: 1, cycle_id: 1, rotation_id: 1, score: 1 } }
@@ -126,6 +138,7 @@ export const getGuildRaffle = async (db, { month: monthKey, guildId }) => {
       { 'bbs_accounts.guilde_id': guildId, is_banned: { $ne: true } },
       { projection: { bbs_accounts: 1 } }
     ).toArray(),
+    guildRankAt(db, month.key, guildId),
   ]);
 
   const players = [
@@ -141,7 +154,7 @@ export const getGuildRaffle = async (db, { month: monthKey, guildId }) => {
     players,
     firstSeen,
     manual,
-    sRank: monthDoc?.s_rank === true,
+    rankTickets: rankTicketsOf(monthDoc),
     monthEnd: month.ends_at,
     maxTickets: settings.max_tickets,
   });
@@ -152,7 +165,8 @@ export const getGuildRaffle = async (db, { month: monthKey, guildId }) => {
     prize: settings.prize,
     max_tickets: settings.max_tickets,
     rules: RAFFLE_RULES,
-    s_rank: monthDoc?.s_rank === true,
+    rank,
+    rank_tickets: rankTicketsOf(monthDoc),
     draw: monthDoc?.draw ?? null,
     ...result,
     players: result.players.map((p) => {
@@ -176,13 +190,21 @@ const assertNotDrawn = async (db, monthKey, guildId) => {
   if (doc?.draw) throw httpError(409, 'Le tirage de ce mois est déjà fait : les tickets ne peuvent plus changer');
 };
 
-export const setGuildSRank = async (db, { month, guildId, sRank, user }) => {
+// Rank the guild aims to reach or keep, and the tickets every member earned for it this month
+export const setGuildRank = async (db, { month, guildId, rank, tickets, user }) => {
+  if (!RAFFLE_RULES.ranks.includes(rank)) throw httpError(400, `Le rang doit être ${RAFFLE_RULES.ranks.join(', ')}`);
+  if (!Number.isInteger(tickets) || tickets < 0 || tickets > RAFFLE_RULES.maxRankTickets) {
+    throw httpError(400, `Le nombre de tickets de rang doit être entre 0 et ${RAFFLE_RULES.maxRankTickets}`);
+  }
   await assertRaffleGuild(db, guildId);
   findMonth(await loadCycles(db), month);
   await assertNotDrawn(db, month, guildId);
   await db.collection('raffle_months').updateOne(
     { _id: monthDocId(month, guildId) },
-    { $set: { month, guild_id: guildId, s_rank: sRank === true, s_rank_updated_by: author(user), updated_at: new Date() } },
+    {
+      $set: { month, guild_id: guildId, rank, rank_tickets: tickets, rank_updated_by: author(user), updated_at: new Date() },
+      $unset: { s_rank: '', s_rank_updated_by: '' },
+    },
     { upsert: true }
   );
 };
