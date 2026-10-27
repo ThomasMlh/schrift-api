@@ -10,7 +10,7 @@ import { IMAGE_TARGETS, changedImageTargets } from '../characterImages.js';
 const GAME_FIELDS = [
   'game_id', 'resource_2d_id', 'identity', 'name', 'names', 'short_names', 'game_version', 'affinity', 'killers',
   'categories', 'is_growth_event', 'stats', 'base_stats', 'stats_tiers', 'traits', 'special', 'profile', 'quote',
-  'filter_types', 'resurrection', 'banners', 'banner_image',
+  'filter_types', 'resurrection', 'banners',
 ];
 
 // Release dates can differ from what the site entered (banner vs game data dates): the site value wins,

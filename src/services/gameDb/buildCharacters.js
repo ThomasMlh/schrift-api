@@ -103,7 +103,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
   const gachaGroups = new Map((tables.m_gacha_group ?? []).map((r) => [r.id, r]));
   const layoutsByUnit = groupBy(tables.m_gacha_layout ?? [], 'content_id');
 
-  // Summons featuring the unit, oldest first, and the banner picture the game shows for it
+  // Summons featuring the unit, oldest first
   const bannersOf = (gameId) => {
     const layouts = layoutsByUnit.get(gameId) ?? [];
     const byGroup = new Map();
@@ -113,13 +113,14 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
       byGroup.set(layout.m_gacha_group_id, {
         gacha_group_id: Number(layout.m_gacha_group_id),
         name: dict.text(gachaGroups.get(layout.m_gacha_group_id)?.name),
+        // Rectangle visual of the summon list, in the localized rmfs folder (not every one is in the files)
+        image_path: gachaGroups.get(layout.m_gacha_group_id)?.list_view_img_path ? `Localize/${gachaGroups.get(layout.m_gacha_group_id).list_view_img_path}` : null,
         start_date: gameDate(gacha?.start_date),
         end_date: gameDate(gacha?.end_date),
         sortKey: gacha?.start_date ?? '',
       });
     }
-    const banners = [...byGroup.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey)).map(({ sortKey: _sortKey, ...banner }) => banner);
-    return { banners, banner_image: layouts.find((l) => l.main_img_path)?.main_img_path ?? null };
+    return [...byGroup.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey)).map(({ sortKey: _sortKey, ...banner }) => banner);
   };
   const characterRows = new Map(tables.m_character.map((r) => [r.id, r]));
   const resurrectionOf = new Map(tables.m_character_resurrect_map.map((r) => [r.before_m_character_id, r.after_m_character_id]));
@@ -191,7 +192,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
         is_growth_event: row.character_category === 'growth_event',
         special: dict.text(`extra_attack_information_${row.id}`),
         quote: dict.text(row.gacha_message_dict_key),
-        ...bannersOf(row.id),
+        banners: bannersOf(row.id),
         profile: dict.text(row.profile),
         filter_types: [...new Set(allTraits.map((t) => filterType(t.type)))],
         resurrection,

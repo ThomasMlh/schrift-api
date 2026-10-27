@@ -69,20 +69,18 @@ describe('character documents', () => {
         thumbnail: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/thumb.png',
         artwork: 'https://bucket.bbs-schrift.fr/rmfs/Characters/1872/stand_gacha.png',
         quote: 'https://bucket.bbs-schrift.fr/rmfs/CharacterGacha/TexturesDialog/dialog_1872.png',
-        banner: null,
       },
     });
   });
 
   it('points the images to the game files and uploads only the changed ones', () => {
-    const game = { ...built, banner_image: 'Shop/Limited/bn_gacha_character_1758' };
+    const game = built;
     const rmfs = 'https://bucket.bbs-schrift.fr/rmfs';
     const legacy = { source_images: { thumbnail: 'https://bbs-simulator/x.png', artwork: 'a', silhouette: 's', attack: 'att', quote_en: 'en' } };
     const update = imageUpdate(game, legacy);
-    expect(update.pending).toEqual(['thumbnail', 'artwork', 'quote', 'banner']);
+    expect(update.pending).toEqual(['thumbnail', 'artwork', 'quote']);
     expect(update.set).toMatchObject({
       'source_images.thumbnail': `${rmfs}/Characters/1872/thumb.png`,
-      'source_images.banner': `${rmfs}/Shop/Limited/bn_gacha_character_1758.png`,
       'source_images.silhouette': null,
       'source_images.attack': 'att',
       'source_images.quote_en': 'en',

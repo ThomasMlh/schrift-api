@@ -13,10 +13,9 @@ export const IMAGE_TARGETS = [
   { key: 'quote', folder: 'phrase', sources: ['quote'] },
   { key: 'quote_en', folder: 'phrase-en', sources: ['quote_en'] },
   { key: 'attack', folder: 'attack', sources: ['attack'] },
-  { key: 'banner', folder: 'banner', sources: ['banner'] },
 ];
 
-// Image read from the game files: kept even when a later file source would change it
+// Image read from the game files (rmfs, public on the bucket)
 const isGameImage = (url) => url.includes('/rmfs/');
 
 export const imagePath = (target, characterId) => `${BUCKET_ROOT}/${target.folder}/${characterId}.png`;

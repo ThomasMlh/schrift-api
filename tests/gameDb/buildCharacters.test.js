@@ -57,6 +57,8 @@ const tables = () => ({
     { dictkey: 'ui_sort_filter_belong_bad_status_parameter_up', content_fr: 'Ascendance' },
     { dictkey: 'm_ability_sp_up_give_abnormality', content_fr: 'Ascendance spirituelle' },
     { dictkey: 'm_ability_sp_up_give_abnormality_game_ui', content_fr: 'Ascendance spirituelle (+{value}[nbsp]%)' },
+    { dictkey: 'gacha_limited_576_name', content_fr: 'Loterie maillots' },
+    { dictkey: 'gacha_limited_2385_name', content_fr: 'Loterie Burn the Witch' },
     { dictkey: 'extra_attack_information_61758', content_fr: 'Large attaque vers l\'avant.' },
   ],
   m_resource_3d: [{ id: '0900_NIN_mdl', belong_type_1: 'human', belong_type_2: 'quincy' }],
@@ -76,6 +78,19 @@ const tables = () => ({
   ],
   m_character_attack: [{ group_id: '1', atk_color: 'red' }],
   m_character_resurrect_map: [{ before_m_character_id: '61758', after_m_character_id: '81758' }],
+  m_gacha_layout: [
+    { m_gacha_id: '23852', m_gacha_group_id: '2385', content_id: '61758' },
+    { m_gacha_id: '5762', m_gacha_group_id: '576', content_id: '61758' },
+    { m_gacha_id: '5761', m_gacha_group_id: '576', content_id: '61758' },
+  ],
+  m_gacha_group: [
+    { id: '576', name: 'gacha_limited_576_name', list_view_img_path: 'bn_gacha_limited_576_sub' },
+    { id: '2385', name: 'gacha_limited_2385_name', list_view_img_path: '' },
+  ],
+  m_gacha: [
+    { id: '5762', start_date: '2025-08-31 16:00:00', end_date: '2025-09-14 15:59:59' },
+    { id: '23852', start_date: '2026-08-31 16:00:00', end_date: '2026-09-14 15:59:59' },
+  ],
   m_ability_status_up_give_abnormality: [{ group_id: '61510', status_up_type: 'sp', effect_amount: '90', description: 'm_ability_sp_up_give_abnormality' }],
 });
 
@@ -149,6 +164,13 @@ describe('buildCharacters', () => {
     expect(ninny.traits.link[0].name).toEqual({ fr: 'Attaques puissantes dévastatrices' });
     expect(ninny.special).toEqual({ fr: 'Large attaque vers l\'avant.' });
     expect(ninny.filter_types).toEqual(expect.arrayContaining(['sp_atk_range_up_rate', 'last_atk_dmg_up_rate_heavy', 'last_atk_dmg_up_rate_ex']));
+  });
+
+  it('lists the summons featuring the unit, oldest first, with their list visual', () => {
+    expect(ninny.banners).toEqual([
+      { gacha_group_id: 576, name: { fr: 'Loterie maillots' }, image_path: 'Localize/bn_gacha_limited_576_sub', start_date: '31/08/2025', end_date: '14/09/2025' },
+      { gacha_group_id: 2385, name: { fr: 'Loterie Burn the Witch' }, image_path: null, start_date: '31/08/2026', end_date: '14/09/2026' },
+    ]);
   });
 
   it('stores the resurrected form with its own stats and date', () => {
