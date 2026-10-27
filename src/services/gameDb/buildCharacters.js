@@ -4,6 +4,7 @@
  */
 import { createDictionary } from './dictionary.js';
 import { extraTrait, linkTrait, passiveTrait, treeTrait } from './traits.js';
+import { filterType } from './traitFilters.js';
 
 export const GAME_TABLES = [
   'm_character',
@@ -14,6 +15,8 @@ export const GAME_TABLES = [
   'm_soul_piece',
   'm_character_attack',
   'm_character_resurrect_map',
+  'm_character_filter_type',
+  'm_character_filter_category',
 ];
 
 const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
@@ -78,8 +81,7 @@ const attackType = (row, attacksByGroup) => {
 
 const textOf = (texts) => (texts ? texts.fr ?? Object.values(texts)[0] ?? null : null);
 
-export const buildCharacters = (tables) => {
-  const dict = createDictionary(tables.m_dictionary);
+export const buildCharacters = (tables, dict = createDictionary(tables.m_dictionary)) => {
   const resources = new Map(tables.m_resource_3d.map((r) => [r.id, r]));
   const passives = groupBy(tables.m_passive_ability, 'group_id');
   const extras = new Map(tables.m_extra_ability.map((r) => [r.id, r]));
@@ -154,7 +156,7 @@ export const buildCharacters = (tables) => {
         is_growth_event: row.character_category === 'growth_event',
         special: dict.text(`extra_attack_information_${row.id}`),
         profile: dict.text(row.profile),
-        filter_types: [...new Set(allTraits.map((t) => t.type))],
+        filter_types: [...new Set(allTraits.map((t) => filterType(t.type)))],
         resurrection,
       };
     });

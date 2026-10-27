@@ -8,9 +8,11 @@ import { buildCharacters, GAME_TABLES } from './buildCharacters.js';
 import { changedFields, gameUpdate, imageUpdate, newCharacter } from './characterDocuments.js';
 import { createDictionary } from './dictionary.js';
 import { reconcileCharacters } from './reconcile.js';
+import { buildTraitFilters } from './traitFilters.js';
 import { loadGameTables } from './source.js';
 
 const PREVIEW_LIMIT = 50;
+export const TRAIT_FILTERS_SETTING = 'game_trait_filters';
 
 const label = (character) => ({ _id: character._id ?? null, game_id: character.game_id ?? null, name: character.name, version: character.version_name ?? character.game_version?.fr ?? null });
 
@@ -52,11 +54,18 @@ const previewOf = (plan, languages) => {
 
 export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   const tables = await loadGameTables(GAME_TABLES);
-  const gameCharacters = buildCharacters(tables);
+  const dict = createDictionary(tables.m_dictionary);
+  const gameCharacters = buildCharacters(tables, dict);
   const siteCharacters = await db.collection('characters').find({}).toArray();
   const plan = planGameSync(siteCharacters, gameCharacters);
-  const preview = previewOf(plan, createDictionary(tables.m_dictionary).languages);
+  const preview = previewOf(plan, dict.languages);
   if (dryRun) return { dryRun: true, ...preview };
+
+  await db.collection('app_settings').updateOne(
+    { _id: TRAIT_FILTERS_SETTING },
+    { $set: { categories: buildTraitFilters(tables, dict), languages: dict.languages, updated_at: new Date() } },
+    { upsert: true }
+  );
 
   const ops = [
     ...plan.updates.filter((u) => u.changes.length > 0 || u.images).map((u) => ({

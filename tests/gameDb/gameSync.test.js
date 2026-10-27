@@ -27,9 +27,26 @@ const unit = (id, visual, name, element) => ({
 });
 
 const TABLES = {
-  m_character: [unit('61001', '0001', 'ICG', '3'), unit('65115', '2000', 'ICG2', '4')],
-  m_dictionary: [{ dictkey: 'lb_ICG', content_fr: 'Ichigo Kurosaki' }, { dictkey: 'lb_ICG2', content_fr: 'Ichigo Refine' }],
+  m_character: [
+    { ...unit('61001', '0001', 'ICG', '3'), m_passive_ability_group_id: 'p1' },
+    unit('65115', '2000', 'ICG2', '4'),
+    { ...unit('81001', '0001', 'ICG', '3'), is_resurrect: '1' },
+  ],
+  m_dictionary: [
+    { dictkey: 'lb_ICG', content_fr: 'Ichigo Kurosaki' },
+    { dictkey: 'lb_ICG2', content_fr: 'Ichigo Refine' },
+    { dictkey: 'lb_shunpo_up_num', content_fr: 'Rapidité' },
+    { dictkey: 'ui_sort_filter_shunpo_up_num', content_fr: 'Rapidité' },
+    { dictkey: 'lb_cat_skills', content_fr: 'Capacités augmentées' },
+  ],
   m_resource_3d: [{ id: 'mdl', belong_type_1: 'soul_reaper' }],
+  m_passive_ability: [{ group_id: 'p1', type: 'shunpo_up_num', view_parameter: '1.0', format: 'plus', description: 'lb_shunpo_up_num' }],
+  m_character_resurrect_map: [{ before_m_character_id: '61001', after_m_character_id: '81001' }],
+  m_character_filter_category: [{ id: '2', description: 'lb_cat_skills', priority: '900' }],
+  m_character_filter_type: [
+    { type: 'shunpo_up_num', m_character_filter_category_id: '2', priority: '10' },
+    { type: 'heal_up_rate', m_character_filter_category_id: '2', priority: '5' },
+  ],
 };
 
 let mongod;
@@ -89,6 +106,20 @@ describe('POST /api/characters/game-sync', () => {
     expect(linked).toMatchObject({ game_id: 61001, search_name: 'Ichigo Bankai', version_name: 'Bankai', release_date: '30/12/2024', killers: ['Hollow'] });
     const created = await db.collection('characters').findOne({ game_id: 65115 });
     expect(created).toMatchObject({ name: 'Ichigo Refine', affinity: 'Vitesse', release_date: '01/01/2025', images_pending: ['thumbnail', 'artwork'] });
+  });
+
+  it('filters the list by game ability and resurrection, and lists the game filter in /meta', async () => {
+    const names = async (query) => (await request(app).get(`/api/characters?${query}`)).body.data.map((c) => c.game_id);
+    expect(await names('traits=shunpo_up_num')).toEqual([61001]);
+    expect(await names('traits=shunpo_up_num,heal_up_rate')).toEqual([]);
+    expect(await names('resurrection=1')).toEqual([61001]);
+    expect(await names('resurrection=0')).toEqual([65115]);
+
+    const meta = await request(app).get('/api/characters/meta');
+    // Only the abilities some character has are offered
+    expect(meta.body.trait_filters).toEqual([
+      { id: 2, label: { fr: 'Capacités augmentées' }, priority: 900, types: [{ type: 'shunpo_up_num', label: { fr: 'Rapidité' } }] },
+    ]);
   });
 
   it('changes nothing when run again', async () => {

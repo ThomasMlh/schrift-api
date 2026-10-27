@@ -115,7 +115,7 @@ describe('buildCharacters', () => {
     expect(texts(ninny.traits.ex)).toEqual(['Attaque spéciale renforcée (+18 > 22 > 25 > 28 > 30 %)']);
     expect(texts(ninny.traits.link)).toEqual(['Attaques puissantes dévastatrices : Attaques puissantes renforcées (+20 %)']);
     expect(ninny.special).toEqual({ fr: 'Large attaque vers l\'avant.' });
-    expect(ninny.filter_types).toEqual(expect.arrayContaining(['sp_atk_range_up_rate', 'last_atk_dmg_up_rate_heavy', 'ex_last_atk_dmg_up_rate_ex']));
+    expect(ninny.filter_types).toEqual(expect.arrayContaining(['sp_atk_range_up_rate', 'last_atk_dmg_up_rate_heavy', 'last_atk_dmg_up_rate_ex']));
   });
 
   it('stores the resurrected form with its own stats and date', () => {

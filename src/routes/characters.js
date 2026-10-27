@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb";
 import { cleanObject } from "../utils/cleaners.js";
 import { requireAdmin, requireDb } from "../middleware/auth.js";
 import { syncCharactersFromSFTP, uploadImagesBatch } from "../services/characterSync.js";
-import { syncCharactersFromGame } from "../services/gameDb/gameSync.js";
+import { syncCharactersFromGame, TRAIT_FILTERS_SETTING } from "../services/gameDb/gameSync.js";
 import { computeStatMax, convertDateToFormat, reorderCharactersByReleaseDate } from "../utils/characterHelpers.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
 import { logger } from '../utils/logger.js';
@@ -198,7 +198,7 @@ router.get("/", async (req, res) => {
   try {
     const { page, limit, skip } = parsePaginationParams(req.query);
 
-    const { affinity, category, killer, search, attack_type } = req.query;
+    const { affinity, category, killer, search, attack_type, traits, resurrection } = req.query;
 
     const query = {};
 
@@ -220,6 +220,13 @@ router.get("/", async (req, res) => {
     if (attack_type && attack_type.trim()) {
       query.attack_type = attack_type.trim().toUpperCase();
     }
+
+    // Game ability types (comma separated): the character must have all of them
+    const traitList = String(traits ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+    if (traitList.length > 0) query.filter_types = { $all: traitList };
+
+    if (resurrection === '1') query.resurrection = { $type: 'object' };
+    else if (resurrection === '0') query.resurrection = { $not: { $type: 'object' } };
 
     // Text search
     if (search && search.trim()) {
@@ -245,6 +252,8 @@ router.get("/", async (req, res) => {
         { search_name: { $regex: searchTerm, $options: "i" } },
         { name: { $regex: searchTerm, $options: "i" } },
         { version: { $regex: searchTerm, $options: "i" } },
+        { version_name: { $regex: searchTerm, $options: "i" } },
+        { "game_version.fr": { $regex: searchTerm, $options: "i" } },
         ...(bannerIds.length > 0 ? [{ banner_id: { $in: bannerIds } }] : [])
       ];
     }
@@ -270,6 +279,8 @@ router.get("/", async (req, res) => {
         category: category || null,
         killer: killer || null,
         attack_type: attack_type || null,
+        traits: traitList,
+        resurrection: resurrection ?? null,
         search: search || null
       }
     });
@@ -285,12 +296,19 @@ router.get("/", async (req, res) => {
 // GET distinct killers, categories and affinities
 router.get("/meta", async (req, res) => {
   try {
-    const [killers, categories, affinities, statDocs] = await Promise.all([
+    const [killers, categories, affinities, statDocs, presentTypes, traitFilters] = await Promise.all([
       req.db.collection('characters').distinct('killers', { killers: { $exists: true, $ne: '' } }),
       req.db.collection('characters').distinct('categories', { categories: { $exists: true, $ne: '' } }),
       req.db.collection('characters').distinct('affinity', { affinity: { $exists: true, $ne: '' } }),
       req.db.collection('characters').find({ stats: { $exists: true } }, { projection: { stats: 1 } }).toArray(),
+      req.db.collection('characters').distinct('filter_types'),
+      req.db.collection('app_settings').findOne({ _id: TRAIT_FILTERS_SETTING }),
     ]);
+    // Only the ability types some character has
+    const present = new Set(presentTypes);
+    const traitCategories = (traitFilters?.categories ?? [])
+      .map((category) => ({ ...category, types: category.types.filter((t) => present.has(t.type)) }))
+      .filter((category) => category.types.length > 0);
 
     res.json({
       success: true,
@@ -298,6 +316,7 @@ router.get("/meta", async (req, res) => {
       categories: categories.filter(Boolean).sort(),
       affinities: affinities.filter(Boolean).sort(),
       stat_max: computeStatMax(statDocs),
+      trait_filters: traitCategories,
     });
   } catch (error) {
     logger.error('Erreur lors de la récupération des métadonnées:', error);
