@@ -21,9 +21,9 @@ const findAccountOwner = (db, bbsId) =>
     { projection: { _id: 1 } }
   );
 
-// GET the albums of every bbs account in a guild (public). `characters` is null for an account
-// that never filled its album, so it can be told apart from an empty one.
-router.get('/guild/:guildeId', async (req, res) => {
+// GET the albums of every bbs account in a guild (logged-in users only). `characters` is null for an
+// account that never filled its album, so it can be told apart from an empty one.
+router.get('/guild/:guildeId', requireAuth, async (req, res) => {
   try {
     const roster = await getGuildAccountRoster(req.db, req.params.guildeId);
     const albums = await req.db.collection('albums')
