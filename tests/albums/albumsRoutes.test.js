@@ -50,6 +50,11 @@ const seed = async () => {
 };
 
 describe('GET /api/albums/guild/:guildeId', () => {
+  it('requires a token', async () => {
+    const res = await request(app).get('/api/albums/guild/g1');
+    expect(res.status).toBe(401);
+  });
+
   it('returns every guild account with its album, null when never filled', async () => {
     const characterId = new ObjectId().toString();
     await db.collection('users').insertMany([
@@ -64,7 +69,7 @@ describe('GET /api/albums/guild/:guildeId', () => {
       { bbs_id: 'alt1', characters: { [characterId]: 5 } },
     ]);
 
-    const res = await request(app).get('/api/albums/guild/g1');
+    const res = await request(app).get('/api/albums/guild/g1').set(tokenFor({ is_admin: true }));
     expect(res.status).toBe(200);
     const byBbsId = Object.fromEntries(res.body.data.map((m) => [m.bbs_id, m.characters]));
     expect(byBbsId).toEqual({ main1: { [characterId]: 3 }, other1: null });
