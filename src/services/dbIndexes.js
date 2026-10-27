@@ -38,6 +38,12 @@ export const INDEXES = [
   { collection: 'characters', key: { release_date: 1 } },
   { collection: 'characters', key: { rarity: 1 } },
   { collection: 'characters', key: { status: 1 } },
+  // Game unit of the character: the key of every game sync, a sparse unique index until all characters are linked
+  { collection: 'characters', key: { game_id: 1 }, options: { unique: true, sparse: true } },
+  { collection: 'characters', key: { filter_types: 1 } },
+  { collection: 'characters', key: { 'banners.gacha_group_id': 1 } },
+  // Game summons, stored with the banners entered on the site
+  { collection: 'banners', key: { gacha_group_id: 1 }, options: { unique: true, sparse: true } },
 ];
 
 // Creates every index; one failure (e.g. duplicates blocking a unique index) does not stop the others.

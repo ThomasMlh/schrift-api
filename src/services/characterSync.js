@@ -8,6 +8,7 @@ import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { parseCSV, reorderCharactersByReleaseDate } from '../utils/characterHelpers.js';
 import { buildCharacterMatcher, mapCharacterRow } from './characterSource.js';
 import { IMAGE_TARGETS, changedImageTargets, imagePath, uploadImageTarget } from './characterImages.js';
+import { pendingGameBanners, uploadGameBanners } from './gameDb/banners.js';
 import { logger } from '../utils/logger.js';
 
 const buildSftpConfig = () => {
@@ -79,6 +80,7 @@ export const uploadCharacterImages = async (db, ftp, character) => {
   let uploaded = 0;
   let complete = true;
   const done = [];
+  const missing = [];
 
   for (const target of IMAGE_TARGETS) {
     if (!character.source_images?.[target.sources[0]]) {
@@ -86,7 +88,11 @@ export const uploadCharacterImages = async (db, ftp, character) => {
       continue;
     }
     if (!pending.has(target.key) && await ftp.fileExists(imagePath(target, character._id))) continue;
-    if (await uploadImageTarget(ftp, target, character.source_images, character._id)) {
+    const result = await uploadImageTarget(ftp, target, character.source_images, character._id);
+    if (result === 'missing') {
+      missing.push(target.sources[0]);
+      done.push(target.key);
+    } else if (result) {
       uploaded++;
       done.push(target.key);
     } else {
@@ -95,6 +101,8 @@ export const uploadCharacterImages = async (db, ftp, character) => {
   }
 
   const update = { $set: { images_uploaded: complete }, $pull: { images_pending: { $in: done } } };
+  // The game has no such image for this unit: forget the source so the site does not show it
+  for (const source of missing) update.$set[`source_images.${source}`] = null;
   if (uploaded > 0) update.$set.images_version = Date.now();
   // A failed character waits before the next try, so the batch loop does not spin on it
   if (complete) update.$unset = { images_failed_at: '' };
@@ -104,6 +112,12 @@ export const uploadCharacterImages = async (db, ftp, character) => {
 };
 
 export const syncCharactersFromSFTP = async (db, { uploadImages = false, dryRun = false } = {}) => {
+  // Once characters come from the game tables, this file would bring back old names and create duplicates
+  if (await db.collection('characters').findOne({ game_id: { $exists: true } }, { projection: { _id: 1 } })) {
+    const err = new Error('Les personnages sont synchronisés depuis les tables du jeu : utilisez la synchro du jeu');
+    err.statusCode = 409;
+    throw err;
+  }
   const sftpConfig = buildSftpConfig();
 
   if (!sftpConfig.host || !sftpConfig.username) {
@@ -267,7 +281,12 @@ export const syncCharactersFromSFTP = async (db, { uploadImages = false, dryRun 
 
 const RETRY_DELAY_MS = 60 * 60 * 1000;
 
+// Outside production the API uses a copy of the prod characters with the same ids, and image files are
+// named after the id on the shared bucket: only characters created by the game sync, unknown to prod, are uploaded
+const devOnlyFilter = () => (process.env.NODE_ENV === 'production' ? {} : { created_by_game_sync: true });
+
 const imagesToUploadFilter = () => ({
+  ...devOnlyFilter(),
   source_images: { $exists: true },
   images_uploaded: { $ne: true },
   $or: [{ images_failed_at: { $exists: false } }, { images_failed_at: { $lt: new Date(Date.now() - RETRY_DELAY_MS) } }],
@@ -281,7 +300,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
     .limit(batchSize)
     .toArray();
 
-  if (characters.length === 0) {
+  if (characters.length === 0 && await pendingGameBanners(db) === 0) {
     const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter());
     return { message: 'Toutes les images sont déjà uploadées', statistics: { processed: 0, uploaded: 0, remaining, errors: 0 }, errors: [] };
   }
@@ -308,33 +327,14 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
     }
   }
 
+  // Summon visuals of the game, copied once from rmfs to the bucket
+  const summons = await uploadGameBanners(db, ftpUploader, batchSize);
+
   try { await ftpUploader.disconnect(); } catch { /* Ignore disconnect errors */ }
 
-  // Missing banners
-  let bannersUploaded = 0;
-  const bannersToUpload = await db.collection('banners')
-    .find({ url: { $exists: true, $ne: '' }, images_uploaded: { $ne: true } })
-    .limit(batchSize)
-    .toArray();
+  const bannersUploaded = summons.uploaded;
 
-  if (bannersToUpload.length > 0) {
-    try {
-      const bannerFtp = new FTPUploader();
-      await bannerFtp.connect();
-      for (const banner of bannersToUpload) {
-        const path = `/bucket.bbs-schrift.fr/banners/${banner._id}.png`;
-        if (banner.url && !await bannerFtp.fileExists(path)) {
-          if (await bannerFtp.downloadAndUpload(banner.url, path)) bannersUploaded++;
-        }
-        await db.collection('banners').updateOne({ _id: banner._id }, { $set: { images_uploaded: true } });
-      }
-      try { await bannerFtp.disconnect(); } catch { /* Ignore disconnect errors */ }
-    } catch (bannerErr) {
-      logger.warn('⚠️ Erreur upload bannières:', bannerErr.message);
-    }
-  }
-
-  const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter());
+  const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter()) + await pendingGameBanners(db);
   const message = `Batch terminé: ${uploaded} images uploadées pour ${processed} personnages, ${bannersUploaded} bannières, ${remaining} restants`;
   const statistics = { processed, uploaded, bannersUploaded, remaining, errors: errors.length };
 
