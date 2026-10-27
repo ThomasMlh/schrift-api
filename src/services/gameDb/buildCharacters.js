@@ -18,6 +18,7 @@ export const GAME_TABLES = [
   'm_character_filter_type',
   'm_character_filter_category',
   'm_ability_status_up_give_abnormality',
+  'm_attack_collision',
 ];
 
 const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
@@ -70,14 +71,19 @@ const tierStats = (row, tier) => {
   return Object.values(values).some((v) => v > 0) ? values : null;
 };
 
-// Explicit attack color of the first attack that has one, null when the game leaves it empty
-const attackType = (row, attacksByGroup) => {
-  for (const group of ATTACK_GROUPS) {
-    for (const attack of attacksByGroup.get(row[`m_character_attack_group_id_${group}`]) ?? []) {
-      if (ATTACK_COLORS[attack.atk_color]) return ATTACK_COLORS[attack.atk_color];
-    }
-  }
-  return null;
+// Red or blue attacks: a blue attack makes the unit blue, then a red one red; old units have no color
+// set, their normal attacks decide (ranged = blue, melee = red), like the game shows them
+const RANGED = '2';
+const attackType = (row, attacksByGroup, collisions) => {
+  const attacks = ATTACK_GROUPS.flatMap((group) => attacksByGroup.get(row[`m_character_attack_group_id_${group}`]) ?? []);
+  const colors = new Set(attacks.map((attack) => ATTACK_COLORS[attack.atk_color]).filter(Boolean));
+  if (colors.has('B')) return 'B';
+  if (colors.has('R')) return 'R';
+  const ranges = new Set((attacksByGroup.get(row.m_character_attack_group_id_normal) ?? [])
+    .map((attack) => collisions.get(attack.m_attack_collision_id)?.range_type)
+    .filter(Boolean));
+  if (ranges.size === 0) return null;
+  return ranges.size === 1 && ranges.has(RANGED) ? 'B' : 'R';
 };
 
 const textOf = (texts) => (texts ? texts.fr ?? Object.values(texts)[0] ?? null : null);
@@ -89,6 +95,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
   const soulTrees = groupBy(tables.m_soul_piece, 'pattern_id');
   const attacksByGroup = groupBy(tables.m_character_attack, 'group_id');
   const statusUps = groupBy(tables.m_ability_status_up_give_abnormality ?? [], 'group_id');
+  const collisions = new Map((tables.m_attack_collision ?? []).map((r) => [r.id, r]));
   const characterRows = new Map(tables.m_character.map((r) => [r.id, r]));
   const resurrectionOf = new Map(tables.m_character_resurrect_map.map((r) => [r.before_m_character_id, r.after_m_character_id]));
 
@@ -153,7 +160,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
         short_names: dict.text(row.name),
         game_version: dict.text(row.variation),
         affinity: AFFINITIES[row.character_element] ?? null,
-        attack_type: attackType(row, attacksByGroup),
+        attack_type: attackType(row, attacksByGroup, collisions),
         killers: [row.killer_type1, row.killer_type2].map(killerName).filter(Boolean),
         categories: [...new Set([resource?.belong_type_1, resource?.belong_type_2].map((t) => BELONG_TYPES[t]).filter(Boolean))],
         is_growth_event: row.character_category === 'growth_event',

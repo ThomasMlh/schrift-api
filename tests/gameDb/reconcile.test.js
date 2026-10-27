@@ -50,9 +50,9 @@ describe('character documents', () => {
   const now = new Date('2026-10-28T00:00:00Z');
   const built = { ...game(61758, '1872'), attack_type: null, release_date: null, resurrection: { release_date: '28/10/2026' }, traits: { passive: [] } };
 
-  it('fills dates and attack color only when the site has none', () => {
-    const update = gameUpdate({ ...built, attack_type: 'R', release_date: '30/08/2025' }, { attack_type: 'B', resurrection_release: null }, now);
-    expect(update).toMatchObject({ attack_type: 'B', release_date: '30/08/2025', resurrection_release: '28/10/2026' });
+  it('fills dates only when the site has none, and takes the attack color from the game', () => {
+    const update = gameUpdate({ ...built, attack_type: 'R', release_date: '30/08/2025' }, { attack_type: 'B', release_date: null, resurrection_release: null }, now);
+    expect(update).toMatchObject({ attack_type: 'R', release_date: '30/08/2025', resurrection_release: '28/10/2026' });
   });
 
   it('keeps the site value when the game has none, and never touches hand-entered fields', () => {

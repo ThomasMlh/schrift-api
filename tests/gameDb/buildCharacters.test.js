@@ -79,6 +79,33 @@ const tables = () => ({
   m_ability_status_up_give_abnormality: [{ group_id: '61510', status_up_type: 'sp', effect_amount: '90', description: 'm_ability_sp_up_give_abnormality' }],
 });
 
+describe('attack color', () => {
+  const unit = (id, normalGroup, heavyGroup = '') => character({ id, m_character_attack_group_id_normal: normalGroup, m_character_attack_group_id_heavy1: heavyGroup });
+  const colorOf = (units) => {
+    const base = tables();
+    const built = buildCharacters({
+      ...base,
+      m_character: units,
+      m_character_attack: [
+        { group_id: 'red', atk_color: 'red', m_attack_collision_id: 'melee' },
+        { group_id: 'blue', atk_color: 'blue', m_attack_collision_id: 'melee' },
+        { group_id: 'melee', atk_color: '', m_attack_collision_id: 'melee' },
+        { group_id: 'ranged', atk_color: '', m_attack_collision_id: 'ranged' },
+      ],
+      m_attack_collision: [{ id: 'melee', range_type: '1' }, { id: 'ranged', range_type: '2' }],
+    });
+    return Object.fromEntries(built.map((c) => [c.game_id, c.attack_type]));
+  };
+
+  it('is blue as soon as one attack is blue, red otherwise when one is red', () => {
+    expect(colorOf([unit('1', 'red', 'blue'), unit('2', 'red', 'melee')])).toEqual({ 1: 'B', 2: 'R' });
+  });
+
+  it('follows the range of the normal attacks when no attack has a color', () => {
+    expect(colorOf([unit('3', 'ranged'), unit('4', 'melee'), unit('5', 'none')])).toEqual({ 3: 'B', 4: 'R', 5: null });
+  });
+});
+
 describe('buildCharacters', () => {
   const [ninny, ...others] = buildCharacters(tables());
 

@@ -12,14 +12,14 @@ const GAME_FIELDS = [
   'filter_types', 'resurrection',
 ];
 
-// Release dates (banner vs game data dates) and the attack color can differ from what the site entered:
-// the site value wins, the game only fills a missing one
+// Release dates can differ from what the site entered (banner vs game data dates): the site value wins,
+// the game only fills a missing one
 const fillField = (gameValue, siteValue) => siteValue ?? gameValue ?? null;
 
 // $set of an existing site character, its _id (used by albums, builds and image names) never changes
 export const gameUpdate = (game, doc, now = new Date()) => ({
   ...Object.fromEntries(GAME_FIELDS.map((field) => [field, game[field] ?? null])),
-  attack_type: fillField(game.attack_type, doc.attack_type),
+  attack_type: game.attack_type ?? doc.attack_type ?? null,
   release_date: fillField(game.release_date, doc.release_date),
   resurrection_release: fillField(game.resurrection?.release_date, doc.resurrection_release),
   game_synced_at: now,
