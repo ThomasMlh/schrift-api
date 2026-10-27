@@ -47,27 +47,40 @@ export const passiveTrait = (dict, row) => {
   return { kind: 'passive', type: row.type, value, text: suffix ? withValue(name, suffix) : name };
 };
 
-// Ability node of the soul tree (m_soul_piece)
-export const treeTrait = (dict, type, value) => {
-  const ref = Number(value) >= REFERENCE_MIN ? String(value) : null;
-  return { kind: 'tree', type, value: ref ? null : numberOrNull(value), ref, text: abilityText(dict, type, value) };
+// Stat boosts given by an ability (m_ability_status_up_give_abnormality), e.g. "Ascendance spirituelle (+90 %)"
+const statusUpText = (dict, rows, value) => {
+  const texts = rows.map((row) => dict.text(`${row.description}_game_ui`, { value: value ?? row.effect_amount }) ?? dict.text(row.description)).filter(Boolean);
+  if (texts.length === 0) return null;
+  return Object.fromEntries(Object.keys(texts[0]).map((lang) => [lang, texts.map((t) => t[lang]).filter(Boolean).join(' / ')]));
 };
 
-// Link skill: the soullink_ texts, name then effect
-export const linkTrait = (dict, type, value) => {
-  const name = dict.text(`soullink_${type}`);
-  const effect = dict.text(`soullink_${type}_with_value`, { value }) ?? abilityText(dict, type, value);
-  const text = name && effect
-    ? Object.fromEntries(Object.entries(name).map(([lang, n]) => [lang, effect[lang] ? `${n} : ${effect[lang]}` : n]))
-    : name ?? effect;
-  return { kind: 'link', type, value: numberOrNull(value), text };
+// Ability node of the soul tree (m_soul_piece); statusUps: m_ability_status_up_give_abnormality rows by group_id
+export const treeTrait = (dict, type, value, statusUps = new Map()) => {
+  const ref = Number(value) >= REFERENCE_MIN ? String(value) : null;
+  const text = (ref && statusUps.has(ref) ? statusUpText(dict, statusUps.get(ref)) : null) ?? abilityText(dict, type, value);
+  return { kind: 'tree', type, value: ref ? null : numberOrNull(value), ref, text };
 };
+
+// Soul trait shared through links (soullink_ texts): the effect is shown, its name kept aside
+export const linkTrait = (dict, type, value) => ({
+  kind: 'link',
+  type,
+  value: numberOrNull(value),
+  name: dict.text(`soullink_${type}`),
+  text: (hasValue(value) ? dict.text(`soullink_${type}_with_value`, { value }) : null) ?? abilityText(dict, type, value) ?? dict.text(`soullink_${type}`),
+});
 
 // EX soul trait (m_extra_ability): one value per level 1-5, the text is the ability without its ex_ prefix
-export const extraTrait = (dict, row) => {
+export const extraTrait = (dict, row, statusUps = new Map()) => {
   const type = row.type.replace(/^ex_/, '');
   const levels = [1, 2, 3, 4, 5].map((level) => row[`level${level}_parameter`]).filter((v) => v !== '');
   const max = levels[levels.length - 1];
+  // Each level points to its own stat boost: one text with the boost of every level
+  if (levels.length > 0 && levels.every((level) => statusUps.get(level)?.length === 1)) {
+    const values = levels.map((level) => Number(statusUps.get(level)[0].effect_amount));
+    const shown = new Set(values).size === 1 ? values[0] : values.join(' > ');
+    return { kind: 'ex', type: row.type, values, ref: String(max), text: statusUpText(dict, statusUps.get(max), shown) };
+  }
   if (isReference(dict, type, max)) return { kind: 'ex', type: row.type, values: null, ref: String(max), text: dict.text(`${type}_${max}`) };
   const values = levels.map(Number);
   const shown = new Set(values).size === 1 ? values[0] : values.join(' > ');

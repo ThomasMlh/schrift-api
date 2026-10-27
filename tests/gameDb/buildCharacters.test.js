@@ -55,6 +55,8 @@ const tables = () => ({
     { dictkey: 'lb_attack_bad_status_up_time_with_value', content_fr: 'Malédiction (+{value}[nbsp]s)' },
     { dictkey: 'belong_attribute_bad_status_probability_617581', content_fr: "Gêneur d'Arrancar" },
     { dictkey: 'ui_sort_filter_belong_bad_status_parameter_up', content_fr: 'Ascendance' },
+    { dictkey: 'm_ability_sp_up_give_abnormality', content_fr: 'Ascendance spirituelle' },
+    { dictkey: 'm_ability_sp_up_give_abnormality_game_ui', content_fr: 'Ascendance spirituelle (+{value}[nbsp]%)' },
     { dictkey: 'extra_attack_information_61758', content_fr: 'Large attaque vers l\'avant.' },
   ],
   m_resource_3d: [{ id: '0900_NIN_mdl', belong_type_1: 'human', belong_type_2: 'quincy' }],
@@ -62,6 +64,7 @@ const tables = () => ({
   m_extra_ability: [{ id: '617581', type: 'ex_last_atk_dmg_up_rate_ex', level1_parameter: '18', level2_parameter: '22', level3_parameter: '25', level4_parameter: '28', level5_parameter: '30' }],
   m_soul_piece: [
     node(0, 'last_atk_dmg_up_rate_heavy', 20, { is_link_skill: '1' }),
+    node(25, 'last_atk_dmg_up_rate_heavy', 10, { is_link_skill: '1' }),
     node(1, 'last_atk_dmg_up_rate_heavy', 55),
     node(3, 'def', 4), node(3, 'def', 4, { level: '2' }),
     node(6, 'hp', 90), node(7, 'atk', 60), node(8, 'sp', 170), node(9, 'crt', 40), node(10, 'def', 32),
@@ -73,6 +76,7 @@ const tables = () => ({
   ],
   m_character_attack: [{ group_id: '1', atk_color: 'red' }],
   m_character_resurrect_map: [{ before_m_character_id: '61758', after_m_character_id: '81758' }],
+  m_ability_status_up_give_abnormality: [{ group_id: '61510', status_up_type: 'sp', effect_amount: '90', description: 'm_ability_sp_up_give_abnormality' }],
 });
 
 describe('buildCharacters', () => {
@@ -110,10 +114,12 @@ describe('buildCharacters', () => {
       'Attaques puissantes renforcées (+55 %)',
       "Gêneur d'Arrancar",
       'Malédiction (+5 s)',
-      'Ascendance',
+      'Ascendance spirituelle (+90 %)',
     ]);
     expect(texts(ninny.traits.ex)).toEqual(['Attaque spéciale renforcée (+18 > 22 > 25 > 28 > 30 %)']);
-    expect(texts(ninny.traits.link)).toEqual(['Attaques puissantes dévastatrices : Attaques puissantes renforcées (+20 %)']);
+    // Both soul trait nodes add up, like in the game
+    expect(texts(ninny.traits.link)).toEqual(['Attaques puissantes renforcées (+30\u00a0%)']);
+    expect(ninny.traits.link[0].name).toEqual({ fr: 'Attaques puissantes dévastatrices' });
     expect(ninny.special).toEqual({ fr: 'Large attaque vers l\'avant.' });
     expect(ninny.filter_types).toEqual(expect.arrayContaining(['sp_atk_range_up_rate', 'last_atk_dmg_up_rate_heavy', 'last_atk_dmg_up_rate_ex']));
   });

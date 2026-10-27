@@ -17,6 +17,7 @@ export const GAME_TABLES = [
   'm_character_resurrect_map',
   'm_character_filter_type',
   'm_character_filter_category',
+  'm_ability_status_up_give_abnormality',
 ];
 
 const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
@@ -87,6 +88,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
   const extras = new Map(tables.m_extra_ability.map((r) => [r.id, r]));
   const soulTrees = groupBy(tables.m_soul_piece, 'pattern_id');
   const attacksByGroup = groupBy(tables.m_character_attack, 'group_id');
+  const statusUps = groupBy(tables.m_ability_status_up_give_abnormality ?? [], 'group_id');
   const characterRows = new Map(tables.m_character.map((r) => [r.id, r]));
   const resurrectionOf = new Map(tables.m_character_resurrect_map.map((r) => [r.before_m_character_id, r.after_m_character_id]));
 
@@ -95,12 +97,13 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
     const tree = soulTrees.get(row.m_soul_piece_pattern_id) ?? [];
     const treeStats = Object.fromEntries(Object.values(STATS).map((site) => [site, 0]));
     const treeAbilities = new Map();
-    const link = [];
+    // The soul trait is split across nodes unlocked at each tier: the game shows their sum
+    const link = new Map();
     for (const node of tree) {
       for (const [type, value] of [[node.type, node.parameter], [node.type2, node.parameter2]]) {
         if (!type || type === 'max_level') continue;
         if (STATS[type]) treeStats[STATS[type]] += Number(value) || 0;
-        else if (node.is_link_skill === '1') link.push(linkTrait(dict, type, value));
+        else if (node.is_link_skill === '1') link.set(type, (link.get(type) ?? 0) + (Number(value) || 0));
         else {
           const key = `${node.node_id}|${type}`;
           const previous = treeAbilities.get(key);
@@ -114,10 +117,10 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
     const stats = maxTier ? Object.fromEntries(Object.entries(maxTier).map(([key, v]) => [key, v + treeStats[key]])) : null;
 
     const traits = {
-      link,
+      link: [...link].map(([type, value]) => linkTrait(dict, type, value)),
       passive: (passives.get(row.m_passive_ability_group_id) ?? []).map((p) => passiveTrait(dict, p)),
-      tree: [...treeAbilities.values()].map(({ type, value }) => treeTrait(dict, type, value)),
-      ex: [row.m_extra_ability_id1, row.m_extra_ability_id2].filter((id) => extras.has(id)).map((id) => extraTrait(dict, extras.get(id))),
+      tree: [...treeAbilities.values()].map(({ type, value }) => treeTrait(dict, type, value, statusUps)),
+      ex: [row.m_extra_ability_id1, row.m_extra_ability_id2].filter((id) => extras.has(id)).map((id) => extraTrait(dict, extras.get(id), statusUps)),
     };
     return {
       game_id: Number(row.id),
