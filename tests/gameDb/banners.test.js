@@ -1,6 +1,6 @@
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient } from 'mongodb';
-import { buildGameBanners, saveGameBanners, uploadGameBanners } from '../../src/services/gameDb/banners.js';
+import { buildGameBanners, removeLegacyBanners, saveGameBanners, uploadGameBanners } from '../../src/services/gameDb/banners.js';
 
 jest.setTimeout(60000);
 
@@ -58,5 +58,16 @@ describe('game summons', () => {
     expect((await banner(866)).image_status).toBe('uploaded');
     expect((await banner(867)).image_status).toBe('pending');
     expect(await db.collection('banners').countDocuments()).toBe(4);
+  });
+
+  it('removes the banners entered on the site once, and never a game summon', async () => {
+    await db.collection('characters').insertOne({ name: 'Ichigo', banner_id: 'old' });
+    expect(await removeLegacyBanners(db)).toBe(1);
+    expect(await db.collection('characters').countDocuments({ banner_id: { $exists: true } })).toBe(0);
+
+    // A later sync whose tables no longer list 868 adds 869 and keeps every known summon
+    await saveGameBanners(db, buildGameBanners([{ game_id: 1, banners: [summon(869)] }]));
+    expect(await removeLegacyBanners(db)).toBe(0);
+    expect((await db.collection('banners').find().toArray()).map((b) => b.gacha_group_id).sort()).toEqual([866, 867, 868, 869]);
   });
 });

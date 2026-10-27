@@ -80,4 +80,14 @@ export const uploadGameBanners = async (db, ftp, limit) => {
   return { uploaded, processed: pending.length };
 };
 
+// Banners entered on the site before the game data: replaced by the game summons, removed once.
+// Game summons are never removed, even when a later version of the tables no longer lists them.
+export const legacyBannersFilter = { source: { $ne: GAME_BANNER_SOURCE } };
+
+export const removeLegacyBanners = async (db) => {
+  const { deletedCount } = await db.collection('banners').deleteMany(legacyBannersFilter);
+  await db.collection('characters').updateMany({ banner_id: { $exists: true } }, { $unset: { banner_id: '' } });
+  return deletedCount;
+};
+
 export const pendingGameBanners = (db) => db.collection('banners').countDocuments({ source: GAME_BANNER_SOURCE, image_status: 'pending' });

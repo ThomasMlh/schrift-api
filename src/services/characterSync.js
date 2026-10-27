@@ -8,7 +8,7 @@ import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { parseCSV, reorderCharactersByReleaseDate } from '../utils/characterHelpers.js';
 import { buildCharacterMatcher, mapCharacterRow } from './characterSource.js';
 import { IMAGE_TARGETS, changedImageTargets, imagePath, uploadImageTarget } from './characterImages.js';
-import { GAME_BANNER_SOURCE, pendingGameBanners, uploadGameBanners } from './gameDb/banners.js';
+import { pendingGameBanners, uploadGameBanners } from './gameDb/banners.js';
 import { logger } from '../utils/logger.js';
 
 const buildSftpConfig = () => {
@@ -332,29 +332,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
 
   try { await ftpUploader.disconnect(); } catch { /* Ignore disconnect errors */ }
 
-  // Missing banners
-  let bannersUploaded = summons.uploaded;
-  const bannersToUpload = await db.collection('banners')
-    .find({ source: { $ne: GAME_BANNER_SOURCE }, url: { $exists: true, $ne: '' }, images_uploaded: { $ne: true } })
-    .limit(batchSize)
-    .toArray();
-
-  if (bannersToUpload.length > 0) {
-    try {
-      const bannerFtp = new FTPUploader();
-      await bannerFtp.connect();
-      for (const banner of bannersToUpload) {
-        const path = `/bucket.bbs-schrift.fr/banners/${banner._id}.png`;
-        if (banner.url && !await bannerFtp.fileExists(path)) {
-          if (await bannerFtp.downloadAndUpload(banner.url, path)) bannersUploaded++;
-        }
-        await db.collection('banners').updateOne({ _id: banner._id }, { $set: { images_uploaded: true } });
-      }
-      try { await bannerFtp.disconnect(); } catch { /* Ignore disconnect errors */ }
-    } catch (bannerErr) {
-      logger.warn('⚠️ Erreur upload bannières:', bannerErr.message);
-    }
-  }
+  const bannersUploaded = summons.uploaded;
 
   const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter()) + await pendingGameBanners(db);
   const message = `Batch terminé: ${uploaded} images uploadées pour ${processed} personnages, ${bannersUploaded} bannières, ${remaining} restants`;

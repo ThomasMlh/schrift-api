@@ -11,7 +11,7 @@ import { reconcileCharacters } from './reconcile.js';
 import { buildTraitFilters } from './traitFilters.js';
 import { loadGameTables } from './source.js';
 import { mergeDuplicates } from './mergeDuplicates.js';
-import { buildGameBanners, GAME_BANNER_SOURCE, saveGameBanners } from './banners.js';
+import { buildGameBanners, GAME_BANNER_SOURCE, legacyBannersFilter, removeLegacyBanners, saveGameBanners } from './banners.js';
 
 const PREVIEW_LIMIT = 50;
 export const TRAIT_FILTERS_SETTING = 'game_trait_filters';
@@ -65,6 +65,7 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   const knownBanners = new Set(await db.collection('banners').distinct('gacha_group_id', { source: GAME_BANNER_SOURCE }));
   preview.statistics.banners = banners.length;
   preview.statistics.newBanners = banners.filter((b) => !knownBanners.has(b.gacha_group_id)).length;
+  preview.statistics.legacyBanners = await db.collection('banners').countDocuments(legacyBannersFilter);
   if (dryRun) return { dryRun: true, ...preview };
 
   await db.collection('app_settings').updateOne(
@@ -86,6 +87,7 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   ];
   if (ops.length > 0) await db.collection('characters').bulkWrite(ops, { ordered: false });
   const merged = await mergeDuplicates(db, plan.duplicates);
+  await removeLegacyBanners(db);
   await saveGameBanners(db, banners);
   if (plan.created.length > 0 || plan.updates.some((u) => u.changes.includes('release_date'))) await reorderCharactersByReleaseDate(db);
   return { dryRun: false, ...preview, merged };

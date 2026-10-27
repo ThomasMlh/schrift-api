@@ -235,18 +235,12 @@ router.get("/", async (req, res) => {
         .replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, "")
         .trim();
 
-      // Include characters from matching banners
+      // Include characters featured in matching game summons
       const matchingBanners = await req.db
         .collection("banners")
-        .find({
-          $or: [
-            { name: { $regex: searchTerm, $options: "i" } },
-            { portail: { $regex: searchTerm, $options: "i" } }
-          ]
-        })
-        .project({ _id: 1, gacha_group_id: 1 })
+        .find({ name: { $regex: searchTerm, $options: "i" } })
+        .project({ gacha_group_id: 1 })
         .toArray();
-      const bannerIds = matchingBanners.map((b) => b._id);
       const summonIds = matchingBanners.map((b) => b.gacha_group_id).filter(Boolean);
 
       query.$or = [
@@ -255,7 +249,6 @@ router.get("/", async (req, res) => {
         { version: { $regex: searchTerm, $options: "i" } },
         { version_name: { $regex: searchTerm, $options: "i" } },
         { "game_version.fr": { $regex: searchTerm, $options: "i" } },
-        ...(bannerIds.length > 0 ? [{ banner_id: { $in: bannerIds } }] : []),
         ...(summonIds.length > 0 ? [{ "banners.gacha_group_id": { $in: summonIds } }] : [])
       ];
     }
@@ -378,25 +371,20 @@ router.get("/search", async (req, res) => {
       .replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, "")
       .trim();
 
-    // Include characters from matching banners
+    // Include characters featured in matching game summons
     const matchingBanners = await req.db
       .collection("banners")
-      .find({
-        $or: [
-          { name: { $regex: searchTerm, $options: "i" } },
-          { portail: { $regex: searchTerm, $options: "i" } }
-        ]
-      })
-      .project({ _id: 1 })
+      .find({ name: { $regex: searchTerm, $options: "i" } })
+      .project({ gacha_group_id: 1 })
       .toArray();
-    const bannerIds = matchingBanners.map((b) => b._id);
+    const summonIds = matchingBanners.map((b) => b.gacha_group_id).filter(Boolean);
 
     const searchQuery = {
       $or: [
         { search_name: { $regex: searchTerm, $options: "i" } },
         { name: { $regex: searchTerm, $options: "i" } },
         { version: { $regex: searchTerm, $options: "i" } },
-        ...(bannerIds.length > 0 ? [{ banner_id: { $in: bannerIds } }] : [])
+        ...(summonIds.length > 0 ? [{ "banners.gacha_group_id": { $in: summonIds } }] : [])
       ]
     };
 
