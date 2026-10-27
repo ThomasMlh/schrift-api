@@ -138,6 +138,9 @@ export const buildCharacters = (tables) => {
 
       return {
         ...details,
+        // The site shows the strongest form: resurrected stats when the unit has one
+        stats: resurrection?.stats ?? details.stats,
+        base_stats: details.stats,
         resource_2d_id: row.resource_2d_id || null,
         identity: row.chara_identity_id || null,
         name: textOf(names) ?? `#${row.id}`,

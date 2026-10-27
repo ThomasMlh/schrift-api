@@ -99,7 +99,7 @@ describe('buildCharacters', () => {
   });
 
   it('adds the stat nodes of the soul tree to the last stat tier', () => {
-    expect(ninny.stats).toEqual({ end: 1245, atk: 653, def: 356, cct: 399, pre: 934 });
+    expect(ninny.base_stats).toEqual({ end: 1245, atk: 653, def: 356, cct: 399, pre: 934 });
     expect(ninny.stats_tiers.soul_tree).toEqual({ end: 90, atk: 60, def: 40, cct: 40, pre: 170 });
   });
 
@@ -121,5 +121,7 @@ describe('buildCharacters', () => {
   it('stores the resurrected form with its own stats and date', () => {
     expect(ninny.resurrection).toMatchObject({ game_id: 81758, release_date: '28/10/2026' });
     expect(ninny.resurrection.stats).toEqual({ end: 1300, atk: 600, def: 320, cct: 360, pre: 800 });
+    // Like the site already did, the listed stats are the resurrected ones
+    expect(ninny.stats).toEqual(ninny.resurrection.stats);
   });
 });
