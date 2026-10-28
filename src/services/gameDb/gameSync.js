@@ -11,6 +11,7 @@ import { reconcileCharacters } from './reconcile.js';
 import { buildDestructionFilters, buildSpecialFilters, buildTraitFilters } from './traitFilters.js';
 import { createRmfsIndex, indexedRmfsFolders, loadGameData } from './source.js';
 import { accessoryChanges, buildAccessories, buildSubeffects, saveAccessories } from './accessories.js';
+import { bonusAbilityChanges, buildBonusAbilities, saveBonusAbilities } from './bonusAbilities.js';
 import { mergeDuplicates } from './mergeDuplicates.js';
 import {
   buildGameBanners, countBannerImagesToQueue, GAME_BANNER_SOURCE, legacyBannersFilter, removeLegacyBanners, saveGameBanners,
@@ -76,6 +77,8 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   const accessories = buildAccessories(tables, dict);
   const subeffects = buildSubeffects(tables, dict);
   Object.assign(preview.statistics, await accessoryChanges(db, accessories));
+  const bonusAbilities = buildBonusAbilities(tables, dict);
+  Object.assign(preview.statistics, await bonusAbilityChanges(db, bonusAbilities));
   if (dryRun) return { dryRun: true, ...preview };
 
   await db.collection('app_settings').updateOne(
@@ -108,6 +111,7 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   await removeLegacyBanners(db);
   await saveGameBanners(db, banners, new Date(), exists);
   await saveAccessories(db, accessories, subeffects, new Date(), exists);
+  await saveBonusAbilities(db, bonusAbilities);
   if (plan.created.length > 0 || plan.updates.some((u) => u.changes.includes('release_date'))) await reorderCharactersByReleaseDate(db);
   return { dryRun: false, ...preview, merged };
 };
