@@ -65,47 +65,69 @@ export const attackShape = (collision) => {
   return { kind: 'sector', radius: number(collision.collision_radius), angle: number(collision.collision_angle) || 360 };
 };
 
-// Hits of a step: projectiles from the table, melee from the hit windows of its animation, null when unknown
-const stepHits = (row, shape, windows) => {
+// Area left on the ground (vortex, mine...) that hits several times: m_trap_attack
+export const trapOf = (row, traps) => {
+  if (!filled(row.trap_attack_id)) return null;
+  const trap = traps.get(row.trap_attack_id);
+  if (!trap) return { hits: null, interval: null, duration: null, homing: false, delay: null };
+  const hits = number(trap.blast_num) || null;
+  const interval = number(trap.blast_cycle) || null;
+  return {
+    hits,
+    interval,
+    duration: hits && interval ? hits * interval : number(trap.life_time) || null,
+    // Follows the nearest enemy instead of staying where it was set
+    homing: trap.activate_type === 'Homing',
+    delay: number(trap.boot_delay),
+  };
+};
+
+// Hits of a step: a trap's blasts, projectiles from the table, melee from the hit windows of its animation, null when unknown
+const stepHits = (row, shape, windows, trap) => {
+  if (trap?.hits) return trap.hits;
   const projectiles = number(row.projectile_multiple_hit_num);
   if (projectiles > 0) return projectiles;
   if (shape?.kind === 'projectile') return 1;
   return windows || null;
 };
 
-const attackStep = (dict, row, collisions, windows) => ({
-  step: number(row.atk_number),
-  // Second part of the same hit (e.g. the blast after a strong attack lands)
-  variant: number(row.variation_index) ?? 0,
-  power: number(row.magnification_sum),
-  // Weapon of the attack (fist, sword, bow, kidô...), picks the button icon in the game interface
-  weapon: number(row.weapon_attribute),
-  hits: stepHits(row, attackShape(collisions.get(row.m_attack_collision_id)), windows),
-  knockdown: row.do_down === '1',
-  // Advanced strong attack (spiked button in the game) and double strike
-  advanced: row.is_advanced_heavy_attack === '1',
-  twice: row.twice_attack === '1',
-  color: COLORS[row.atk_color] ?? null,
-  shape: attackShape(collisions.get(row.m_attack_collision_id)),
-  statuses: parseStatuses(dict, row.status_effect_type, row.status_effect_probability, row.status_effect_time),
-  status_probability: Math.max(0, ...String(row.status_effect_probability ?? '').split('&').map(Number).filter(Number.isFinite)),
-  status_duration: Math.max(0, ...String(row.status_effect_time ?? '').split('&').map(Number).filter(Number.isFinite)),
-  heal: filled(row.heal_type) ? number(row.heal_value) : null,
-  // target 1 = the character, 2 = the whole party
-  buff: filled(row.buff_target_type)
-    ? {
-      target: number(row.buff_target_type),
-      atk: number(row.buff_atk_value),
-      def: number(row.buff_def_value),
-      crt: number(row.buff_crt_value),
-      sp: number(row.buff_sp_value),
-      duration: number(row.buff_effect_time),
-    }
-    : null,
-  barrier: filled(row.barrier_effect_id),
-  revival: filled(row.revival_id),
-  trap: filled(row.trap_attack_id),
-});
+const attackStep = (dict, row, collisions, traps, windows) => {
+  const shape = attackShape(collisions.get(row.m_attack_collision_id));
+  const trap = trapOf(row, traps);
+  return {
+    step: number(row.atk_number),
+    // Second part of the same hit (e.g. the blast after a strong attack lands)
+    variant: number(row.variation_index) ?? 0,
+    power: number(row.magnification_sum),
+    // Weapon of the attack (fist, sword, bow, kidô...), picks the button icon in the game interface
+    weapon: number(row.weapon_attribute),
+    hits: stepHits(row, shape, windows, trap),
+    knockdown: row.do_down === '1',
+    // Advanced strong attack (spiked button in the game) and double strike
+    advanced: row.is_advanced_heavy_attack === '1',
+    twice: row.twice_attack === '1',
+    color: COLORS[row.atk_color] ?? null,
+    shape,
+    statuses: parseStatuses(dict, row.status_effect_type, row.status_effect_probability, row.status_effect_time),
+    status_probability: Math.max(0, ...String(row.status_effect_probability ?? '').split('&').map(Number).filter(Number.isFinite)),
+    status_duration: Math.max(0, ...String(row.status_effect_time ?? '').split('&').map(Number).filter(Number.isFinite)),
+    heal: filled(row.heal_type) ? number(row.heal_value) : null,
+    // target 1 = the character, 2 = the whole party
+    buff: filled(row.buff_target_type)
+      ? {
+        target: number(row.buff_target_type),
+        atk: number(row.buff_atk_value),
+        def: number(row.buff_def_value),
+        crt: number(row.buff_crt_value),
+        sp: number(row.buff_sp_value),
+        duration: number(row.buff_effect_time),
+      }
+      : null,
+    barrier: filled(row.barrier_effect_id),
+    revival: filled(row.revival_id),
+    trap,
+  };
+};
 
 export const ATTACK_BUTTONS = ['normal', 'heavy1', 'heavy2', 'heavy3', 'ex', 'extra_action'];
 
@@ -126,7 +148,7 @@ export const animationHits = (rows = []) => {
 const NO_HITS = animationHits();
 
 // Attack buttons of a unit, hits in order (a hit and its second part, variation_index, side by side)
-export const buildAttacks = (dict, row, attacksByGroup, collisions, hits = NO_HITS) => Object.fromEntries(ATTACK_BUTTONS
+export const buildAttacks = (dict, row, attacksByGroup, collisions, hits = NO_HITS, traps = new Map()) => Object.fromEntries(ATTACK_BUTTONS
   .map((button) => {
     const rows = [...(attacksByGroup.get(row[`m_character_attack_group_id_${button}`]) ?? [])]
       .sort((a, b) => Number(a.atk_number) - Number(b.atk_number) || Number(a.variation_index || 0) - Number(b.variation_index || 0));
@@ -138,7 +160,42 @@ export const buildAttacks = (dict, row, attacksByGroup, collisions, hits = NO_HI
     return [button, {
       cooldown: Math.max(...rows.map((attack) => number(attack.cooltime) ?? 0)) || null,
       hits: shared ? hits.total(CLIPS[button]) || null : null,
-      steps: rows.map((attack) => attackStep(dict, attack, collisions, shared ? 0 : hits.windows(clipOf(attack), number(attack.variation_index) ?? 0))),
+      steps: rows.map((attack) => attackStep(dict, attack, collisions, traps, shared ? 0 : hits.windows(clipOf(attack), number(attack.variation_index) ?? 0))),
     }];
   })
   .filter(([, attack]) => attack));
+
+// Abilities of the unit that change its attacks, by button: wider areas (percent) and extra hits
+const RANGE_BONUSES = { normal: 'normal_atk_range_up_rate', heavy: 'sp_atk_range_up_rate', ex: 'ex_atk_range_up_rate' };
+const HIT_BONUSES = { normal: 'normal_atk_hit_up_num', heavy: 'sp_atk_hit_up_num', ex: 'ex_atk_hit_up_num' };
+const bonusKey = (button) => (button.startsWith('heavy') ? 'heavy' : button);
+
+const scaled = (value, rate) => (value === null ? null : Math.round(value * rate));
+const SCALED_FIELDS = { sector: ['radius'], rect: ['width', 'length'], circle: ['radius'], projectile: ['width', 'length', 'impact_radius'] };
+
+export const widenShape = (shape, percent) => {
+  if (!shape || !percent) return shape;
+  const rate = 1 + percent / 100;
+  return { ...shape, ...Object.fromEntries(SCALED_FIELDS[shape.kind].map((field) => [field, scaled(shape[field], rate)])) };
+};
+
+// Applies the unit's own abilities (passives, fully unlocked soul tree, EX): areas are shown at their
+// widest, as in battle. Extra hits are only given beside the hits, the game adds them on its side.
+export const applyAttackBonuses = (attacks, traits) => {
+  const totals = new Map();
+  for (const trait of [...traits.passive, ...traits.tree, ...traits.ex]) {
+    const value = Number(trait.value);
+    if (trait.type && Number.isFinite(value)) totals.set(trait.type, (totals.get(trait.type) ?? 0) + value);
+  }
+  return Object.fromEntries(Object.entries(attacks).map(([button, attack]) => {
+    const key = bonusKey(button);
+    const range = totals.get(RANGE_BONUSES[key]) || null;
+    const hitBonus = totals.get(HIT_BONUSES[key]) || null;
+    return [button, {
+      ...attack,
+      range_bonus: range,
+      hit_bonus: hitBonus,
+      steps: range ? attack.steps.map((step) => ({ ...step, shape: widenShape(step.shape, range) })) : attack.steps,
+    }];
+  }));
+};
