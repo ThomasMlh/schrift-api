@@ -35,6 +35,13 @@ describe('game images', () => {
     expect(await uploadImageTarget(ftp, target('quote'), sources, 'c1')).toBe('missing');
 
     expect(String(uploads['/bucket.bbs-schrift.fr/characters/thumb/c1.png'])).toBe('thumb');
+
+    // The quote, white text on a transparent canvas, is laid on an opaque black background
+    const quoteFtp = { ...ftp, downloadBuffer: async () => sharp({ create: { width: 4, height: 2, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 0 } } }).png().toBuffer() };
+    expect(await uploadImageTarget(quoteFtp, target('quote'), sources, 'c2')).toBe(true);
+    const { data, info } = await sharp(uploads['/bucket.bbs-schrift.fr/characters/phrase/c2.png']).raw().toBuffer({ resolveWithObject: true });
+    expect(info.channels).toBe(3);
+    expect([...data.subarray(0, 3)]).toEqual([0, 0, 0]);
     const artwork = await sharp(uploads['/bucket.bbs-schrift.fr/characters/artwork/c1.png']).metadata();
     expect([artwork.width, artwork.height]).toEqual([40, 20]);
   });
