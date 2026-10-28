@@ -1,4 +1,4 @@
-import { attackShape, buildAttacks, parseStatuses } from '../../src/services/gameDb/attacks.js';
+import { animationHits, attackShape, buildAttacks, parseStatuses } from '../../src/services/gameDb/attacks.js';
 import { createDictionary } from '../../src/services/gameDb/dictionary.js';
 
 const dict = createDictionary([
@@ -41,5 +41,37 @@ describe('attacks', () => {
     expect(attacks.normal.steps.map((s) => [s.step, s.variant, s.power])).toEqual([[1, 0, 90], [1, 1, 999], [2, 0, 100]]);
     expect(attacks.normal.steps[2]).toMatchObject({ statuses: [{ code: 'wek', probability: 22 }], status_probability: 22, status_duration: 8000, shape: { kind: 'sector', radius: 375 } });
     expect(attacks.heavy1).toMatchObject({ cooldown: 8000, steps: [{ power: 120, weapon: 2, advanced: true, twice: true, hits: 3, knockdown: true, color: 'B', heal: 20, shape: null }] });
+  });
+
+  it('counts melee hits from the animation windows, projectiles from the table', () => {
+    const attacksByGroup = new Map([
+      ['n', [{ atk_number: '1', variation_index: '0', m_attack_collision_id: 'c' }, { atk_number: '2', variation_index: '0', m_attack_collision_id: 'c' }]],
+      ['h1', [{ atk_number: '1', variation_index: '0', m_attack_collision_id: 'c' }, { atk_number: '1', variation_index: '1', m_attack_collision_id: 'c' }]],
+      ['h2', [{ atk_number: '1', variation_index: '0', m_attack_collision_id: 'p' }]],
+      ['h3', [{ atk_number: '1', variation_index: '0', m_attack_collision_id: 'c' }, { atk_number: '2', variation_index: '0', m_attack_collision_id: 'c' }]],
+      ['ex', [{ atk_number: '1', variation_index: '0', m_attack_collision_id: 'c' }]],
+    ]);
+    const collisions = new Map([['c', { range_type: '1', shape_type: '1' }], ['p', { range_type: '2' }]]);
+    const hits = animationHits([
+      { clip: 'Attack1', variation_index: '0', hits: '1' },
+      { clip: 'Sp1', variation_index: '0', hits: '2' },
+      { clip: 'Sp1', variation_index: '1', hits: '2' },
+      { clip: 'Sp3', variation_index: '0', hits: '4' },
+    ]);
+    const row = {
+      m_character_attack_group_id_normal: 'n',
+      m_character_attack_group_id_heavy1: 'h1',
+      m_character_attack_group_id_heavy2: 'h2',
+      m_character_attack_group_id_heavy3: 'h3',
+      m_character_attack_group_id_ex: 'ex',
+    };
+    const attacks = buildAttacks(dict, row, attacksByGroup, collisions, hits);
+
+    expect(attacks.normal.steps.map((s) => s.hits)).toEqual([1, null]);
+    expect(attacks.heavy1).toMatchObject({ hits: null, steps: [{ hits: 2 }, { hits: 2 }] });
+    expect(attacks.heavy2.steps[0].hits).toBe(1);
+    expect(attacks.heavy3).toMatchObject({ hits: 4, steps: [{ hits: null }, { hits: null }] });
+    expect(attacks.ex.steps[0].hits).toBeNull();
+    expect(buildAttacks(dict, row, attacksByGroup, collisions).heavy1.steps[0].hits).toBeNull();
   });
 });

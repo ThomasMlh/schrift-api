@@ -5,7 +5,7 @@
 import { createDictionary } from './dictionary.js';
 import { destructionTrait, extraTrait, linkTrait, passiveTrait, treeTrait } from './traits.js';
 import { filterType } from './traitFilters.js';
-import { buildAttacks } from './attacks.js';
+import { animationHits, buildAttacks } from './attacks.js';
 
 export const GAME_TABLES = [
   'm_character',
@@ -32,6 +32,9 @@ export const GAME_TABLES = [
   'm_bonus_ability_slot',
   'm_character_effect_priority',
 ];
+
+// Tables the sync reads when present: attack_hits is extracted from the model bundles (tools/attack-hits)
+export const OPTIONAL_GAME_TABLES = ['attack_hits'];
 
 export const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
 
@@ -108,6 +111,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
   const attacksByGroup = groupBy(tables.m_character_attack, 'group_id');
   const statusUps = groupBy(tables.m_ability_status_up_give_abnormality ?? [], 'group_id');
   const collisions = new Map((tables.m_attack_collision ?? []).map((r) => [r.id, r]));
+  const hitsByModel = groupBy(tables.attack_hits ?? [], 'resource_3d_id');
   const gachas = new Map((tables.m_gacha ?? []).map((r) => [r.id, r]));
   const gachaGroups = new Map((tables.m_gacha_group ?? []).map((r) => [r.id, r]));
   const layoutsByUnit = groupBy(tables.m_gacha_layout ?? [], 'content_id');
@@ -192,7 +196,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
     return {
       game_id: Number(row.id),
       special_effects: specialEffects(row),
-      attacks: buildAttacks(dict, row, attacksByGroup, collisions),
+      attacks: buildAttacks(dict, row, attacksByGroup, collisions, animationHits(hitsByModel.get(row.resource_3d_id))),
       release_date: gameDate(row.start_date),
       stats,
       stats_tiers: { ...tiers, soul_tree: treeStats },

@@ -53,7 +53,19 @@ api/index.js         # alternative entrypoint for Vercel (serverless function)
 tests/                # Jest tests, one folder per domain
 dev/                  # one-off scripts (migrations, debugging, indexes) — not run in CI
 scripts/              # data import/rebuild scripts (characters, guides...)
+tools/attack-hits/    # Python extractor of the melee hit counts from the game model bundles
 ```
+
+### Attack hits
+
+The game tables only count the hits of projectiles. Melee hits are read from the animation events of the model bundles (`rmfs/<resource_3d_id>.byte`, plain Unity files): each hit window is one hit.
+
+```
+pip install -r tools/attack-hits/requirements.txt
+python tools/attack-hits/extract_attack_hits.py <rmfs folder> attack_hits.csv
+```
+
+Put `attack_hits.csv` next to the other tables of the primary language (`game-db/fr`). The sync reads it when present; units whose model is missing from rmfs keep an unknown hit count.
 
 Two entrypoints coexist: `src/server.js` (long-running process, listens on `PORT`, used for classic cPanel deployment) and `api/index.js` (serverless-adapted, caches the Mongo connection across invocations, used by `vercel.json`). Both mount the same `src/routes/index.js` router.
 

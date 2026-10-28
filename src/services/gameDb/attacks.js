@@ -1,7 +1,8 @@
 /**
  * Attacks of a unit (m_character_attack), with the area they hit (m_attack_collision): one entry per
  * attack button (normal combo, strong attacks 1-3, special, EX move), one step per hit of a combo.
- * Distances are game units, durations milliseconds.
+ * Distances are game units, durations milliseconds. The tables only count the hits of projectiles:
+ * melee hits come from the animations of the model (attack_hits, see tools/attack-hits).
  */
 const COLORS = { red: 'R', blue: 'B' };
 
@@ -64,14 +65,22 @@ export const attackShape = (collision) => {
   return { kind: 'sector', radius: number(collision.collision_radius), angle: number(collision.collision_angle) || 360 };
 };
 
-const attackStep = (dict, row, collisions) => ({
+// Hits of a step: projectiles from the table, melee from the hit windows of its animation, null when unknown
+const stepHits = (row, shape, windows) => {
+  const projectiles = number(row.projectile_multiple_hit_num);
+  if (projectiles > 0) return projectiles;
+  if (shape?.kind === 'projectile') return 1;
+  return windows || null;
+};
+
+const attackStep = (dict, row, collisions, windows) => ({
   step: number(row.atk_number),
   // Second part of the same hit (e.g. the blast after a strong attack lands)
   variant: number(row.variation_index) ?? 0,
   power: number(row.magnification_sum),
   // Weapon of the attack (fist, sword, bow, kidô...), picks the button icon in the game interface
   weapon: number(row.weapon_attribute),
-  hits: Math.max(1, number(row.projectile_multiple_hit_num) ?? 0),
+  hits: stepHits(row, attackShape(collisions.get(row.m_attack_collision_id)), windows),
   knockdown: row.do_down === '1',
   // Advanced strong attack (spiked button in the game) and double strike
   advanced: row.is_advanced_heavy_attack === '1',
@@ -100,15 +109,36 @@ const attackStep = (dict, row, collisions) => ({
 
 export const ATTACK_BUTTONS = ['normal', 'heavy1', 'heavy2', 'heavy3', 'ex', 'extra_action'];
 
+// Animation of each button; the normal combo plays Attack1, Attack2... one per step
+const CLIPS = { heavy1: 'Sp1', heavy2: 'Sp2', heavy3: 'Sp3', ex: 'Skill', extra_action: 'Extra' };
+
+// attack_hits rows of one model -> windows(clip, variation) and total(clip)
+export const animationHits = (rows = []) => {
+  const counts = new Map(rows.map((r) => [`${r.clip}|${Number(r.variation_index) || 0}`, Number(r.hits) || 0]));
+  const totals = new Map();
+  for (const r of rows) totals.set(r.clip, (totals.get(r.clip) ?? 0) + (Number(r.hits) || 0));
+  return {
+    windows: (clip, variation) => counts.get(`${clip}|${variation}`) ?? 0,
+    total: (clip) => totals.get(clip) ?? 0,
+  };
+};
+
+const NO_HITS = animationHits();
+
 // Attack buttons of a unit, hits in order (a hit and its second part, variation_index, side by side)
-export const buildAttacks = (dict, row, attacksByGroup, collisions) => Object.fromEntries(ATTACK_BUTTONS
+export const buildAttacks = (dict, row, attacksByGroup, collisions, hits = NO_HITS) => Object.fromEntries(ATTACK_BUTTONS
   .map((button) => {
     const rows = [...(attacksByGroup.get(row[`m_character_attack_group_id_${button}`]) ?? [])]
       .sort((a, b) => Number(a.atk_number) - Number(b.atk_number) || Number(a.variation_index || 0) - Number(b.variation_index || 0));
     if (rows.length === 0) return [button, null];
+    // A strong attack with several steps (e.g. a follow-up) plays one animation for all of them: its
+    // windows cannot be shared out, only their total is known
+    const shared = button !== 'normal' && new Set(rows.map((attack) => attack.atk_number)).size > 1;
+    const clipOf = (attack) => (button === 'normal' ? `Attack${number(attack.atk_number)}` : CLIPS[button]);
     return [button, {
       cooldown: Math.max(...rows.map((attack) => number(attack.cooltime) ?? 0)) || null,
-      steps: rows.map((attack) => attackStep(dict, attack, collisions)),
+      hits: shared ? hits.total(CLIPS[button]) || null : null,
+      steps: rows.map((attack) => attackStep(dict, attack, collisions, shared ? 0 : hits.windows(clipOf(attack), number(attack.variation_index) ?? 0))),
     }];
   })
   .filter(([, attack]) => attack));
