@@ -46,11 +46,21 @@ describe('game summons', () => {
     expect((await banner(866)).image_status).toBe('pending');
     expect((await banner(868)).image_status).toBe('missing');
 
+    // rmfs is read through the FTP, not over HTTP
     const uploads = [];
-    const ftp = { uploadBuffer: async (buffer, path) => uploads.push(path) };
-    global.fetch = async (url) => (url.includes('_867_') ? { ok: false, status: 404 } : { ok: true, arrayBuffer: async () => new ArrayBuffer(4) });
+    const reads = [];
+    const ftp = {
+      uploadBuffer: async (buffer, path) => uploads.push(path),
+      downloadBuffer: async (path) => {
+        reads.push(path);
+        if (path.includes('_867_')) throw Object.assign(new Error('550'), { status: 404 });
+        return Buffer.from('png');
+      },
+    };
+    global.fetch = async () => { throw new Error('no HTTP expected'); };
     expect(await uploadGameBanners(db, ftp, 10)).toEqual({ uploaded: 1, processed: 2 });
     expect(uploads).toEqual(['/bucket.bbs-schrift.fr/banners/gacha_866.png']);
+    expect(reads).toEqual(['/bucket.bbs-schrift.fr/rmfs/Localize/bn_gacha_limited_866_sub.png', '/bucket.bbs-schrift.fr/rmfs/Localize/bn_gacha_limited_867_sub.png']);
     expect((await banner(867)).image_status).toBe('missing');
 
     // Next sync: 866 is kept as uploaded, 867 is tried again

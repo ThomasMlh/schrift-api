@@ -1,5 +1,5 @@
 import * as ftp from "basic-ftp";
-import { Readable } from "stream";
+import { Readable, Writable } from "stream";
 import { logger } from './logger.js';
 
 export class FTPUploader {
@@ -58,6 +58,21 @@ export class FTPUploader {
    * @param {Buffer} buffer - File content
    * @param {string} remotePath - FTP destination path
    */
+  // Missing file: status 404. Its existence is checked first, as this server drops the connection
+  // when a download of a missing file is attempted.
+  async downloadBuffer(remotePath) {
+    try {
+      await this.client.size(remotePath);
+    } catch (err) {
+      if (err.code === 550) throw Object.assign(new Error(`Fichier introuvable : ${remotePath}`), { status: 404 });
+      throw err;
+    }
+    const chunks = [];
+    const sink = new Writable({ write: (chunk, encoding, done) => { chunks.push(chunk); done(); } });
+    await this.client.downloadTo(sink, remotePath);
+    return Buffer.concat(chunks);
+  }
+
   async uploadBuffer(buffer, remotePath) {
     const dir = remotePath.substring(0, remotePath.lastIndexOf("/"));
     await this.client.ensureDir(dir);
