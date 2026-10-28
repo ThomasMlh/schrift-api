@@ -30,6 +30,7 @@ export const GAME_TABLES = [
   'm_accessory_second_effect_lot_stop_type',
   'm_constant',
   'm_bonus_ability_slot',
+  'm_character_effect_priority',
 ];
 
 export const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
@@ -111,6 +112,9 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
   const gachaGroups = new Map((tables.m_gacha_group ?? []).map((r) => [r.id, r]));
   const layoutsByUnit = groupBy(tables.m_gacha_layout ?? [], 'content_id');
   const destructionBonuses = groupBy(tables.m_destruction_bonus ?? [], 'group_id');
+  // Display order of the abilities in the game, highest first; types it does not list keep their place at the end
+  const effectPriority = new Map((tables.m_character_effect_priority ?? []).map((r) => [r.type, Number(r.priority) || 0]));
+  const byPriority = (traits) => [...traits].sort((a, b) => (effectPriority.get(b.type) ?? -1) - (effectPriority.get(a.type) ?? -1));
 
   // Kinds of special attack, as the game's "special effects" filter groups them
   const filled = (value) => Boolean(value) && value !== '0';
@@ -177,10 +181,10 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
     const stats = maxTier ? Object.fromEntries(Object.entries(maxTier).map(([key, v]) => [key, v + treeStats[key]])) : null;
 
     const traits = {
-      link: [...link].map(([type, value]) => linkTrait(dict, type, value)),
-      passive: (passives.get(row.m_passive_ability_group_id) ?? []).map((p) => passiveTrait(dict, p)),
-      tree: [...treeAbilities.values()].map(({ type, value }) => treeTrait(dict, type, value, statusUps)),
-      ex: [row.m_extra_ability_id1, row.m_extra_ability_id2].filter((id) => extras.has(id)).map((id) => extraTrait(dict, extras.get(id), statusUps)),
+      link: byPriority([...link].map(([type, value]) => linkTrait(dict, type, value))),
+      passive: byPriority((passives.get(row.m_passive_ability_group_id) ?? []).map((p) => passiveTrait(dict, p))),
+      tree: byPriority([...treeAbilities.values()].map(({ type, value }) => treeTrait(dict, type, value, statusUps))),
+      ex: byPriority([row.m_extra_ability_id1, row.m_extra_ability_id2].filter((id) => extras.has(id)).map((id) => extraTrait(dict, extras.get(id), statusUps))),
       destruction: (destructionBonuses.get(row.m_destruction_bonus_group_id) ?? [])
         .sort((a, b) => Number(a.destruction_count) - Number(b.destruction_count))
         .map((bonus) => destructionTrait(dict, bonus)),
@@ -214,6 +218,8 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
         stats: resurrection?.stats ?? details.stats,
         base_stats: details.stats,
         resource_2d_id: row.resource_2d_id || null,
+        // Order of the game's character book, higher = more recent: sorts units released the same day
+        book_order: Number(row.book_order) || null,
         identity: row.chara_identity_id || null,
         name: textOf(names) ?? `#${row.id}`,
         names,
