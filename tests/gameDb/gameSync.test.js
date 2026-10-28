@@ -126,6 +126,14 @@ describe('POST /api/characters/game-sync', () => {
     expect(meta.body.filter_groups.skill.map((c) => c.types.map((t) => t.type))).toEqual([['shunpo_up_num']]);
     expect(await names('skills=shunpo_up_num')).toEqual([61001]);
     expect(await names('soul_traits=shunpo_up_num')).toEqual([]);
+    // Perfect match needs every entry, partial match one of them
+    expect(await names('skills=shunpo_up_num,heal_up_rate')).toEqual([]);
+    expect(await names('skills=shunpo_up_num,heal_up_rate&skills_match=any')).toEqual([61001]);
+    // Several affinities, categories or killers: one of them is enough
+    expect((await names('affinity=Force,Vitesse')).sort()).toEqual([61001, 65115]);
+    expect(await names('affinity=Force,Technique')).toEqual([61001]);
+    expect((await names('killer=Hollow,Quincy')).sort()).toEqual([61001, 65115]);
+    expect((await names('category=Shinigami')).sort()).toEqual([61001, 65115]);
     expect(meta.body.trait_filters).toEqual([
       { id: 2, label: { fr: 'Capacités augmentées' }, priority: 900, types: [{ type: 'shunpo_up_num', label: { fr: 'Rapidité' } }] },
     ]);
