@@ -15,6 +15,7 @@ const router = express.Router();
 // Query parameter -> group of `filters` on the character
 const FILTER_GROUP_PARAMS = { soul_traits: 'link', ex_skills: 'ex', skills: 'skill', special: 'special', destruction: 'destruction' };
 const FILTER_GROUPS = Object.values(FILTER_GROUP_PARAMS);
+const LIST_EXCLUDED_FIELDS = { attacks: 0, stats_tiers: 0, 'resurrection.attacks': 0, 'resurrection.stats_tiers': 0 };
 
 router.use(requireDb);
 
@@ -265,10 +266,10 @@ router.get("/", async (req, res) => {
       ];
     }
 
-    // Sorted by ascending sort_order (0 = most recent)
+    // Sorted by ascending sort_order (0 = most recent); the attack details are only read by the character page
     const characters = await req.db
       .collection("characters")
-      .find(query)
+      .find(query, { projection: LIST_EXCLUDED_FIELDS })
       .sort({ sort_order: 1, release_date: -1 })
       .skip(skip)
       .limit(limit)
