@@ -9,7 +9,7 @@ import { changedFields, gameUpdate, imageUpdate, newCharacter } from './characte
 import { createDictionary } from './dictionary.js';
 import { reconcileCharacters } from './reconcile.js';
 import { buildDestructionFilters, buildSpecialFilters, buildTraitFilters } from './traitFilters.js';
-import { loadGameTables } from './source.js';
+import { loadGameData } from './source.js';
 import { mergeDuplicates } from './mergeDuplicates.js';
 import { buildGameBanners, GAME_BANNER_SOURCE, legacyBannersFilter, removeLegacyBanners, saveGameBanners } from './banners.js';
 
@@ -38,7 +38,7 @@ const previewOf = (plan, languages) => {
       firstLinks: plan.updates.filter((u) => u.method !== 'game_id').length,
       updated: changed.length,
       created: plan.created.length,
-      newImages: plan.updates.filter((u) => u.images).length + plan.created.length,
+      newImages: plan.updates.filter((u) => u.images?.pending.length).length + plan.created.length,
       duplicates: plan.duplicates.length,
       unmatched: plan.unmatched.length,
       ambiguous: plan.ambiguous.length,
@@ -55,13 +55,13 @@ const previewOf = (plan, languages) => {
 };
 
 export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
-  const tables = await loadGameTables(GAME_TABLES);
-  const dict = createDictionary(tables.m_dictionary);
+  const { tables, translations } = await loadGameData(GAME_TABLES);
+  const dict = createDictionary(tables.m_dictionary, translations);
   const gameCharacters = buildCharacters(tables, dict);
   const siteCharacters = await db.collection('characters').find({}).toArray();
   const plan = planGameSync(siteCharacters, gameCharacters);
   const preview = previewOf(plan, dict.languages);
-  const banners = buildGameBanners(gameCharacters);
+  const banners = buildGameBanners(gameCharacters, translations.map((t) => t.language));
   const knownBanners = new Set(await db.collection('banners').distinct('gacha_group_id', { source: GAME_BANNER_SOURCE }));
   preview.statistics.banners = banners.length;
   preview.statistics.newBanners = banners.filter((b) => !knownBanners.has(b.gacha_group_id)).length;
@@ -86,9 +86,9 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
     ...plan.updates.filter((u) => u.changes.length > 0 || u.images).map((u) => ({
       updateOne: {
         filter: { _id: u.doc._id },
-        update: u.images
+        update: u.images?.pending.length
           ? { $set: { ...u.set, ...u.images.set }, $addToSet: { images_pending: { $each: u.images.pending } } }
-          : { $set: u.set },
+          : { $set: { ...u.set, ...u.images?.set } },
       },
     })),
     ...plan.created.map((doc) => ({ insertOne: { document: doc } })),

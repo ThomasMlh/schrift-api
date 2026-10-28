@@ -3,7 +3,7 @@
  * fields entered by hand on the site (version_name, banner, NAD/SAD, immunities, images...) are kept.
  */
 import { toSearchName } from '../characterSource.js';
-import { rmfsImages } from './source.js';
+import { rmfsImages, withLanguageFolder } from './source.js';
 import { GAME_IMAGE_REVISIONS, IMAGE_TARGETS, changedImageTargets } from '../characterImages.js';
 
 // Fields always taken from the game
@@ -45,18 +45,20 @@ export const newCharacter = (game, now = new Date()) => ({
 // Images come from the game files: the targets whose source changed are uploaded again.
 // The legacy silhouette is dropped, the game artwork is complete on its own.
 export const imageUpdate = (game, doc) => {
-  const next = { ...(doc.source_images ?? {}), ...rmfsImages(game), silhouette: null };
+  // URLs stored before rmfs had language folders name the same files: moving them is no reason to upload
+  const stored = Object.fromEntries(Object.entries(doc.source_images ?? {}).map(([key, url]) => [key, withLanguageFolder(url)]));
+  const next = { ...stored, ...rmfsImages(game), silhouette: null };
   // Images prepared with an older treatment are uploaded again (revision 1 before revisions existed)
   const outdated = Object.entries(GAME_IMAGE_REVISIONS)
     .filter(([key, revision]) => next[key] && (doc.images_revisions?.[key] ?? 1) < revision)
     .map(([key]) => key);
-  const pending = [...new Set([...changedImageTargets(doc.source_images, next), ...outdated])];
-  if (pending.length === 0) return null;
+  const pending = [...new Set([...changedImageTargets(stored, next), ...outdated])];
+  const moved = Object.keys(next).some((key) => (doc.source_images?.[key] ?? null) !== (next[key] ?? null));
+  if (pending.length === 0 && !moved) return null;
   return {
     set: Object.fromEntries([
       ...Object.entries(next).map(([key, url]) => [`source_images.${key}`, url ?? null]),
-      ['images_uploaded', false],
-      ['images_revisions', GAME_IMAGE_REVISIONS],
+      ...(pending.length > 0 ? [['images_uploaded', false], ['images_revisions', GAME_IMAGE_REVISIONS]] : []),
     ]),
     pending,
   };
