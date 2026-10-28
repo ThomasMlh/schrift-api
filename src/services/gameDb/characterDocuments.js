@@ -4,7 +4,7 @@
  */
 import { toSearchName } from '../characterSource.js';
 import { rmfsImages } from './source.js';
-import { IMAGE_TARGETS, changedImageTargets } from '../characterImages.js';
+import { GAME_IMAGE_REVISIONS, IMAGE_TARGETS, changedImageTargets } from '../characterImages.js';
 
 // Fields always taken from the game
 const GAME_FIELDS = [
@@ -37,6 +37,7 @@ export const newCharacter = (game, now = new Date()) => ({
   source_images: rmfsImages(game),
   images_pending: IMAGE_TARGETS.filter((target) => rmfsImages(game)[target.sources[0]]).map((target) => target.key),
   images_uploaded: false,
+  images_revisions: GAME_IMAGE_REVISIONS,
   created_by_game_sync: true,
   created_at: now,
 });
@@ -45,10 +46,18 @@ export const newCharacter = (game, now = new Date()) => ({
 // The legacy silhouette is dropped, the game artwork is complete on its own.
 export const imageUpdate = (game, doc) => {
   const next = { ...(doc.source_images ?? {}), ...rmfsImages(game), silhouette: null };
-  const pending = changedImageTargets(doc.source_images, next);
+  // Images prepared with an older treatment are uploaded again (revision 1 before revisions existed)
+  const outdated = Object.entries(GAME_IMAGE_REVISIONS)
+    .filter(([key, revision]) => next[key] && (doc.images_revisions?.[key] ?? 1) < revision)
+    .map(([key]) => key);
+  const pending = [...new Set([...changedImageTargets(doc.source_images, next), ...outdated])];
   if (pending.length === 0) return null;
   return {
-    set: Object.fromEntries([...Object.entries(next).map(([key, url]) => [`source_images.${key}`, url ?? null]), ['images_uploaded', false]]),
+    set: Object.fromEntries([
+      ...Object.entries(next).map(([key, url]) => [`source_images.${key}`, url ?? null]),
+      ['images_uploaded', false],
+      ['images_revisions', GAME_IMAGE_REVISIONS],
+    ]),
     pending,
   };
 };

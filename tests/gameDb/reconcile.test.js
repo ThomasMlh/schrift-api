@@ -85,9 +85,11 @@ describe('character documents', () => {
       'source_images.attack': 'att',
       'source_images.quote_en': 'en',
     });
-    // Once stored, nothing changes until the game files do
+    // Once stored, nothing changes until the game files or the image treatments do
     const stored = Object.fromEntries(Object.entries(update.set).filter(([k]) => k.startsWith('source_images.')).map(([k, v]) => [k.slice('source_images.'.length), v]));
-    expect(imageUpdate(game, { source_images: stored })).toBeNull();
+    expect(imageUpdate(game, { source_images: stored, images_revisions: update.set.images_revisions })).toBeNull();
+    // A character uploaded before the black quote background gets its quote again, only that
+    expect(imageUpdate(game, { source_images: stored }).pending).toEqual(['quote']);
   });
 
   it('lists the changed fields for the preview', () => {

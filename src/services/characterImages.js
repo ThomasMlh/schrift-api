@@ -45,6 +45,20 @@ const download = async (url) => {
 // The game artwork sits at the bottom of a square canvas, the rest is transparent
 export const trimTransparent = (image) => sharp(image).trim().png().toBuffer();
 
+// The game quote is white text on a transparent background, edge to edge: laid on black with a margin
+// so it reads on any page
+const BLACK = { r: 0, g: 0, b: 0, alpha: 1 };
+export const onBlackBackground = (image) => sharp(image)
+  .flatten({ background: BLACK })
+  .extend({ top: 40, bottom: 40, left: 60, right: 60, background: BLACK })
+  .png()
+  .toBuffer();
+
+// How each game image is prepared before upload. Bump GAME_IMAGE_REVISIONS when a treatment changes:
+// the next sync uploads that image again for every character.
+const GAME_IMAGE_PROCESSING = { artwork: trimTransparent, quote: onBlackBackground };
+export const GAME_IMAGE_REVISIONS = { thumbnail: 1, artwork: 1, quote: 2 };
+
 /**
  * Uploads one target. Returns true when the stored file matches the source, 'missing' when a game
  * image does not exist (not every unit has a quote or a banner in the game files), false to retry:
@@ -58,7 +72,8 @@ export const uploadImageTarget = async (ftp, target, sources, characterId) => {
   if (isGameImage(main)) {
     try {
       const image = await downloadGameFile(ftp, main);
-      await ftp.uploadBuffer(target.key === 'artwork' ? await trimTransparent(image) : image, path);
+      const prepare = GAME_IMAGE_PROCESSING[target.key];
+      await ftp.uploadBuffer(prepare ? await prepare(image) : image, path);
       return true;
     } catch (err) {
       if (err.status === 404 || err.status === 403) return 'missing';
