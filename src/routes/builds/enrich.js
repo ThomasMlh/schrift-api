@@ -89,9 +89,9 @@ export const enrichTeams = async (teams, db) => {
       m.id_character,
       ...(Array.isArray(m.links) ? m.links.map((l) => l.id_character) : []),
     ]), CHARACTER_FIELDS),
-    loadByIds(db, 'skills', members.flatMap((m) => (Array.isArray(m.skills) ? m.skills : [])), { name: 1 }),
-    loadByIds(db, 'accessories', accessories.map((a) => a.id_accessory), { name: 1, code: 1 }),
-    loadByIds(db, 'accessories_subeffect', accessories.map((a) => a.id_subeffect), { name: 1 }),
+    loadByIds(db, 'skills', members.flatMap((m) => (Array.isArray(m.skills) ? m.skills : [])), { name: 1, names: 1, value: 1, format: 1 }),
+    loadByIds(db, 'accessories', accessories.map((a) => a.id_accessory), { name: 1, names: 1, code: 1, rarity: 1, effect: 1, same_affinity_rate: 1 }),
+    loadByIds(db, 'accessories_subeffect', accessories.map((a) => a.id_subeffect), { name: 1, names: 1, value: 1 }),
   ]);
 
   const enrichMember = (member) => {

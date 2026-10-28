@@ -25,12 +25,17 @@ export const GAME_TABLES = [
   'm_gacha_layout',
   'm_destruction_bonus',
   'm_character_filter',
+  'm_accessory',
+  'm_accessory_effect',
+  'm_accessory_second_effect_lot_stop_type',
+  'm_constant',
+  'm_bonus_ability_slot',
 ];
 
-const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
+export const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
 
 // Killer and category names as the site already stores them
-const BELONG_TYPES = {
+export const BELONG_TYPES = {
   captain: 'Capitaine',
   espadas: 'Espada',
   hollow: 'Hollow',

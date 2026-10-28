@@ -15,7 +15,9 @@ router.get('/', async (req, res) => {
     const query = {};
 
     if (search && search.trim()) {
-      query.name = { $regex: search.trim(), $options: 'i' };
+      // French or English name
+      const pattern = { $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+      query.$or = [{ name: pattern }, { 'names.en': pattern }];
     }
 
     const subeffects = await req.db.collection('accessories_subeffect')

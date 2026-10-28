@@ -5,10 +5,10 @@
 export const LANGUAGES = ['fr', 'en', 'ja', 'ko', 'th', 'sc', 'tc'];
 
 // The game writes markup in brackets: [nbsp], [sup]e[/sup], [ff0000]colors[-]...
-export const cleanMarkup = (text) => text
+export const cleanMarkup = (text, lineBreak = ' ') => text
   .replace(/\[nbsp\]/g, ' ')
   .replace(/\[\/?[a-z0-9-]*\]/gi, '')
-  .replace(/[ \t]*\n[ \t]*/g, ' ')
+  .replace(/[ \t]*\n[ \t]*/g, lineBreak)
   .trim();
 
 const fill = (text, values) => text.replace(/\{(\w+)\}/g, (match, name) => (values[name] ?? match));
@@ -27,10 +27,10 @@ export const createDictionary = (rows, translations = []) => {
   const languages = LANGUAGES.filter((lang) => [...byKey.values()].some((texts) => texts[lang]));
 
   // { fr: '...', en: '...' } with placeholders filled, or null when the key is unknown
-  const text = (key, values = {}) => {
+  const text = (key, values = {}, lineBreak = ' ') => {
     const texts = key ? byKey.get(key) : null;
     if (!texts) return null;
-    return Object.fromEntries(Object.entries(texts).map(([lang, raw]) => [lang, cleanMarkup(fill(raw, values))]));
+    return Object.fromEntries(Object.entries(texts).map(([lang, raw]) => [lang, cleanMarkup(fill(raw, values), lineBreak)]));
   };
 
   const has = (key) => byKey.has(key);

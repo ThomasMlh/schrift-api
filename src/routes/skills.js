@@ -15,12 +15,14 @@ router.get('/', async (req, res) => {
     const query = {};
 
     if (search && search.trim()) {
-      query.name = { $regex: search.trim(), $options: 'i' };
+      // French or English name
+      const pattern = { $regex: search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+      query.$or = [{ name: pattern }, { 'names.en': pattern }];
     }
 
     const skills = await req.db.collection('skills')
       .find(query)
-      .sort({ name: 1 })
+      .sort({ priority: -1, name: 1 })
       .toArray();
 
     res.json({
