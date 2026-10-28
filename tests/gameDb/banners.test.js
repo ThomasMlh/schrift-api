@@ -82,6 +82,11 @@ describe('game summons', () => {
     expect(await db.collection('banners').countDocuments()).toBe(4);
   });
 
+  it('does not queue a visual the game files do not have', async () => {
+    await saveGameBanners(db, buildGameBanners([{ game_id: 2, banners: [summon(900)] }], ['en']), new Date(), (url) => !url.includes('/en/'));
+    expect((await banner(900)).images_pending).toEqual(['fr']);
+  });
+
   it('removes the banners entered on the site once, and never a game summon', async () => {
     await db.collection('characters').insertOne({ name: 'Ichigo', banner_id: 'old' });
     expect(await removeLegacyBanners(db)).toBe(1);
@@ -90,6 +95,6 @@ describe('game summons', () => {
     // A later sync whose tables no longer list 868 adds 869 and keeps every known summon
     await saveGameBanners(db, buildGameBanners([{ game_id: 1, banners: [summon(869)] }]));
     expect(await removeLegacyBanners(db)).toBe(0);
-    expect((await db.collection('banners').find().toArray()).map((b) => b.gacha_group_id).sort()).toEqual([866, 867, 868, 869]);
+    expect((await db.collection('banners').find().toArray()).map((b) => b.gacha_group_id).sort()).toEqual([866, 867, 868, 869, 900]);
   });
 });

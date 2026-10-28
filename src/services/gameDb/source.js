@@ -38,12 +38,46 @@ export const withLanguageFolder = (url) => {
   return `${prefix}${PRIMARY_LANGUAGE}/${url.slice(prefix.length)}`;
 };
 
-// Game images of a unit in rmfs; the quote does not exist for every unit
-export const rmfsImages = (game) => (game.resource_2d_id ? {
-  thumbnail: rmfsUrl(`Characters/${game.resource_2d_id}/thumb.png`),
-  artwork: rmfsUrl(`Characters/${game.resource_2d_id}/stand_gacha.png`),
-  quote: rmfsUrl(`CharacterGacha/TexturesDialog/dialog_${game.resource_2d_id}.png`),
-} : {});
+// rmfs folders whose files are listed before a sync, so only images that exist get queued for upload
+export const indexedRmfsFolders = (languages) => [
+  `${PRIMARY_LANGUAGE}/CharacterGacha/TexturesDialog`,
+  ...[PRIMARY_LANGUAGE, ...languages].map((language) => `${language}/Localize`),
+];
+
+// exists(url): false for a file missing from a listed folder; anything else is assumed present
+export const createRmfsIndex = async (folders) => {
+  const listed = new Map();
+  if (process.env.FTP_HOST) {
+    const ftp = new FTPUploader();
+    try {
+      await ftp.connect();
+      for (const folder of folders) {
+        const path = `${RMFS_FTP_PATH()}/${folder}`;
+        listed.set(path, new Set((await ftp.client.list(path).catch(() => [])).map((item) => item.name)));
+      }
+    } finally {
+      await ftp.disconnect().catch(() => {});
+    }
+  }
+  return (url) => {
+    const path = rmfsFtpPath(url);
+    if (!path) return true;
+    const slash = path.lastIndexOf('/');
+    const names = listed.get(path.slice(0, slash));
+    return names ? names.has(path.slice(slash + 1)) : true;
+  };
+};
+
+// Game images of a unit in rmfs; the quote is left out when the game files do not have it
+export const rmfsImages = (game, exists = () => true) => {
+  if (!game.resource_2d_id) return {};
+  const quote = rmfsUrl(`CharacterGacha/TexturesDialog/dialog_${game.resource_2d_id}.png`);
+  return {
+    thumbnail: rmfsUrl(`Characters/${game.resource_2d_id}/thumb.png`),
+    artwork: rmfsUrl(`Characters/${game.resource_2d_id}/stand_gacha.png`),
+    ...(exists(quote) ? { quote } : {}),
+  };
+};
 
 const downloadText = async (ftp, remotePath) => (await ftp.downloadBuffer(remotePath)).toString('utf8');
 

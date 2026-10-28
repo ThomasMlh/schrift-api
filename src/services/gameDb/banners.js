@@ -45,7 +45,8 @@ export const buildGameBanners = (gameCharacters, languages = []) => {
   return [...byGroup.values()];
 };
 
-export const saveGameBanners = async (db, banners, now = new Date()) => {
+// exists(url) tells whether a visual is in rmfs: only those are queued for upload
+export const saveGameBanners = async (db, banners, now = new Date(), exists = () => true) => {
   if (banners.length === 0) return { created: 0 };
   const result = await db.collection('banners').bulkWrite(banners.map(({ translation_sources: sources, ...banner }) => ({
     updateOne: {
@@ -63,7 +64,7 @@ export const saveGameBanners = async (db, banners, now = new Date()) => {
     },
   })), { ordered: false });
 
-  // Every visual not copied yet is looked for again: this sync may come with a newer rmfs
+  // A visual not copied yet is queued as soon as the game files have it
   const languages = [PRIMARY_LANGUAGE, ...new Set(banners.flatMap((b) => Object.keys(b.translation_sources)))];
   const docs = await db.collection('banners').find({ source: GAME_BANNER_SOURCE }).toArray();
   const ops = docs.map((doc) => ({
@@ -73,7 +74,8 @@ export const saveGameBanners = async (db, banners, now = new Date()) => {
         $set: {
           images_pending: languages.filter((language) => {
             const { source, status } = imageFields(language);
-            return valueAt(doc, source) && valueAt(doc, status) !== 'uploaded';
+            const url = valueAt(doc, source);
+            return url && valueAt(doc, status) !== 'uploaded' && exists(url);
           }),
         },
       },
@@ -81,6 +83,20 @@ export const saveGameBanners = async (db, banners, now = new Date()) => {
   }));
   if (ops.length > 0) await db.collection('banners').bulkWrite(ops, { ordered: false });
   return { created: result.upsertedCount };
+};
+
+// Visuals a sync would queue: present in rmfs and not copied yet, for the preview
+export const countBannerImagesToQueue = async (db, banners, exists = () => true) => {
+  const stored = new Map((await db.collection('banners').find({ source: GAME_BANNER_SOURCE }).toArray()).map((doc) => [doc.gacha_group_id, doc]));
+  let count = 0;
+  for (const banner of banners) {
+    const doc = stored.get(banner.gacha_group_id);
+    const sources = { [PRIMARY_LANGUAGE]: banner.image_source, ...banner.translation_sources };
+    for (const [language, url] of Object.entries(sources)) {
+      if (url && exists(url) && valueAt(doc, imageFields(language).status) !== 'uploaded') count += 1;
+    }
+  }
+  return count;
 };
 
 const pendingFilter = { source: GAME_BANNER_SOURCE, 'images_pending.0': { $exists: true } };
