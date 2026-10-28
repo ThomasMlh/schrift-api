@@ -5,6 +5,7 @@
 import { createDictionary } from './dictionary.js';
 import { destructionTrait, extraTrait, linkTrait, passiveTrait, treeTrait } from './traits.js';
 import { filterType } from './traitFilters.js';
+import { buildAttacks } from './attacks.js';
 
 export const GAME_TABLES = [
   'm_character',
@@ -182,6 +183,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
     return {
       game_id: Number(row.id),
       special_effects: specialEffects(row),
+      attacks: buildAttacks(dict, row, attacksByGroup, collisions),
       release_date: gameDate(row.start_date),
       stats,
       stats_tiers: { ...tiers, soul_tree: treeStats },
