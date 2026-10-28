@@ -72,10 +72,8 @@ describe('game accessories', () => {
     expect(ring.effects_by_affinity.map((v) => [v.affinities, v.effect.values])).toEqual([[[null], [30]], [['Technique'], [60]]]);
   });
 
-  it('keeps the highest value of each second effect, with and without the affinity bonus', () => {
-    expect(buildSubeffects(tables, dict)).toEqual([{
-      game_type: 'hp_up', value: 80, name: 'Endurance +80 %', names: { fr: 'Endurance +80 %' }, base_value: 40, base_names: { fr: 'Endurance +40 %' },
-    }]);
+  it('keeps the highest value of each second effect, without affinity bonus', () => {
+    expect(buildSubeffects(tables, dict)).toEqual([{ game_type: 'hp_up', value: 40, name: 'Endurance +40 %', names: { fr: 'Endurance +40 %' } }]);
   });
 
   it('replaces the accessories entered by hand and keeps the ids of game ones', async () => {

@@ -1,8 +1,8 @@
 /**
  * Accessories and their second effects, from the game tables, as builds use them. Only the strongest
  * version of each accessory is kept: 5★+ when the game has one, 5★ otherwise, its effect at the max level.
- * An accessory of the character's affinity has its effects multiplied (x2): builds assume it matches, so
- * values include that bonus, except for accessories without affinity. Accessories are keyed by the game identity (game_identity_id), second effects by their type.
+ * An accessory of the character's affinity has its main effect multiplied (x2): builds assume it matches,
+ * so values include that bonus, except for accessories without affinity. Second effects have no bonus. Accessories are keyed by the game identity (game_identity_id), second effects by their type.
  */
 import { AFFINITIES, BELONG_TYPES } from './buildCharacters.js';
 import { PRIMARY_LANGUAGE, rmfsUrl } from './source.js';
@@ -73,26 +73,16 @@ export const buildAccessories = (tables, dict) => {
   });
 };
 
-// Second effects, each at its highest value: with the affinity bonus, and without it (base_*) for the
-// accessories that have no affinity
+// Second effects, each at its highest value
 export const buildSubeffects = (tables, dict) => {
-  const rate = sameAffinityRate(tables);
   const best = new Map();
   for (const row of tables.m_accessory_second_effect_lot_stop_type) {
     const value = number(row.border_max_parameter);
     if (value && value > (best.get(row.target_effect_type) ?? 0)) best.set(row.target_effect_type, value);
   }
-  return [...best.entries()].map(([type, baseValue]) => {
-    const value = times(baseValue, rate);
+  return [...best.entries()].map(([type, value]) => {
     const text = dict.text(`accessory_effect_${type}_detail`, { value1: value });
-    return {
-      game_type: type,
-      value,
-      name: text?.[PRIMARY_LANGUAGE] ?? type,
-      names: text,
-      base_value: baseValue,
-      base_names: dict.text(`accessory_effect_${type}_detail`, { value1: baseValue }),
-    };
+    return { game_type: type, value, name: text?.[PRIMARY_LANGUAGE] ?? type, names: text };
   });
 };
 
