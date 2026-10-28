@@ -91,8 +91,11 @@ describe('raffle service', () => {
   });
 
   it('draws once, freezes the tickets, and can be cancelled', async () => {
-    const { draw, announcement } = await drawGuildRaffle(db, { month: '2026-09', guildId, user, announceOnDiscord: false });
+    // The token only holds the Discord id: the name comes from the account
+    await db.collection('users').insertOne({ discord_id: 'admin', global_name: 'Admin' });
+    const { draw, announcement } = await drawGuildRaffle(db, { month: '2026-09', guildId, user: { discord_id: 'admin' }, announceOnDiscord: false });
     expect(announcement).toBe('skipped');
+    expect(draw.drawn_by).toEqual({ discord_id: 'admin', name: 'Admin' });
     expect(['1', '2']).toContain(draw.winner.bbs_id);
     expect(draw.total_tickets).toBe(draw.entrants.reduce((sum, p) => sum + p.tickets, 0));
     expect(draw.ticket_number).toBeGreaterThanOrEqual(1);
