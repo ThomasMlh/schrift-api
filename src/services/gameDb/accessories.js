@@ -1,7 +1,8 @@
 /**
  * Accessories and their second effects, from the game tables, as builds use them. Only the strongest
  * version of each accessory is kept: 5★+ when the game has one, 5★ otherwise, its effect at the max level.
- * Accessories are keyed by the game identity (game_identity_id), second effects by their type.
+ * An accessory of the character's affinity has its effects multiplied (x2): builds assume it matches, so
+ * values include that bonus, except for accessories without affinity. Accessories are keyed by the game identity (game_identity_id), second effects by their type.
  */
 import { AFFINITIES, BELONG_TYPES } from './buildCharacters.js';
 import { PRIMARY_LANGUAGE, rmfsUrl } from './source.js';
@@ -9,16 +10,22 @@ import { PRIMARY_LANGUAGE, rmfsUrl } from './source.js';
 const TOP_RARITY = '5';
 const NO_AFFINITY = '6';
 
+// Multiplier of the effects when the accessory has the affinity of the character
+const sameAffinityRate = (tables) => Number(tables.m_constant?.find((row) => row.id === 'accessory.same_attribute_bonus_rate')?.value) || 1;
+const times = (value, rate) => Math.round(value * rate * 100) / 100;
+
 const number = (value) => (value === '' || value === undefined || Number.isNaN(Number(value)) ? null : Number(value));
 
 // Effect at its max level: up to 4 values filling {value1}...{value4} of the effect text
-const effectOf = (dict, effect) => {
+const effectOf = (dict, effect, rate) => {
   if (!effect) return null;
-  const values = [1, 2, 3, 4].map((i) => number(effect[`parameter_max_${i}`])).filter((v, i) => effect[`effect_type_${i + 1}`] && v);
+  const baseValues = [1, 2, 3, 4].map((i) => number(effect[`parameter_max_${i}`])).filter((v, i) => effect[`effect_type_${i + 1}`] && v);
+  const values = baseValues.map((v) => times(v, rate));
   const placeholders = Object.fromEntries(values.map((v, i) => [`value${i + 1}`, v]));
   return {
     type: effect.detail_dictkey_part,
     values,
+    base_values: baseValues,
     targets: (effect.target_belong_types || '').split('&').map((t) => BELONG_TYPES[t]).filter(Boolean),
     killers: (effect.target_killer_types || '').split('&').map((t) => BELONG_TYPES[t]).filter(Boolean),
     text: dict.text(`accessory_effect_${effect.detail_dictkey_part}_detail`, placeholders),
@@ -26,6 +33,7 @@ const effectOf = (dict, effect) => {
 };
 
 export const buildAccessories = (tables, dict) => {
+  const rate = sameAffinityRate(tables);
   const effects = new Map(tables.m_accessory_effect.map((e) => [e.id, e]));
   const byIdentity = new Map();
   for (const row of tables.m_accessory.filter((a) => a.rarity === TOP_RARITY)) {
@@ -39,13 +47,14 @@ export const buildAccessories = (tables, dict) => {
     // The affinity versions of an accessory usually share their effect; one per distinct effect otherwise
     const variants = new Map();
     for (const row of kept) {
-      const effect = effectOf(dict, effects.get(row.m_accessory_effect_id));
+      const effect = effectOf(dict, effects.get(row.m_accessory_effect_id), row.attribute === NO_AFFINITY ? 1 : rate);
       const key = JSON.stringify(effect);
       if (!variants.has(key)) variants.set(key, { effect, affinities: [] });
       variants.get(key).affinities.push(row.attribute === NO_AFFINITY ? null : AFFINITIES[row.attribute] ?? null);
     }
     const first = kept[0];
     const names = dict.text(first.name);
+    const withAffinity = kept.some((r) => r.attribute !== NO_AFFINITY);
     return {
       game_identity_id: Number(identityId),
       name: names?.[PRIMARY_LANGUAGE] ?? Object.values(names ?? {})[0] ?? `#${identityId}`,
@@ -54,6 +63,8 @@ export const buildAccessories = (tables, dict) => {
       code: first.resource_2d_id,
       rarity: plus ? '5★+' : '5★',
       affinities: [...new Set(kept.map((r) => (r.attribute === NO_AFFINITY ? null : AFFINITIES[r.attribute] ?? null)))],
+      // Bonus already counted in the effect values, null for an accessory without affinity
+      same_affinity_rate: withAffinity && rate !== 1 ? rate : null,
       effect: [...variants.values()][0].effect,
       // Only when the affinity versions have different effects
       effects_by_affinity: variants.size > 1 ? [...variants.values()] : null,
@@ -62,16 +73,26 @@ export const buildAccessories = (tables, dict) => {
   });
 };
 
-// Second effects, each at its highest value
+// Second effects, each at its highest value: with the affinity bonus, and without it (base_*) for the
+// accessories that have no affinity
 export const buildSubeffects = (tables, dict) => {
+  const rate = sameAffinityRate(tables);
   const best = new Map();
   for (const row of tables.m_accessory_second_effect_lot_stop_type) {
     const value = number(row.border_max_parameter);
     if (value && value > (best.get(row.target_effect_type) ?? 0)) best.set(row.target_effect_type, value);
   }
-  return [...best.entries()].map(([type, value]) => {
+  return [...best.entries()].map(([type, baseValue]) => {
+    const value = times(baseValue, rate);
     const text = dict.text(`accessory_effect_${type}_detail`, { value1: value });
-    return { game_type: type, value, name: text?.[PRIMARY_LANGUAGE] ?? type, names: text };
+    return {
+      game_type: type,
+      value,
+      name: text?.[PRIMARY_LANGUAGE] ?? type,
+      names: text,
+      base_value: baseValue,
+      base_names: dict.text(`accessory_effect_${type}_detail`, { value1: baseValue }),
+    };
   });
 };
 

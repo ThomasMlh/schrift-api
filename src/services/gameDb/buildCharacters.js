@@ -28,6 +28,7 @@ export const GAME_TABLES = [
   'm_accessory',
   'm_accessory_effect',
   'm_accessory_second_effect_lot_stop_type',
+  'm_constant',
 ];
 
 export const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };

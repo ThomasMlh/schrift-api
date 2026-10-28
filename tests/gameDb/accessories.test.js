@@ -47,7 +47,9 @@ const tables = {
     accessory('11', '1', '5', false, 'e2'),
     accessory('12', '1', '5', true, 'e3'),
     accessory('20', '2', '5', false, 'e2'),
+    accessory('21', '1', '5', true, 'e3', '1'),
   ],
+  m_constant: [{ id: 'accessory.same_attribute_bonus_rate', value: '2' }],
   m_accessory_effect: [effect('e1', 10), effect('e2', 20), effect('e3', 30)],
   m_accessory_second_effect_lot_stop_type: [
     { target_effect_type: 'hp_up', border_max_parameter: '20' },
@@ -58,13 +60,22 @@ const tables = {
 describe('game accessories', () => {
   it('keeps the 5★+ version when there is one, the 5★ one otherwise, at the max level', () => {
     const [ring, necklace] = buildAccessories(tables, dict);
-    expect(ring).toMatchObject({ game_identity_id: 1, name: 'Bague', rarity: '5★+', code: 'acc_1', effect: { values: [30], text: { fr: 'Attaque +30 %' } } });
-    expect(necklace).toMatchObject({ game_identity_id: 2, rarity: '5★', effect: { values: [20] }, effects_by_affinity: null });
+    expect(ring).toMatchObject({ game_identity_id: 1, name: 'Bague', rarity: '5★+', code: 'acc_1' });
+    expect(necklace).toMatchObject({ game_identity_id: 2, rarity: '5★', effect: { values: [20] }, effects_by_affinity: null, same_affinity_rate: null });
     expect(ring.image_source).toMatch(/\/fr\/Accessories\/acc_1\/thumb\.png$/);
   });
 
-  it('keeps the highest value of each second effect', () => {
-    expect(buildSubeffects(tables, dict)).toEqual([{ game_type: 'hp_up', value: 40, name: 'Endurance +40 %', names: { fr: 'Endurance +40 %' } }]);
+  it('doubles the effect of an accessory of the character affinity', () => {
+    const [ring] = buildAccessories(tables, dict);
+    expect(ring.same_affinity_rate).toBe(2);
+    // The no-affinity version keeps its value, the affinity one is doubled
+    expect(ring.effects_by_affinity.map((v) => [v.affinities, v.effect.values])).toEqual([[[null], [30]], [['Technique'], [60]]]);
+  });
+
+  it('keeps the highest value of each second effect, with and without the affinity bonus', () => {
+    expect(buildSubeffects(tables, dict)).toEqual([{
+      game_type: 'hp_up', value: 80, name: 'Endurance +80 %', names: { fr: 'Endurance +80 %' }, base_value: 40, base_names: { fr: 'Endurance +40 %' },
+    }]);
   });
 
   it('replaces the accessories entered by hand and keeps the ids of game ones', async () => {
