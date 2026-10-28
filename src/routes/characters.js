@@ -266,7 +266,7 @@ router.get("/", async (req, res) => {
       ];
     }
 
-    // Sorted by ascending sort_order (0 = most recent); the attack details are only read by the character page
+    // Sorted by ascending sort_order (game character book order); the attack details are only read by the character page
     const characters = await req.db
       .collection("characters")
       .find(query, { projection: LIST_EXCLUDED_FIELDS })
@@ -416,7 +416,7 @@ router.get("/search", async (req, res) => {
       ]
     };
 
-    // Sorted by ascending sort_order (0 = most recent)
+    // Sorted by ascending sort_order (game character book order)
     const characters = await req.db
       .collection("characters")
       .find(searchQuery)

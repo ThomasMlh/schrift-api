@@ -173,6 +173,19 @@ describe('buildCharacters', () => {
     expect(ninny.filter_types).toEqual(expect.arrayContaining(['sp_atk_range_up_rate', 'last_atk_dmg_up_rate_heavy', 'last_atk_dmg_up_rate_ex']));
   });
 
+  it('orders the abilities like the game, types it does not rank last', () => {
+    const types = ninny.traits.tree.map((t) => t.type);
+    const ranked = { ...tables(), m_character_effect_priority: [{ type: types[2], priority: '200' }, { type: types[3], priority: '100' }] };
+    expect(buildCharacters(ranked)[0].traits.tree.map((t) => t.type)).toEqual([types[2], types[3], types[0], types[1]]);
+  });
+
+  it('keeps the order of the game character book', () => {
+    const tablesWithBook = tables();
+    tablesWithBook.m_character[0] = { ...tablesWithBook.m_character[0], book_order: '4095' };
+    expect(buildCharacters(tablesWithBook)[0].book_order).toBe(4095);
+    expect(ninny.book_order).toBeNull();
+  });
+
   it('groups the abilities like the game filter, with special effects and elimination bonuses', () => {
     expect(ninny.filters).toEqual({
       link: ['last_atk_dmg_up_rate_heavy'],

@@ -59,7 +59,11 @@ export const reorderCharactersByReleaseDate = async (db) => {
     return isNaN(parsed.getTime()) ? new Date('1900-01-01') : parsed;
   };
 
+  // Order of the game's character book (alternate versions sit next to their original unit), then
+  // most recent first for units the book does not list
   const sorted = allCharacters.sort((a, b) => {
+    const book = (b.book_order ?? -1) - (a.book_order ?? -1);
+    if (book !== 0) return book;
     const diff = parseDate(b.release_date).getTime() - parseDate(a.release_date).getTime();
     return diff !== 0 ? diff : (a.name || '').localeCompare(b.name || '');
   });

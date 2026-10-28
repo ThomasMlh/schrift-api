@@ -112,6 +112,6 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   await saveGameBanners(db, banners, new Date(), exists);
   await saveAccessories(db, accessories, subeffects, new Date(), exists);
   await saveBonusAbilities(db, bonusAbilities);
-  if (plan.created.length > 0 || plan.updates.some((u) => u.changes.includes('release_date'))) await reorderCharactersByReleaseDate(db);
+  if (plan.created.length > 0 || plan.updates.some((u) => u.changes.some((field) => field === 'release_date' || field === 'book_order'))) await reorderCharactersByReleaseDate(db);
   return { dryRun: false, ...preview, merged };
 };

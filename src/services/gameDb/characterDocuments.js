@@ -8,7 +8,7 @@ import { GAME_IMAGE_REVISIONS, IMAGE_TARGETS, changedImageTargets } from '../cha
 
 // Fields always taken from the game
 const GAME_FIELDS = [
-  'game_id', 'resource_2d_id', 'identity', 'name', 'names', 'short_names', 'game_version', 'affinity', 'killers',
+  'game_id', 'book_order', 'resource_2d_id', 'identity', 'name', 'names', 'short_names', 'game_version', 'affinity', 'killers',
   'categories', 'is_growth_event', 'stats', 'base_stats', 'stats_tiers', 'traits', 'special', 'profile', 'quote',
   'filter_types', 'filters', 'special_effects', 'attacks', 'resurrection', 'banners',
 ];
