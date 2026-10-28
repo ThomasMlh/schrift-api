@@ -8,9 +8,9 @@ const dict = createDictionary([
 
 describe('attacks', () => {
   it('reads combined and "+" statuses', () => {
-    expect(parseStatuses(dict, 'Wek&Ero_Plus')).toEqual([
-      { code: 'wek', plus: false, name: { fr: 'Faiblesse' } },
-      { code: 'ero', plus: true, name: { fr: 'Érosion' } },
+    expect(parseStatuses(dict, 'Wek&Ero_Plus', '0&2', '3000')).toEqual([
+      { code: 'wek', plus: false, name: { fr: 'Faiblesse' }, probability: 0, duration: 3000 },
+      { code: 'ero', plus: true, name: { fr: 'Érosion' }, probability: 2, duration: 3000 },
     ]);
     expect(parseStatuses(dict, 'none')).toEqual([]);
   });
@@ -24,7 +24,7 @@ describe('attacks', () => {
     })).toEqual({ kind: 'projectile', width: 100, length: 150, range: 1000, impact_radius: 275 });
   });
 
-  it('lists each attack button with its combo steps, without alternate versions', () => {
+  it('lists each attack button with its combo steps, a hit and its second part side by side', () => {
     const attacksByGroup = new Map([
       ['n', [
         { atk_number: '2', variation_index: '0', magnification_sum: '100', m_attack_collision_id: 'c', status_effect_type: 'Wek', status_effect_probability: '22', status_effect_time: '8000', cooltime: '0' },
@@ -38,8 +38,8 @@ describe('attacks', () => {
 
     expect(Object.keys(attacks)).toEqual(['normal', 'heavy1']);
     expect(attacks.normal.cooldown).toBeNull();
-    expect(attacks.normal.steps.map((s) => [s.step, s.power])).toEqual([[1, 90], [2, 100]]);
-    expect(attacks.normal.steps[1]).toMatchObject({ statuses: [{ code: 'wek' }], status_probability: 22, status_duration: 8000, shape: { kind: 'sector', radius: 375 } });
+    expect(attacks.normal.steps.map((s) => [s.step, s.variant, s.power])).toEqual([[1, 0, 90], [1, 1, 999], [2, 0, 100]]);
+    expect(attacks.normal.steps[2]).toMatchObject({ statuses: [{ code: 'wek', probability: 22 }], status_probability: 22, status_duration: 8000, shape: { kind: 'sector', radius: 375 } });
     expect(attacks.heavy1).toMatchObject({ cooldown: 8000, steps: [{ power: 120, weapon: 2, hits: 3, knockdown: true, color: 'B', heal: 20, shape: null }] });
   });
 });
