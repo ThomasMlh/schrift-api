@@ -47,6 +47,9 @@ export const INDEXES = [
   { collection: 'characters', key: { 'banners.gacha_group_id': 1 } },
   // Game summons, stored with the banners entered on the site
   { collection: 'banners', key: { gacha_group_id: 1 }, options: { unique: true, sparse: true } },
+  // Game accessories and second effects, keyed by their game identity
+  { collection: 'accessories', key: { game_identity_id: 1 }, options: { unique: true, sparse: true } },
+  { collection: 'accessories_subeffect', key: { game_type: 1 }, options: { unique: true, sparse: true } },
 ];
 
 // Creates every index; one failure (e.g. duplicates blocking a unique index) does not stop the others.
