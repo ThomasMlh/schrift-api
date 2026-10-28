@@ -183,7 +183,14 @@ export const getGuildRaffle = async (db, { month: monthKey, guildId }) => {
   };
 };
 
-const author = (user) => ({ discord_id: user?.discord_id ?? null, name: user?.global_name || user?.username || null });
+// The token only carries the Discord id: the name shown in the history is read from the account
+const author = async (db, user) => {
+  const discordId = user?.discord_id ?? null;
+  const account = discordId
+    ? await db.collection('users').findOne({ discord_id: discordId }, { projection: { global_name: 1, username: 1 } })
+    : null;
+  return { discord_id: discordId, name: account?.global_name || account?.username || user?.global_name || user?.username || null };
+};
 
 const assertNotDrawn = async (db, monthKey, guildId) => {
   const doc = await db.collection('raffle_months').findOne({ _id: monthDocId(monthKey, guildId) }, { projection: { draw: 1 } });
@@ -202,7 +209,7 @@ export const setGuildRank = async (db, { month, guildId, rank, tickets, user }) 
   await db.collection('raffle_months').updateOne(
     { _id: monthDocId(month, guildId) },
     {
-      $set: { month, guild_id: guildId, rank, rank_tickets: tickets, rank_updated_by: author(user), updated_at: new Date() },
+      $set: { month, guild_id: guildId, rank, rank_tickets: tickets, rank_updated_by: await author(db, user), updated_at: new Date() },
       $unset: { s_rank: '', s_rank_updated_by: '' },
     },
     { upsert: true }
@@ -221,7 +228,7 @@ export const setGuildLifeTicket = async (db, { month, guildId, bbsId, bbsName, k
   if (checked) {
     await db.collection('raffle_tickets').updateOne(
       key,
-      { $set: { ...key, bbs_name: bbsName ?? null, count: 1, created_by: author(user), created_at: new Date() } },
+      { $set: { ...key, bbs_name: bbsName ?? null, count: 1, created_by: await author(db, user), created_at: new Date() } },
       { upsert: true }
     );
   } else {
@@ -242,7 +249,7 @@ export const setSchriftSince = async (db, { guildId, bbsId, since, user }) => {
   if (date.getTime() > Date.now()) throw httpError(400, 'La date d\'arrivée ne peut pas être dans le futur');
   await db.collection('raffle_members').updateOne(
     { _id: String(bbsId) },
-    { $set: { schrift_since: date, updated_by: author(user), updated_at: new Date() } },
+    { $set: { schrift_since: date, updated_by: await author(db, user), updated_at: new Date() } },
     { upsert: true }
   );
 };
@@ -259,7 +266,7 @@ export const addBonusTicket = async (db, { month, guildId, bbsId, bbsName, label
 
   await db.collection('raffle_tickets').insertOne({
     month, guild_id: guildId, bbs_id: String(bbsId), bbs_name: bbsName ?? null, kind: 'bonus', period: null,
-    label: text, count: tickets, created_by: author(user), created_at: new Date(),
+    label: text, count: tickets, created_by: await author(db, user), created_at: new Date(),
   });
 };
 
@@ -311,7 +318,7 @@ export const drawGuildRaffle = async (db, { month, guildId, user, announceOnDisc
     prize: raffle.prize,
     entrants: entrants.map((p) => ({ bbs_id: p.bbs_id, bbs_name: p.bbs_name, tickets: p.tickets })),
     drawn_at: new Date(),
-    drawn_by: author(user),
+    drawn_by: await author(db, user),
   };
 
   // The filter refuses a second concurrent draw
