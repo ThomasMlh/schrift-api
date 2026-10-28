@@ -55,6 +55,8 @@ export const attackShape = (collision) => {
 const attackStep = (dict, row, collisions) => ({
   step: number(row.atk_number),
   power: number(row.magnification_sum),
+  // Weapon of the attack (fist, sword, bow, kidô...), picks the button icon in the game interface
+  weapon: number(row.weapon_attribute),
   hits: Math.max(1, number(row.projectile_multiple_hit_num) ?? 0),
   knockdown: row.do_down === '1',
   color: COLORS[row.atk_color] ?? null,
