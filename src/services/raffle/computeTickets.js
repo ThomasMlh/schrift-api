@@ -88,8 +88,11 @@ export const computeRaffleTickets = ({
     .map((p) => ({ player: p, average: [...p.scores.values()].reduce((a, b) => a + b, 0) / p.scores.size }));
   const monthRanks = rankBy(ranked, (e) => e.average);
   const monthTop = new Set(ranked.filter((e) => monthRanks.get(e) <= RAFFLE_RULES.monthTop).map((e) => e.player.bbs_id));
-  const averages = ranked.map((e) => e.average);
-  const collectiveGap = averages.length > 1 ? Math.max(...averages) - Math.min(...averages) : null;
+  const byAverage = [...ranked].sort((a, b) => b.average - a.average);
+  const collectiveGap = byAverage.length > 1 ? byAverage[0].average - byAverage[byAverage.length - 1].average : null;
+  const averageOf = new Map(ranked.map((e) => [e.player.bbs_id, e.average]));
+  // The two players the collective gap is measured between
+  const extreme = (entry) => ({ bbs_id: entry.player.bbs_id, bbs_name: entry.player.bbs_name, average: Math.round(entry.average) });
   const tightGuild = collectiveGap !== null && collectiveGap < RAFFLE_RULES.collectiveGap;
 
   const manualOf = (bbsId, kind) => manual.filter((m) => m.bbs_id === bbsId && m.kind === kind);
@@ -123,6 +126,8 @@ export const computeRaffleTickets = ({
       bbs_id: p.bbs_id,
       bbs_name: p.bbs_name,
       rotations_played: p.scores.size,
+      // Monthly average used for the top 5 and the collective gap, null below half of the rotations
+      month_average: averageOf.has(p.bbs_id) ? Math.round(averageOf.get(p.bbs_id)) : null,
       worst_gap: worstGap === null ? null : Math.round(worstGap),
       years,
       breakdown,
@@ -138,6 +143,7 @@ export const computeRaffleTickets = ({
   return {
     rotations: playedRotations.length,
     collective_gap: collectiveGap === null ? null : Math.round(collectiveGap),
+    collective_extremes: collectiveGap === null ? null : { best: extreme(byAverage[0]), worst: extreme(byAverage[byAverage.length - 1]) },
     total_tickets: results.reduce((sum, r) => sum + r.tickets, 0),
     players: results,
   };

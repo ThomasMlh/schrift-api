@@ -85,6 +85,11 @@ describe('computeRaffleTickets', () => {
     const result = computeRaffleTickets({ rotations, scores: scoresFor(tight), rankTickets: 3, monthEnd: MONTH_END });
     expect(result.collective_gap).toBe(500_000);
     expect(result.players.every((p) => p.breakdown.rank === 3 && p.breakdown.collective_gap === 0)).toBe(true);
+    expect(result.collective_extremes).toEqual({
+      best: { bbs_id: 'p1', bbs_name: 'p1', average: 620_000_000 },
+      worst: { bbs_id: 'p6', bbs_name: 'p6', average: 619_500_000 },
+    });
+    expect(byId(result).get('p3').month_average).toBe(619_800_000);
 
     const tighter = computeRaffleTickets({ rotations, scores: scoresFor(tight.slice(0, 5)), monthEnd: MONTH_END });
     expect(tighter.players.every((p) => p.breakdown.collective_gap === 1)).toBe(true);
