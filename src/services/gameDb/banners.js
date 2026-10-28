@@ -3,7 +3,7 @@
  * banners entered on the site. Their list visual is copied once from rmfs to the bucket: rmfs only
  * holds the summons the game client cached, a later dump may no longer have it.
  */
-import { rmfsUrl } from './source.js';
+import { downloadGameFile, rmfsUrl } from './source.js';
 
 export const GAME_BANNER_SOURCE = 'game';
 const BUCKET_FOLDER = '/bucket.bbs-schrift.fr/banners';
@@ -52,12 +52,6 @@ export const saveGameBanners = async (db, banners, now = new Date()) => {
   return { created: result.upsertedCount };
 };
 
-const download = async (url) => {
-  const response = await fetch(url);
-  if (!response.ok) return { status: response.status };
-  return { buffer: Buffer.from(await response.arrayBuffer()) };
-};
-
 // Copies pending summon visuals to the bucket; a visual rmfs does not have is marked missing
 export const uploadGameBanners = async (db, ftp, limit) => {
   const pending = await db.collection('banners')
@@ -66,7 +60,9 @@ export const uploadGameBanners = async (db, ftp, limit) => {
     .toArray();
   let uploaded = 0;
   for (const banner of pending) {
-    const { buffer, status } = await download(banner.image_source).catch(() => ({ status: 0 }));
+    const { buffer, status } = await downloadGameFile(ftp, banner.image_source)
+      .then((data) => ({ buffer: data }))
+      .catch((err) => ({ status: err.status ?? 0 }));
     if (buffer) {
       await ftp.uploadBuffer(buffer, gameBannerImagePath(banner.gacha_group_id));
       uploaded += 1;

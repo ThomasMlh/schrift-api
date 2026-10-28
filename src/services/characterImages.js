@@ -4,6 +4,7 @@
  */
 import sharp from 'sharp';
 import { logger } from '../utils/logger.js';
+import { downloadGameFile } from './gameDb/source.js';
 
 const BUCKET_ROOT = '/bucket.bbs-schrift.fr/characters';
 
@@ -56,7 +57,7 @@ export const uploadImageTarget = async (ftp, target, sources, characterId) => {
 
   if (isGameImage(main)) {
     try {
-      const image = await download(main);
+      const image = await downloadGameFile(ftp, main);
       await ftp.uploadBuffer(target.key === 'artwork' ? await trimTransparent(image) : image, path);
       return true;
     } catch (err) {
