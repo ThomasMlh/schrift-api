@@ -13,12 +13,15 @@ export const cleanMarkup = (text) => text
 
 const fill = (text, values) => text.replace(/\{(\w+)\}/g, (match, name) => (values[name] ?? match));
 
-export const createDictionary = (rows) => {
+// translations: dictionaries dumped from clients in other languages, they only add the languages missing
+export const createDictionary = (rows, translations = []) => {
   const byKey = new Map();
-  for (const row of rows) {
-    const texts = {};
-    for (const lang of LANGUAGES) if (row[`content_${lang}`]) texts[lang] = row[`content_${lang}`];
-    if (Object.keys(texts).length > 0) byKey.set(row.dictkey, texts);
+  for (const source of [rows, ...translations.map((t) => t.rows)]) {
+    for (const row of source) {
+      const texts = byKey.get(row.dictkey) ?? {};
+      for (const lang of LANGUAGES) if (row[`content_${lang}`] && !texts[lang]) texts[lang] = row[`content_${lang}`];
+      if (Object.keys(texts).length > 0) byKey.set(row.dictkey, texts);
+    }
   }
 
   const languages = LANGUAGES.filter((lang) => [...byKey.values()].some((texts) => texts[lang]));

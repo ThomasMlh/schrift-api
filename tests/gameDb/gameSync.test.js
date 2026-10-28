@@ -1,7 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -63,7 +63,11 @@ const siteId = new ObjectId();
 beforeAll(async () => {
   process.env.JWT_SECRET = JWT_SECRET;
   dir = mkdtempSync(join(tmpdir(), 'game-db-'));
-  for (const name of GAME_TABLES) writeFileSync(join(dir, `${name}.csv`), csv(TABLES[name] ?? [{ id: '' }]));
+  // One folder per client language: the French dump gives the data, the English one its texts
+  mkdirSync(join(dir, 'fr'));
+  mkdirSync(join(dir, 'en'));
+  for (const name of GAME_TABLES) writeFileSync(join(dir, 'fr', `${name}.csv`), csv(TABLES[name] ?? [{ id: '' }]));
+  writeFileSync(join(dir, 'en', 'm_dictionary.csv'), csv([{ dictkey: 'lb_ICG', content_en: 'Ichigo Kurosaki EN' }]));
   process.env.GAME_DB_DIR = dir;
 
   mongod = await MongoMemoryServer.create();
@@ -98,7 +102,7 @@ describe('POST /api/characters/game-sync', () => {
   it('only simulates by default', async () => {
     const res = await sync({});
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ dryRun: true, languages: ['fr'], statistics: { linked: 1, firstLinks: 1, created: 1 } });
+    expect(res.body).toMatchObject({ dryRun: true, languages: ['fr', 'en'], statistics: { linked: 1, firstLinks: 1, created: 1 } });
     expect(await db.collection('characters').countDocuments()).toBe(1);
   });
 
@@ -107,6 +111,7 @@ describe('POST /api/characters/game-sync', () => {
     expect(res.body.statistics).toMatchObject({ updated: 1, created: 1 });
 
     const linked = await db.collection('characters').findOne({ _id: siteId });
+    expect(linked.names).toEqual({ fr: 'Ichigo Kurosaki', en: 'Ichigo Kurosaki EN' });
     expect(linked).toMatchObject({ game_id: 61001, search_name: 'Ichigo Bankai', version_name: 'Bankai', release_date: '30/12/2024', killers: ['Hollow'] });
     const created = await db.collection('characters').findOne({ game_id: 65115 });
     expect(created).toMatchObject({ name: 'Ichigo Refine', affinity: 'Vitesse', release_date: '01/01/2025', images_pending: ['thumbnail', 'artwork', 'quote'] });

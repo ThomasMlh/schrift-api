@@ -21,3 +21,6 @@ dev/
 scripts/
 .vercel
 .env*
+
+# Temporary scripts run from the repository root
+/.*.mjs

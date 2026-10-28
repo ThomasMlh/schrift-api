@@ -34,17 +34,22 @@ const banner = (id) => db.collection('banners').findOne({ gacha_group_id: id });
 
 describe('game summons', () => {
   it('builds one banner per summon with the characters featured in it', () => {
-    const banners = buildGameBanners(characters);
+    const banners = buildGameBanners(characters, ['en']);
     expect(banners.map((b) => [b.gacha_group_id, b.character_game_ids])).toEqual([[866, [65116, 65122]], [867, [65122]], [868, [65122]]]);
-    expect(banners[0]).toMatchObject({ name: 'Loterie 866', image_source: 'https://bucket.bbs-schrift.fr/rmfs/Localize/bn_gacha_limited_866_sub.png' });
+    // One visual per client language, each in its rmfs language folder
+    expect(banners[0]).toMatchObject({
+      name: 'Loterie 866',
+      image_source: 'https://bucket.bbs-schrift.fr/rmfs/fr/Localize/bn_gacha_limited_866_sub.png',
+      translation_sources: { en: 'https://bucket.bbs-schrift.fr/rmfs/en/Localize/bn_gacha_limited_866_sub.png' },
+    });
   });
 
-  it('copies each visual once, and looks again at the next sync for those rmfs did not have', async () => {
+  it('copies each visual once per language, and looks again at the next sync for those rmfs did not have', async () => {
     await db.collection('banners').insertOne({ name: 'Bannière du site', url: 'https://x/banner.png' });
-    await saveGameBanners(db, buildGameBanners(characters));
+    await saveGameBanners(db, buildGameBanners(characters, ['en']));
     expect(await db.collection('banners').countDocuments()).toBe(4);
-    expect((await banner(866)).image_status).toBe('pending');
-    expect((await banner(868)).image_status).toBe('missing');
+    expect((await banner(866)).images_pending).toEqual(['fr', 'en']);
+    expect((await banner(868)).images_pending).toEqual([]);
 
     // rmfs is read through the FTP, not over HTTP
     const uploads = [];
@@ -53,20 +58,27 @@ describe('game summons', () => {
       uploadBuffer: async (buffer, path) => uploads.push(path),
       downloadBuffer: async (path) => {
         reads.push(path);
-        if (path.includes('_867_')) throw Object.assign(new Error('550'), { status: 404 });
+        if (path.includes('_867_') || path.includes('/en/')) throw Object.assign(new Error('550'), { status: 404 });
         return Buffer.from('png');
       },
     };
     global.fetch = async () => { throw new Error('no HTTP expected'); };
     expect(await uploadGameBanners(db, ftp, 10)).toEqual({ uploaded: 1, processed: 2 });
     expect(uploads).toEqual(['/bucket.bbs-schrift.fr/banners/gacha_866.png']);
-    expect(reads).toEqual(['/bucket.bbs-schrift.fr/rmfs/Localize/bn_gacha_limited_866_sub.png', '/bucket.bbs-schrift.fr/rmfs/Localize/bn_gacha_limited_867_sub.png']);
-    expect((await banner(867)).image_status).toBe('missing');
+    expect(reads).toContain('/bucket.bbs-schrift.fr/rmfs/fr/Localize/bn_gacha_limited_866_sub.png');
+    expect(reads).toContain('/bucket.bbs-schrift.fr/rmfs/en/Localize/bn_gacha_limited_866_sub.png');
+    expect(await banner(867)).toMatchObject({ image_status: 'missing', images_pending: [] });
+    expect((await banner(866)).translations.en.image_status).toBe('missing');
 
-    // Next sync: 866 is kept as uploaded, 867 is tried again
-    await saveGameBanners(db, buildGameBanners(characters));
-    expect((await banner(866)).image_status).toBe('uploaded');
-    expect((await banner(867)).image_status).toBe('pending');
+    // The English visual arrives with a newer rmfs: copied next to the French one
+    await saveGameBanners(db, buildGameBanners(characters, ['en']));
+    expect((await banner(866)).images_pending).toEqual(['en']);
+    expect((await banner(867)).images_pending).toEqual(['fr', 'en']);
+    ftp.downloadBuffer = async () => Buffer.from('png');
+    uploads.length = 0;
+    await uploadGameBanners(db, ftp, 10);
+    expect(uploads).toEqual(expect.arrayContaining(['/bucket.bbs-schrift.fr/banners/gacha_866.en.png', '/bucket.bbs-schrift.fr/banners/gacha_867.png']));
+    expect(uploads).not.toContain('/bucket.bbs-schrift.fr/banners/gacha_866.png');
     expect(await db.collection('banners').countDocuments()).toBe(4);
   });
 
