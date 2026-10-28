@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
 
     const skills = await req.db.collection('skills')
       .find(query)
-      .sort({ name: 1 })
+      .sort({ priority: -1, name: 1 })
       .toArray();
 
     res.json({

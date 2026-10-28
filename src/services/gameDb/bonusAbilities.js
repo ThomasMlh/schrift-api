@@ -24,7 +24,8 @@ export const buildBonusAbilities = (tables, dict) => tables.m_bonus_ability_slot
     // Shown next to the name: "15 %" for percent, "+200" for plus, nothing otherwise
     value: FORMATS.has(row.format) && value ? value : null,
     format: FORMATS.has(row.format) ? row.format : null,
-    sort_order: Number(row.sort_order_bonus_ability_filter) || null,
+    // Order of the game lists, highest first: stats, survival, resistances, drops, killers...
+    priority: Number(row.priority) || 0,
   };
 });
 

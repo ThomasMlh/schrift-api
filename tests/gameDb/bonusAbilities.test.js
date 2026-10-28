@@ -25,8 +25,8 @@ const texts = {
   soullink_heal: { fr: 'Permanence\nBattles seulement', en: 'Prevent Brave Battle Healing' },
 };
 const dict = { text: (key) => texts[key] ?? null };
-const row = (id, type, view, format, description, sort) => ({
-  id, type, view_parameter: view, format, description, sort_order_bonus_ability_filter: sort,
+const row = (id, type, view, format, description, priority) => ({
+  id, type, view_parameter: view, format, description, priority,
 });
 const tables = {
   m_bonus_ability_slot: [
@@ -38,7 +38,7 @@ const tables = {
 describe('game bonus abilities', () => {
   it('builds one skill per bonus ability with its names and value', () => {
     expect(buildBonusAbilities(tables, dict)).toEqual([
-      { game_id: 1, game_type: 'dmg_invalid_probability', name: 'Esquive', names: { fr: 'Esquive', en: 'Dodge' }, value: 15, format: 'percent', sort_order: 9 },
+      { game_id: 1, game_type: 'dmg_invalid_probability', name: 'Esquive', names: { fr: 'Esquive', en: 'Dodge' }, value: 15, format: 'percent', priority: 9 },
       {
         game_id: 22,
         game_type: 'team_battle_heal_canceller',
@@ -46,7 +46,7 @@ describe('game bonus abilities', () => {
         names: { fr: 'Permanence (Battles seulement)', en: 'Prevent Brave Battle Healing' },
         value: null,
         format: null,
-        sort_order: 30,
+        priority: 30,
       },
     ]);
   });
