@@ -12,6 +12,10 @@ import { ensureIndexes } from '../services/dbIndexes.js';
 
 const router = express.Router();
 
+// Query parameter -> group of `filters` on the character
+const FILTER_GROUP_PARAMS = { soul_traits: 'link', ex_skills: 'ex', skills: 'skill', special: 'special', destruction: 'destruction' };
+const FILTER_GROUPS = Object.values(FILTER_GROUP_PARAMS);
+
 router.use(requireDb);
 
 // POST add several characters
@@ -201,20 +205,16 @@ router.get("/", async (req, res) => {
     const { affinity, category, killer, search, attack_type, traits, resurrection } = req.query;
 
     const query = {};
+    const listOf = (value) => String(value ?? '').split(',').map((t) => t.trim()).filter(Boolean);
 
-    if (affinity && affinity.trim()) {
-      query.affinity = { $regex: new RegExp(affinity.trim(), "i") };
-    }
-
-    // Category (array field)
-    if (category && category.trim()) {
-      query.categories = { $regex: new RegExp(category.trim(), "i") };
-    }
-
-    // Killer (array field)
-    if (killer && killer.trim()) {
-      query.killers = { $regex: new RegExp(killer.trim(), "i") };
-    }
+    // Several values (comma separated): the character matches one of them
+    const affinities = listOf(affinity);
+    if (affinities.length > 0) query.affinity = { $in: affinities };
+    const categoryList = listOf(category);
+    if (categoryList.length > 0) query.categories = { $in: categoryList };
+    // A killer also covers its "+" version, like the game filter
+    const killerList = listOf(killer);
+    if (killerList.length > 0) query.killers = { $in: killerList.flatMap((k) => [k, `${k} +`]) };
 
     // Attack type (R = red, B = blue)
     if (attack_type && attack_type.trim()) {
@@ -222,8 +222,20 @@ router.get("/", async (req, res) => {
     }
 
     // Game ability types (comma separated): the character must have all of them
-    const traitList = String(traits ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+    const traitList = listOf(traits);
     if (traitList.length > 0) query.filter_types = { $all: traitList };
+    // Same within one group of the game's filter (soul trait, EX skills, skills, special effects, elimination
+    // bonus); <param>_match=any only asks for one of them, like the game's "partial match"
+    const groupFilters = {};
+    for (const [param, group] of Object.entries(FILTER_GROUP_PARAMS)) {
+      const list = listOf(req.query[param]);
+      if (list.length > 0) {
+        const anyOf = req.query[`${param}_match`] === 'any';
+        query[`filters.${group}`] = anyOf ? { $in: list } : { $all: list };
+        groupFilters[param] = list;
+        if (anyOf) groupFilters[`${param}_match`] = 'any';
+      }
+    }
 
     if (resurrection === '1') query.resurrection = { $type: 'object' };
     else if (resurrection === '0') query.resurrection = { $not: { $type: 'object' } };
@@ -275,6 +287,7 @@ router.get("/", async (req, res) => {
         killer: killer || null,
         attack_type: attack_type || null,
         traits: traitList,
+        ...groupFilters,
         resurrection: resurrection ?? null,
         search: search || null
       }
@@ -291,14 +304,27 @@ router.get("/", async (req, res) => {
 // GET distinct killers, categories and affinities
 router.get("/meta", async (req, res) => {
   try {
-    const [killers, categories, affinities, statDocs, presentTypes, traitFilters] = await Promise.all([
+    const [killers, categories, affinities, statDocs, presentTypes, traitFilters, ...presentByGroup] = await Promise.all([
       req.db.collection('characters').distinct('killers', { killers: { $exists: true, $ne: '' } }),
       req.db.collection('characters').distinct('categories', { categories: { $exists: true, $ne: '' } }),
       req.db.collection('characters').distinct('affinity', { affinity: { $exists: true, $ne: '' } }),
       req.db.collection('characters').find({ stats: { $exists: true } }, { projection: { stats: 1 } }).toArray(),
       req.db.collection('characters').distinct('filter_types'),
       req.db.collection('app_settings').findOne({ _id: TRAIT_FILTERS_SETTING }),
+      ...FILTER_GROUPS.map((group) => req.db.collection('characters').distinct(`filters.${group}`)),
     ]);
+    // Per group of the game's filter, only the entries some character has
+    const presentIn = Object.fromEntries(FILTER_GROUPS.map((group, i) => [group, new Set(presentByGroup[i])]));
+    const categoriesFor = (group) => (traitFilters?.categories ?? [])
+      .map((category) => ({ ...category, types: category.types.filter((t) => presentIn[group].has(t.type)) }))
+      .filter((category) => category.types.length > 0);
+    const filterGroups = {
+      link: categoriesFor('link'),
+      ex: categoriesFor('ex'),
+      skill: categoriesFor('skill'),
+      special: (traitFilters?.special ?? []).filter((t) => presentIn.special.has(t.type)),
+      destruction: (traitFilters?.destruction ?? []).filter((t) => presentIn.destruction.has(t.type)),
+    };
     // Only the ability types some character has
     const present = new Set(presentTypes);
     const traitCategories = (traitFilters?.categories ?? [])
@@ -312,6 +338,7 @@ router.get("/meta", async (req, res) => {
       affinities: affinities.filter(Boolean).sort(),
       stat_max: computeStatMax(statDocs),
       trait_filters: traitCategories,
+      filter_groups: filterGroups,
     });
   } catch (error) {
     logger.error('Erreur lors de la récupération des métadonnées:', error);

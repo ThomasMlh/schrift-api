@@ -61,6 +61,18 @@ export const treeTrait = (dict, type, value, statusUps = new Map()) => {
   return { kind: 'tree', type, value: ref ? null : numberOrNull(value), ref, text };
 };
 
+// Elimination bonus (m_destruction_bonus): unlocked after a number of enemies defeated in a quest
+export const destructionTrait = (dict, row) => {
+  const value = numberOrNull(row.view_parameter);
+  return {
+    kind: 'destruction',
+    type: row.type,
+    value,
+    count: numberOrNull(row.destruction_count),
+    text: (hasValue(value) ? dict.text(`${row.description}_with_value`, { value }) : null) ?? dict.text(row.description) ?? abilityText(dict, row.type, value),
+  };
+};
+
 // Soul trait shared through links (soullink_ texts): the effect is shown, its name kept aside
 export const linkTrait = (dict, type, value) => ({
   kind: 'link',
