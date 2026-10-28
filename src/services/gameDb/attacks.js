@@ -73,6 +73,9 @@ const attackStep = (dict, row, collisions) => ({
   weapon: number(row.weapon_attribute),
   hits: Math.max(1, number(row.projectile_multiple_hit_num) ?? 0),
   knockdown: row.do_down === '1',
+  // Advanced strong attack (spiked button in the game) and double strike
+  advanced: row.is_advanced_heavy_attack === '1',
+  twice: row.twice_attack === '1',
   color: COLORS[row.atk_color] ?? null,
   shape: attackShape(collisions.get(row.m_attack_collision_id)),
   statuses: parseStatuses(dict, row.status_effect_type, row.status_effect_probability, row.status_effect_time),
