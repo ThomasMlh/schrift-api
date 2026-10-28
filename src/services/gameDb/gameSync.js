@@ -8,7 +8,7 @@ import { buildCharacters, GAME_TABLES } from './buildCharacters.js';
 import { changedFields, gameUpdate, imageUpdate, newCharacter } from './characterDocuments.js';
 import { createDictionary } from './dictionary.js';
 import { reconcileCharacters } from './reconcile.js';
-import { buildTraitFilters } from './traitFilters.js';
+import { buildDestructionFilters, buildSpecialFilters, buildTraitFilters } from './traitFilters.js';
 import { loadGameTables } from './source.js';
 import { mergeDuplicates } from './mergeDuplicates.js';
 import { buildGameBanners, GAME_BANNER_SOURCE, legacyBannersFilter, removeLegacyBanners, saveGameBanners } from './banners.js';
@@ -70,7 +70,15 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
 
   await db.collection('app_settings').updateOne(
     { _id: TRAIT_FILTERS_SETTING },
-    { $set: { categories: buildTraitFilters(tables, dict), languages: dict.languages, updated_at: new Date() } },
+    {
+      $set: {
+        categories: buildTraitFilters(tables, dict),
+        special: buildSpecialFilters(tables, dict),
+        destruction: buildDestructionFilters(tables, dict),
+        languages: dict.languages,
+        updated_at: new Date(),
+      },
+    },
     { upsert: true }
   );
 

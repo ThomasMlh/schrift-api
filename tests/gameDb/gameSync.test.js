@@ -43,6 +43,10 @@ const TABLES = {
   m_passive_ability: [{ group_id: 'p1', type: 'shunpo_up_num', view_parameter: '1.0', format: 'plus', description: 'lb_shunpo_up_num' }],
   m_character_resurrect_map: [{ before_m_character_id: '61001', after_m_character_id: '81001' }],
   m_character_filter_category: [{ id: '2', description: 'lb_cat_skills', priority: '900' }],
+  m_character_filter: [
+    { description: 'heal', usage_type: 'ui_sort_filter_sp_attack_category_type', sort_order: '2' },
+    { description: 'barrier', usage_type: 'ui_sort_filter_sp_attack_category_type', sort_order: '1' },
+  ],
   m_character_filter_type: [
     { type: 'shunpo_up_num', m_character_filter_category_id: '2', priority: '10' },
     { type: 'heal_up_rate', m_character_filter_category_id: '2', priority: '5' },
@@ -117,6 +121,11 @@ describe('POST /api/characters/game-sync', () => {
 
     const meta = await request(app).get('/api/characters/meta');
     // Only the abilities some character has are offered
+    // Each group of the game filter only lists what its characters have
+    expect(meta.body.filter_groups).toMatchObject({ link: [], ex: [], special: [], destruction: [] });
+    expect(meta.body.filter_groups.skill.map((c) => c.types.map((t) => t.type))).toEqual([['shunpo_up_num']]);
+    expect(await names('skills=shunpo_up_num')).toEqual([61001]);
+    expect(await names('soul_traits=shunpo_up_num')).toEqual([]);
     expect(meta.body.trait_filters).toEqual([
       { id: 2, label: { fr: 'Capacités augmentées' }, priority: 900, types: [{ type: 'shunpo_up_num', label: { fr: 'Rapidité' } }] },
     ]);

@@ -3,7 +3,7 @@
  * One character per 6★ unit; its resurrected form, when the game has one, is stored inside it.
  */
 import { createDictionary } from './dictionary.js';
-import { extraTrait, linkTrait, passiveTrait, treeTrait } from './traits.js';
+import { destructionTrait, extraTrait, linkTrait, passiveTrait, treeTrait } from './traits.js';
 import { filterType } from './traitFilters.js';
 
 export const GAME_TABLES = [
@@ -22,6 +22,8 @@ export const GAME_TABLES = [
   'm_gacha',
   'm_gacha_group',
   'm_gacha_layout',
+  'm_destruction_bonus',
+  'm_character_filter',
 ];
 
 const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
@@ -102,6 +104,25 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
   const gachas = new Map((tables.m_gacha ?? []).map((r) => [r.id, r]));
   const gachaGroups = new Map((tables.m_gacha_group ?? []).map((r) => [r.id, r]));
   const layoutsByUnit = groupBy(tables.m_gacha_layout ?? [], 'content_id');
+  const destructionBonuses = groupBy(tables.m_destruction_bonus ?? [], 'group_id');
+
+  // Kinds of special attack, as the game's "special effects" filter groups them
+  const filled = (value) => Boolean(value) && value !== '0';
+  const specialEffects = (row) => {
+    const ex = attacksByGroup.get(row.m_character_attack_group_id_ex) ?? [];
+    const effects = {
+      barrier: ex.some((a) => filled(a.barrier_effect_id)),
+      buff: ex.some((a) => filled(a.buff_target_type)),
+      heal: ex.some((a) => filled(a.heal_type)),
+      revival: ex.some((a) => filled(a.revival_id)),
+      gauge: filled(row.boost_gauge_trigger) || filled(row.m_boost_gauge_ability_group_id),
+      debuff_floor: ex.some((a) => filled(a.trap_attack_id)),
+      common_extra_attack: filled(row.m_character_attack_group_id_extra_action),
+      field_effect: filled(row.m_field_effect_group_id),
+      attack_chain_action_enhance: filled(row.m_character_attack_chain_action_enhance_id),
+    };
+    return Object.keys(effects).filter((key) => effects[key]);
+  };
 
   // Summons featuring the unit, oldest first
   const bannersOf = (gameId) => {
@@ -154,9 +175,13 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
       passive: (passives.get(row.m_passive_ability_group_id) ?? []).map((p) => passiveTrait(dict, p)),
       tree: [...treeAbilities.values()].map(({ type, value }) => treeTrait(dict, type, value, statusUps)),
       ex: [row.m_extra_ability_id1, row.m_extra_ability_id2].filter((id) => extras.has(id)).map((id) => extraTrait(dict, extras.get(id), statusUps)),
+      destruction: (destructionBonuses.get(row.m_destruction_bonus_group_id) ?? [])
+        .sort((a, b) => Number(a.destruction_count) - Number(b.destruction_count))
+        .map((bonus) => destructionTrait(dict, bonus)),
     };
     return {
       game_id: Number(row.id),
+      special_effects: specialEffects(row),
       release_date: gameDate(row.start_date),
       stats,
       stats_tiers: { ...tiers, soul_tree: treeStats },
@@ -172,7 +197,9 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
       const resurrectedRow = characterRows.get(resurrectionOf.get(row.id));
       const details = unitDetails(row);
       const resurrection = resurrectedRow ? unitDetails(resurrectedRow) : null;
-      const allTraits = [details.traits, resurrection?.traits].filter(Boolean).flatMap((t) => [...t.passive, ...t.tree, ...t.ex, ...t.link]);
+      const units = [details, resurrection].filter(Boolean);
+      const allTraits = units.flatMap(({ traits }) => [...traits.passive, ...traits.tree, ...traits.ex, ...traits.link]);
+      const typesOf = (pick) => [...new Set(units.flatMap((unit) => pick(unit.traits).map((t) => filterType(t.type))))];
 
       return {
         ...details,
@@ -195,6 +222,14 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
         banners: bannersOf(row.id),
         profile: dict.text(row.profile),
         filter_types: [...new Set(allTraits.map((t) => filterType(t.type)))],
+        // Same groups as the game's filter, both forms included
+        filters: {
+          link: typesOf((t) => t.link),
+          ex: typesOf((t) => t.ex),
+          skill: typesOf((t) => [...t.passive, ...t.tree]),
+          special: [...new Set(units.flatMap((unit) => unit.special_effects))],
+          destruction: typesOf((t) => t.destruction),
+        },
         resurrection,
       };
     });

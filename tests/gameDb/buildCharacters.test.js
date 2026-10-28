@@ -29,6 +29,8 @@ const character = (overrides) => ({
   m_extra_ability_id2: '',
   profile: 'lb_profile_NIN',
   start_date: '2025-08-31 16:00:00',
+  m_character_attack_group_id_ex: 'ex1',
+  m_destruction_bonus_group_id: 'd1',
   ...overrides,
 });
 
@@ -58,6 +60,7 @@ const tables = () => ({
     { dictkey: 'm_ability_sp_up_give_abnormality', content_fr: 'Ascendance spirituelle' },
     { dictkey: 'm_ability_sp_up_give_abnormality_game_ui', content_fr: 'Ascendance spirituelle (+{value}[nbsp]%)' },
     { dictkey: 'gacha_limited_576_name', content_fr: 'Loterie maillots' },
+    { dictkey: 'lb_all_red_damage_rate_with_value', content_fr: 'Dégâts des attaques rouges (+{value}[nbsp]%)' },
     { dictkey: 'gacha_limited_2385_name', content_fr: 'Loterie Burn the Witch' },
     { dictkey: 'extra_attack_information_61758', content_fr: 'Large attaque vers l\'avant.' },
   ],
@@ -76,7 +79,11 @@ const tables = () => ({
     node(23, 'max_level', 2),
     { ...node(1, 'hp', 100), pattern_id: '81758' },
   ],
-  m_character_attack: [{ group_id: '1', atk_color: 'red' }],
+  m_character_attack: [{ group_id: '1', atk_color: 'red' }, { group_id: 'ex1', heal_type: '1', barrier_effect_id: '' }],
+  m_destruction_bonus: [
+    { group_id: 'd1', type: 'last_atk_dmg_up_rate_ex', destruction_count: '60', view_parameter: '60.0', description: 'lb_last_atk_dmg_up_rate_ex' },
+    { group_id: 'd1', type: 'red_damage_rate', destruction_count: '20', view_parameter: '20.0', description: 'lb_all_red_damage_rate' },
+  ],
   m_character_resurrect_map: [{ before_m_character_id: '61758', after_m_character_id: '81758' }],
   m_gacha_layout: [
     { m_gacha_id: '23852', m_gacha_group_id: '2385', content_id: '61758' },
@@ -164,6 +171,20 @@ describe('buildCharacters', () => {
     expect(ninny.traits.link[0].name).toEqual({ fr: 'Attaques puissantes dévastatrices' });
     expect(ninny.special).toEqual({ fr: 'Large attaque vers l\'avant.' });
     expect(ninny.filter_types).toEqual(expect.arrayContaining(['sp_atk_range_up_rate', 'last_atk_dmg_up_rate_heavy', 'last_atk_dmg_up_rate_ex']));
+  });
+
+  it('groups the abilities like the game filter, with special effects and elimination bonuses', () => {
+    expect(ninny.filters).toEqual({
+      link: ['last_atk_dmg_up_rate_heavy'],
+      ex: ['last_atk_dmg_up_rate_ex'],
+      skill: expect.arrayContaining(['sp_atk_range_up_rate', 'attack_bad_status_up_time']),
+      special: ['heal'],
+      destruction: ['red_damage_rate', 'last_atk_dmg_up_rate_ex'],
+    });
+    expect(ninny.traits.destruction.map((t) => [t.count, t.text?.fr])).toEqual([
+      [20, 'Dégâts des attaques rouges (+20\u00a0%)'],
+      [60, 'Attaque spéciale renforcée (+60\u00a0%)'],
+    ]);
   });
 
   it('lists the summons featuring the unit, oldest first, with their list visual', () => {
