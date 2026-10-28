@@ -28,14 +28,14 @@ export const gameUpdate = (game, doc, now = new Date()) => ({
 });
 
 // Document of a character the site does not have yet; its images are uploaded afterwards
-export const newCharacter = (game, now = new Date()) => ({
+export const newCharacter = (game, now = new Date(), exists = () => true) => ({
   ...gameUpdate(game, {}, now),
   search_name: toSearchName([game.name, game.game_version?.fr].filter(Boolean).join(' ').replace(/[/,]/g, ' ')).replace(/\s+/g, ' '),
   version_name: null,
   // Same shape as the existing labels ("Force Burn The Witch Ninny Spangcole"), used by album tiles
   version: [game.affinity, (game.game_version?.fr ?? '').replace(/^version\s+/i, ''), game.name].filter(Boolean).join(' '),
-  source_images: rmfsImages(game),
-  images_pending: IMAGE_TARGETS.filter((target) => rmfsImages(game)[target.sources[0]]).map((target) => target.key),
+  source_images: rmfsImages(game, exists),
+  images_pending: IMAGE_TARGETS.filter((target) => rmfsImages(game, exists)[target.sources[0]]).map((target) => target.key),
   images_uploaded: false,
   images_revisions: GAME_IMAGE_REVISIONS,
   created_by_game_sync: true,
@@ -44,10 +44,11 @@ export const newCharacter = (game, now = new Date()) => ({
 
 // Images come from the game files: the targets whose source changed are uploaded again.
 // The legacy silhouette is dropped, the game artwork is complete on its own.
-export const imageUpdate = (game, doc) => {
+// exists(url) tells whether a game file is in rmfs: one that is not keeps the stored source
+export const imageUpdate = (game, doc, exists = () => true) => {
   // URLs stored before rmfs had language folders name the same files: moving them is no reason to upload
   const stored = Object.fromEntries(Object.entries(doc.source_images ?? {}).map(([key, url]) => [key, withLanguageFolder(url)]));
-  const next = { ...stored, ...rmfsImages(game), silhouette: null };
+  const next = { ...stored, ...rmfsImages(game, exists), silhouette: null };
   // Images prepared with an older treatment are uploaded again (revision 1 before revisions existed)
   const outdated = Object.entries(GAME_IMAGE_REVISIONS)
     .filter(([key, revision]) => next[key] && (doc.images_revisions?.[key] ?? 1) < revision)

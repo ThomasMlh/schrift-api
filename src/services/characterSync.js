@@ -9,6 +9,7 @@ import { parseCSV, reorderCharactersByReleaseDate } from '../utils/characterHelp
 import { buildCharacterMatcher, mapCharacterRow } from './characterSource.js';
 import { IMAGE_TARGETS, changedImageTargets, imagePath, uploadImageTarget } from './characterImages.js';
 import { pendingGameBanners, uploadGameBanners } from './gameDb/banners.js';
+import { trackUploadRun } from './imageUploadRun.js';
 import { logger } from '../utils/logger.js';
 
 const buildSftpConfig = () => {
@@ -295,14 +296,15 @@ const imagesToUploadFilter = () => ({
 export const uploadImagesBatch = async (db, batchSize = 100) => {
   batchSize = Math.min(parseInt(batchSize) || 100, 200);
 
+  const remainingImages = async () => await db.collection('characters').countDocuments(imagesToUploadFilter()) + await pendingGameBanners(db);
+  const remainingBefore = await remainingImages();
   const characters = await db.collection('characters')
     .find(imagesToUploadFilter())
     .limit(batchSize)
     .toArray();
 
-  if (characters.length === 0 && await pendingGameBanners(db) === 0) {
-    const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter());
-    return { message: 'Toutes les images sont déjà uploadées', statistics: { processed: 0, uploaded: 0, remaining, errors: 0 }, errors: [] };
+  if (remainingBefore === 0) {
+    return { message: 'Toutes les images sont déjà uploadées', statistics: { processed: 0, uploaded: 0, remaining: 0, errors: 0 }, errors: [] };
   }
 
   let ftpUploader;
@@ -334,11 +336,12 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
 
   const bannersUploaded = summons.uploaded;
 
-  const remaining = await db.collection('characters').countDocuments(imagesToUploadFilter()) + await pendingGameBanners(db);
+  const remaining = await remainingImages();
   const message = `Batch terminé: ${uploaded} images uploadées pour ${processed} personnages, ${bannersUploaded} bannières, ${remaining} restants`;
   const statistics = { processed, uploaded, bannersUploaded, remaining, errors: errors.length };
 
-  await notifyDiscord('image_upload', { message, statistics });
+  // Discord only hears about the start, each quarter and the end of the whole upload
+  await trackUploadRun(db, { remainingBefore, remainingAfter: remaining, uploaded: uploaded + bannersUploaded, errors: errors.length });
 
   return { message, statistics, errors: errors.slice(0, 10) };
 }

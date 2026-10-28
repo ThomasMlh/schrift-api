@@ -99,6 +99,15 @@ describe('character documents', () => {
     expect(moved.set).not.toHaveProperty('images_uploaded');
   });
 
+  it('only queues a quote the game files have, and keeps the stored one otherwise', () => {
+    const missing = (url) => !url.includes('dialog_');
+    expect(newCharacter(built, now, missing)).toMatchObject({ images_pending: ['thumbnail', 'artwork'] });
+    expect(newCharacter(built, now, missing).source_images).not.toHaveProperty('quote');
+    const stored = imageUpdate(built, { source_images: {} }).set;
+    const sources = Object.fromEntries(Object.entries(stored).filter(([k]) => k.startsWith('source_images.')).map(([k, v]) => [k.slice(14), v]));
+    expect(imageUpdate(built, { source_images: { ...sources, quote: null }, images_revisions: stored.images_revisions }, missing)).toBeNull();
+  });
+
   it('lists the changed fields for the preview', () => {
     const update = gameUpdate(built, {}, now);
     expect(changedFields(update, { ...update, affinity: 'Vitesse', game_synced_at: new Date(0) })).toEqual(['affinity']);

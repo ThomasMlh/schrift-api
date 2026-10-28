@@ -9,22 +9,24 @@ import { changedFields, gameUpdate, imageUpdate, newCharacter } from './characte
 import { createDictionary } from './dictionary.js';
 import { reconcileCharacters } from './reconcile.js';
 import { buildDestructionFilters, buildSpecialFilters, buildTraitFilters } from './traitFilters.js';
-import { loadGameData } from './source.js';
+import { createRmfsIndex, indexedRmfsFolders, loadGameData } from './source.js';
 import { mergeDuplicates } from './mergeDuplicates.js';
-import { buildGameBanners, GAME_BANNER_SOURCE, legacyBannersFilter, removeLegacyBanners, saveGameBanners } from './banners.js';
+import {
+  buildGameBanners, countBannerImagesToQueue, GAME_BANNER_SOURCE, legacyBannersFilter, removeLegacyBanners, saveGameBanners,
+} from './banners.js';
 
 const PREVIEW_LIMIT = 50;
 export const TRAIT_FILTERS_SETTING = 'game_trait_filters';
 
 const label = (character) => ({ _id: character._id ?? null, game_id: character.game_id ?? null, name: character.name, version: character.version_name ?? character.game_version?.fr ?? null });
 
-export const planGameSync = (siteCharacters, gameCharacters, now = new Date()) => {
+export const planGameSync = (siteCharacters, gameCharacters, now = new Date(), exists = () => true) => {
   const { matches, duplicates, unmatched, ambiguous, created } = reconcileCharacters(siteCharacters, gameCharacters);
   const updates = matches.map(({ game, doc, method }) => {
     const set = gameUpdate(game, doc, now);
-    return { doc, game, method, set, changes: changedFields(set, doc), images: imageUpdate(game, doc) };
+    return { doc, game, method, set, changes: changedFields(set, doc), images: imageUpdate(game, doc, exists) };
   });
-  return { updates, created: created.map((game) => newCharacter(game, now)), duplicates, unmatched, ambiguous };
+  return { updates, created: created.map((game) => newCharacter(game, now, exists)), duplicates, unmatched, ambiguous };
 };
 
 const previewOf = (plan, languages) => {
@@ -59,13 +61,17 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   const dict = createDictionary(tables.m_dictionary, translations);
   const gameCharacters = buildCharacters(tables, dict);
   const siteCharacters = await db.collection('characters').find({}).toArray();
-  const plan = planGameSync(siteCharacters, gameCharacters);
+  const languages = translations.map((t) => t.language);
+  // Only images present in the game files are queued: missing ones are not retried at every upload
+  const exists = await createRmfsIndex(indexedRmfsFolders(languages));
+  const plan = planGameSync(siteCharacters, gameCharacters, new Date(), exists);
   const preview = previewOf(plan, dict.languages);
-  const banners = buildGameBanners(gameCharacters, translations.map((t) => t.language));
+  const banners = buildGameBanners(gameCharacters, languages);
   const knownBanners = new Set(await db.collection('banners').distinct('gacha_group_id', { source: GAME_BANNER_SOURCE }));
   preview.statistics.banners = banners.length;
   preview.statistics.newBanners = banners.filter((b) => !knownBanners.has(b.gacha_group_id)).length;
   preview.statistics.legacyBanners = await db.collection('banners').countDocuments(legacyBannersFilter);
+  preview.statistics.bannerImages = await countBannerImagesToQueue(db, banners, exists);
   if (dryRun) return { dryRun: true, ...preview };
 
   await db.collection('app_settings').updateOne(
@@ -96,7 +102,7 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   if (ops.length > 0) await db.collection('characters').bulkWrite(ops, { ordered: false });
   const merged = await mergeDuplicates(db, plan.duplicates);
   await removeLegacyBanners(db);
-  await saveGameBanners(db, banners);
+  await saveGameBanners(db, banners, new Date(), exists);
   if (plan.created.length > 0 || plan.updates.some((u) => u.changes.includes('release_date'))) await reorderCharactersByReleaseDate(db);
   return { dryRun: false, ...preview, merged };
 };
