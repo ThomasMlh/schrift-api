@@ -12,19 +12,29 @@ const hasValue = (value) => value !== undefined && value !== null && value !== '
 
 const withValue = (text, suffix) => (text ? Object.fromEntries(Object.entries(text).map(([lang, t]) => [lang, `${t} ${suffix}`])) : null);
 
-// Durations are stored in milliseconds, their texts are in seconds
-const displayValue = (type, value) => (/_up_time$/.test(type) && Number(value) ? Number(value) / 1000 : value);
+// Durations are stored in milliseconds (10000 = 10 s, not a reference), their texts are in seconds
+const isDuration = (type) => /_up_time$|_time_up$|^team_battle_invincible$/.test(type);
+const displayValue = (type, value) => (isDuration(type) && Number(value) ? Number(value) / 1000 : value);
+
+// Text with its value: some "_with_value" texts have no {value} placeholder, the value is then appended
+const textWithValue = (dict, key, value, suffix) => {
+  const filled = dict.text(key, { value });
+  if (!filled || !suffix || JSON.stringify(filled) !== JSON.stringify(dict.text(key))) return filled;
+  return withValue(filled, suffix);
+};
 
 // Short name the game uses in its own filters, known for every ability type
 export const filterLabel = (dict, type) => dict.text(`ui_sort_filter_${type}`);
 
 export const abilityText = (dict, type, rawValue) => {
-  if (isReference(dict, type, rawValue)) return dict.text(`${type}_${rawValue}`);
+  if (!isDuration(type) && isReference(dict, type, rawValue)) return dict.text(`${type}_${rawValue}`);
   // An id without a dedicated text: the ability name alone
-  const value = Number(rawValue) >= REFERENCE_MIN ? null : displayValue(type, rawValue);
+  const value = !isDuration(type) && Number(rawValue) >= REFERENCE_MIN ? null : displayValue(type, rawValue);
   if (hasValue(value)) {
+    // Only durations get their value appended: other values without placeholder are flags (1) or hidden settings
+    const suffix = isDuration(type) ? `(+${value}\u00a0s)` : null;
     for (const key of [`lb_${type}_with_value`, `lb_other_quests_${type}_with_value`, `lb_${type}_game_ui`]) {
-      if (dict.has(key)) return dict.text(key, { value });
+      if (dict.has(key)) return textWithValue(dict, key, value, suffix);
     }
   }
   for (const key of [`lb_${type}`, `lb_attribute_tree_${type}`, `lb_attribute_tree_${type}_detail`]) {
@@ -54,9 +64,22 @@ const statusUpText = (dict, rows, value) => {
   return Object.fromEntries(Object.keys(texts[0]).map((lang) => [lang, texts.map((t) => t[lang]).filter(Boolean).join(' / ')]));
 };
 
-// Ability node of the soul tree (m_soul_piece); statusUps: m_ability_status_up_give_abnormality rows by group_id
-export const treeTrait = (dict, type, value, statusUps = new Map()) => {
-  const ref = Number(value) >= REFERENCE_MIN ? String(value) : null;
+// Ability limited to some enemies or allies (m_ability_regist_belong_attribute): its own text, value in percent
+const belongAttributeText = (dict, row, shown) => {
+  const key = `lb_${row.description}_with_value`;
+  return (dict.has(key) ? textWithValue(dict, key, shown, `(+${shown}\u00a0%)`) : null)
+    ?? withValue(dict.text(row.description), `(+${shown}\u00a0%)`);
+};
+
+// Ability node of the soul tree (m_soul_piece); statusUps: m_ability_status_up_give_abnormality rows by group_id,
+// belongAttributes: m_ability_regist_belong_attribute rows by id
+export const treeTrait = (dict, type, value, statusUps = new Map(), belongAttributes = new Map()) => {
+  const ref = !isDuration(type) && Number(value) >= REFERENCE_MIN ? String(value) : null;
+  const belong = ref ? belongAttributes.get(ref) : null;
+  if (belong) {
+    const amount = numberOrNull(belong.parameter);
+    return { kind: 'tree', type, value: amount, ref, text: belongAttributeText(dict, belong, amount) };
+  }
   const text = (ref && statusUps.has(ref) ? statusUpText(dict, statusUps.get(ref)) : null) ?? abilityText(dict, type, value);
   return { kind: 'tree', type, value: ref ? null : numberOrNull(value), ref, text };
 };
@@ -83,7 +106,7 @@ export const linkTrait = (dict, type, value) => ({
 });
 
 // EX soul trait (m_extra_ability): one value per level 1-5, the text is the ability without its ex_ prefix
-export const extraTrait = (dict, row, statusUps = new Map()) => {
+export const extraTrait = (dict, row, statusUps = new Map(), belongAttributes = new Map()) => {
   const type = row.type.replace(/^ex_/, '');
   const levels = [1, 2, 3, 4, 5].map((level) => row[`level${level}_parameter`]).filter((v) => v !== '');
   const max = levels[levels.length - 1];
@@ -92,6 +115,12 @@ export const extraTrait = (dict, row, statusUps = new Map()) => {
     const values = levels.map((level) => Number(statusUps.get(level)[0].effect_amount));
     const shown = new Set(values).size === 1 ? values[0] : values.join(' > ');
     return { kind: 'ex', type: row.type, values, ref: String(max), text: statusUpText(dict, statusUps.get(max), shown) };
+  }
+  // Each level points to its own limited ability: one text with the value of every level
+  if (levels.length > 0 && levels.every((level) => belongAttributes.has(level))) {
+    const values = levels.map((level) => Number(belongAttributes.get(level).parameter));
+    const shown = new Set(values).size === 1 ? values[0] : values.join(' > ');
+    return { kind: 'ex', type: row.type, values, ref: String(max), text: belongAttributeText(dict, belongAttributes.get(max), shown) };
   }
   if (isReference(dict, type, max)) return { kind: 'ex', type: row.type, values: null, ref: String(max), text: dict.text(`${type}_${max}`) };
   const values = levels.map(Number);
