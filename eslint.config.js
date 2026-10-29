@@ -10,6 +10,8 @@ const nodeGlobals = {
   Buffer: 'readonly',
   fetch: 'readonly',
   AbortController: 'readonly',
+  AbortSignal: 'readonly',
+  Response: 'readonly',
   URL: 'readonly',
   URLSearchParams: 'readonly',
 };

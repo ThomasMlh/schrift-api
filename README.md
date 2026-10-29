@@ -56,6 +56,10 @@ scripts/              # data import/rebuild scripts (characters, guides...)
 tools/attack-hits/    # Python extractor of the melee hit counts from the game model bundles
 ```
 
+### Summon banners
+
+Each summon visual is the official 960x320 banner of its in-game news (`m_gacha_group.news_id`). The news page is fetched once from urahara-shop and archived on the FTP (`game-news/fr/<news_id>.html`, outside the public bucket); later syncs read the archive. The English banner shares the path of the French one; when the news has no English banner the French one is used, and a summon without a news banner keeps the rmfs list visual. A visual already uploaded is never downloaded again.
+
 ### Attack hits
 
 The game tables only count the hits of projectiles. Melee hits are read from the animation events of the model bundles (`rmfs/<resource_3d_id>.byte`, plain Unity files): each hit window is one hit.

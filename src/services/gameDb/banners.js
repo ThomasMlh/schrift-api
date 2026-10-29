@@ -1,10 +1,12 @@
 /**
- * Game summons in the `banners` collection (source: 'game', keyed by gacha_group_id). Their list visual
- * is localized: one per client language, the primary one in image_source / image_status, the others in
- * translations.<language>. Each is copied once from rmfs to the bucket: rmfs only holds the summons the
- * game client cached, a later dump may no longer have it.
+ * Game summons in the `banners` collection (source: 'game', keyed by gacha_group_id). Their visual is
+ * localized: one per client language, the primary one in image_status, the others in
+ * translations.<language>. Each is copied once to the bucket: the official banner of the summon news
+ * when it has one (the English one falls back to the primary), otherwise the list visual of rmfs, which
+ * only holds the summons the game client cached.
  */
 import { downloadGameFile, PRIMARY_LANGUAGE, rmfsUrl } from './source.js';
+import { downloadNewsBanner, newsBannerUrl, readSummonNews } from './summonNews.js';
 
 export const GAME_BANNER_SOURCE = 'game';
 const BUCKET_FOLDER = '/bucket.bbs-schrift.fr/banners';
@@ -16,8 +18,15 @@ export const gameBannerImagePath = (gachaGroupId, language = PRIMARY_LANGUAGE) =
 
 // Where the visual of a language is described on the document
 const imageFields = (language) => (language === PRIMARY_LANGUAGE
-  ? { source: 'image_source', status: 'image_status' }
-  : { source: `translations.${language}.image_source`, status: `translations.${language}.image_status` });
+  ? { source: 'image_source', status: 'image_status', origin: 'image_origin' }
+  : {
+    source: `translations.${language}.image_source`,
+    status: `translations.${language}.image_status`,
+    origin: `translations.${language}.image_origin`,
+  });
+
+// A visual is worth trying when the summon has a news (official banner) or rmfs has its list visual
+const canQueue = (summon, url, exists) => Boolean(summon?.details?.news_id) || Boolean(url && exists(url));
 
 const valueAt = (doc, path) => path.split('.').reduce((value, key) => value?.[key], doc);
 
@@ -76,8 +85,7 @@ export const saveGameBanners = async (db, banners, now = new Date(), exists = ()
         $set: {
           images_pending: languages.filter((language) => {
             const { source, status } = imageFields(language);
-            const url = valueAt(doc, source);
-            return url && valueAt(doc, status) !== 'uploaded' && exists(url);
+            return valueAt(doc, status) !== 'uploaded' && canQueue(doc, valueAt(doc, source), exists);
           }),
         },
       },
@@ -95,24 +103,61 @@ export const countBannerImagesToQueue = async (db, banners, exists = () => true)
     const doc = stored.get(banner.gacha_group_id);
     const sources = { [PRIMARY_LANGUAGE]: banner.image_source, ...banner.translation_sources };
     for (const [language, url] of Object.entries(sources)) {
-      if (url && exists(url) && valueAt(doc, imageFields(language).status) !== 'uploaded') count += 1;
+      if (canQueue(banner, url, exists) && valueAt(doc, imageFields(language).status) !== 'uploaded') count += 1;
     }
   }
   return count;
 };
 
+// Official banners are downloaded from the game servers: fewer per batch keeps it within the function time
+const BANNER_BATCH_LIMIT = 25;
+
 const pendingFilter = { source: GAME_BANNER_SOURCE, 'images_pending.0': { $exists: true } };
 
-// Copies pending summon visuals to the bucket; a visual rmfs does not have is marked missing
+// Official banners per summon news, read once per batch: several summons may share a news
+const createOfficialBanners = (ftp) => {
+  const cache = new Map();
+  return (newsId, language) => {
+    const key = `${newsId}/${language}`;
+    if (!cache.has(key)) {
+      cache.set(key, (async () => {
+        const html = await readSummonNews(ftp, newsId);
+        const url = newsBannerUrl(html, language);
+        return url ? downloadNewsBanner(url) : null;
+      })());
+    }
+    return cache.get(key);
+  };
+};
+
+// Visual of a summon in a language: the official banner, the primary one for a language the news does
+// not have, then the rmfs list visual
+const summonVisual = async (ftp, banner, language, officialBanner) => {
+  const newsId = banner.details?.news_id;
+  if (newsId) {
+    const official = await officialBanner(newsId, language).catch(() => null);
+    if (official) return { buffer: official, origin: 'official' };
+    if (language !== PRIMARY_LANGUAGE) {
+      const primary = await officialBanner(newsId, PRIMARY_LANGUAGE).catch(() => null);
+      if (primary) return { buffer: primary, origin: `official-${PRIMARY_LANGUAGE}` };
+    }
+  }
+  const url = valueAt(banner, imageFields(language).source);
+  if (!url) return { error: 404 };
+  return downloadGameFile(ftp, url)
+    .then((buffer) => ({ buffer, origin: 'game' }))
+    .catch((err) => ({ error: err.status ?? 0 }));
+};
+
+// Copies pending summon visuals to the bucket; a summon with no visual at all is marked missing
 export const uploadGameBanners = async (db, ftp, limit) => {
-  const pending = await db.collection('banners').find(pendingFilter).limit(limit).toArray();
+  const pending = await db.collection('banners').find(pendingFilter).limit(Math.min(limit, BANNER_BATCH_LIMIT)).toArray();
+  const officialBanner = createOfficialBanners(ftp);
   let uploaded = 0;
   for (const banner of pending) {
     for (const language of banner.images_pending) {
-      const { source, status } = imageFields(language);
-      const { buffer, error } = await downloadGameFile(ftp, valueAt(banner, source))
-        .then((data) => ({ buffer: data }))
-        .catch((err) => ({ error: err.status ?? 0 }));
+      const { status, origin } = imageFields(language);
+      const { buffer, origin: from, error } = await summonVisual(ftp, banner, language, officialBanner);
       if (buffer) {
         await ftp.uploadBuffer(buffer, gameBannerImagePath(banner.gacha_group_id, language));
         uploaded += 1;
@@ -120,10 +165,13 @@ export const uploadGameBanners = async (db, ftp, limit) => {
       // Not found or unreachable: tried again at the next sync, so the upload loop always ends
       await db.collection('banners').updateOne(
         { _id: banner._id },
-        { $set: { [status]: buffer ? 'uploaded' : 'missing', image_checked_at: new Date() }, $pull: { images_pending: language } }
+        {
+          $set: { [status]: buffer ? 'uploaded' : 'missing', ...(buffer && { [origin]: from }), image_checked_at: new Date() },
+          $pull: { images_pending: language },
+        }
       );
       if (!buffer && language === PRIMARY_LANGUAGE) {
-        await db.collection('banners').updateOne({ _id: banner._id }, { $set: { image_error: error } });
+        await db.collection('banners').updateOne({ _id: banner._id }, { $set: { image_error: error ?? 404 } });
       }
     }
   }
