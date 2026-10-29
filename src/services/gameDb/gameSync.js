@@ -4,7 +4,7 @@
  * Nothing is ever deleted: characters missing from the game are only reported.
  */
 import { reorderCharactersByReleaseDate } from '../../utils/characterHelpers.js';
-import { buildCharacters, GAME_TABLES } from './buildCharacters.js';
+import { buildCharacters, GAME_TABLES, OPTIONAL_GAME_TABLES } from './buildCharacters.js';
 import { changedFields, gameUpdate, imageUpdate, newCharacter } from './characterDocuments.js';
 import { createDictionary } from './dictionary.js';
 import { reconcileCharacters } from './reconcile.js';
@@ -59,7 +59,7 @@ const previewOf = (plan, languages) => {
 };
 
 export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
-  const { tables, translations } = await loadGameData(GAME_TABLES);
+  const { tables, translations } = await loadGameData(GAME_TABLES, OPTIONAL_GAME_TABLES);
   const dict = createDictionary(tables.m_dictionary, translations);
   const gameCharacters = buildCharacters(tables, dict);
   const siteCharacters = await db.collection('characters').find({}).toArray();
@@ -74,6 +74,8 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   preview.statistics.newBanners = banners.filter((b) => !knownBanners.has(b.gacha_group_id)).length;
   preview.statistics.legacyBanners = await db.collection('banners').countDocuments(legacyBannersFilter);
   preview.statistics.bannerImages = await countBannerImagesToQueue(db, banners, exists);
+  // Models whose animations gave the hits of melee attacks
+  preview.statistics.attackHitModels = new Set(tables.attack_hits.map((r) => r.resource_3d_id)).size;
   const accessories = buildAccessories(tables, dict);
   const subeffects = buildSubeffects(tables, dict);
   Object.assign(preview.statistics, await accessoryChanges(db, accessories));

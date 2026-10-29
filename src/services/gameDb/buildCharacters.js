@@ -5,7 +5,7 @@
 import { createDictionary } from './dictionary.js';
 import { destructionTrait, extraTrait, linkTrait, passiveTrait, treeTrait } from './traits.js';
 import { filterType } from './traitFilters.js';
-import { buildAttacks } from './attacks.js';
+import { animationHits, applyAttackBonuses, buildAttacks } from './attacks.js';
 
 export const GAME_TABLES = [
   'm_character',
@@ -20,6 +20,8 @@ export const GAME_TABLES = [
   'm_character_filter_category',
   'm_ability_status_up_give_abnormality',
   'm_attack_collision',
+  'm_trap_attack',
+  'm_ability_regist_belong_attribute',
   'm_gacha',
   'm_gacha_group',
   'm_gacha_layout',
@@ -32,6 +34,9 @@ export const GAME_TABLES = [
   'm_bonus_ability_slot',
   'm_character_effect_priority',
 ];
+
+// Tables the sync reads when present: attack_hits is extracted from the model bundles (tools/attack-hits)
+export const OPTIONAL_GAME_TABLES = ['attack_hits'];
 
 export const AFFINITIES = { 1: 'Technique', 2: 'Instinct', 3: 'Force', 4: 'Vitesse', 5: 'Connaissance' };
 
@@ -108,6 +113,20 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
   const attacksByGroup = groupBy(tables.m_character_attack, 'group_id');
   const statusUps = groupBy(tables.m_ability_status_up_give_abnormality ?? [], 'group_id');
   const collisions = new Map((tables.m_attack_collision ?? []).map((r) => [r.id, r]));
+  const hitsByModel = groupBy(tables.attack_hits ?? [], 'resource_3d_id');
+  const traps = new Map((tables.m_trap_attack ?? []).map((r) => [r.id, r]));
+  const belongAttributes = new Map((tables.m_ability_regist_belong_attribute ?? []).map((r) => [r.id, r]));
+  // Status chance against some enemies: their categories (null = every one) and affinity (null = any)
+  const statusCondition = (ref) => {
+    const row = belongAttributes.get(ref);
+    if (!row || row.effect_type !== 'badstatus_probability') return null;
+    const belong = row.belong_types.split('&').filter(Boolean);
+    return {
+      value: Number(row.parameter) || 0,
+      belong: belong.length >= Object.keys(BELONG_TYPES).length ? null : belong.map((type) => BELONG_TYPES[type] ?? type),
+      affinity: AFFINITIES[row.attribute] ?? null,
+    };
+  };
   const gachas = new Map((tables.m_gacha ?? []).map((r) => [r.id, r]));
   const gachaGroups = new Map((tables.m_gacha_group ?? []).map((r) => [r.id, r]));
   const layoutsByUnit = groupBy(tables.m_gacha_layout ?? [], 'content_id');
@@ -192,7 +211,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
     return {
       game_id: Number(row.id),
       special_effects: specialEffects(row),
-      attacks: buildAttacks(dict, row, attacksByGroup, collisions),
+      attacks: applyAttackBonuses(buildAttacks(dict, row, attacksByGroup, collisions, animationHits(hitsByModel.get(row.resource_3d_id)), traps), traits, statusCondition),
       release_date: gameDate(row.start_date),
       stats,
       stats_tiers: { ...tiers, soul_tree: treeStats },

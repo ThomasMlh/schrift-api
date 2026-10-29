@@ -81,8 +81,10 @@ export const rmfsImages = (game, exists = () => true) => {
 
 const downloadText = async (ftp, remotePath) => (await ftp.downloadBuffer(remotePath)).toString('utf8');
 
-// Reads the tables of the primary language folder and the dictionary of every other language folder
-const readGameData = async ({ listFolders, readTable, root }, names) => {
+// Reads the tables of the primary language folder and the dictionary of every other language folder.
+// Optional tables are read at the root first: files made on the side (attack_hits) live there, so
+// uploading a new dump into the language folder never removes them; missing, they are read as empty.
+const readGameData = async ({ listFolders, readTable, root }, names, optional) => {
   const folders = (await listFolders(root)).filter((name) => LANGUAGE_FOLDER.test(name));
   const primary = `${root}/${PRIMARY_LANGUAGE}`;
   const tables = {};
@@ -92,6 +94,11 @@ const readGameData = async ({ listFolders, readTable, root }, names) => {
     } catch (err) {
       throw Object.assign(new Error(`Table ${name}.csv introuvable dans ${primary} (${err.message})`), { statusCode: 404 });
     }
+  }
+  for (const name of optional) {
+    tables[name] = await readTable(`${root}/${name}.csv`)
+      .catch(() => readTable(`${primary}/${name}.csv`))
+      .then(parseCsv, () => []);
   }
   const translations = [];
   for (const language of folders.filter((name) => name !== PRIMARY_LANGUAGE)) {
@@ -104,14 +111,14 @@ const readGameData = async ({ listFolders, readTable, root }, names) => {
   return { tables, translations };
 };
 
-export const loadGameData = async (names) => {
+export const loadGameData = async (names, optional = []) => {
   const localDir = process.env.GAME_DB_DIR;
   if (localDir) {
     return readGameData({
       root: localDir,
       listFolders: async (dir) => (await readdir(dir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name),
       readTable: (path) => readFile(path, 'utf8'),
-    }, names);
+    }, names, optional);
   }
 
   const ftp = new FTPUploader();
@@ -121,7 +128,7 @@ export const loadGameData = async (names) => {
       root: FTP_PATH(),
       listFolders: async (dir) => (await ftp.client.list(dir)).filter((item) => item.type === 2).map((item) => item.name),
       readTable: (path) => downloadText(ftp, path),
-    }, names);
+    }, names, optional);
   } finally {
     await ftp.disconnect().catch(() => {});
   }
