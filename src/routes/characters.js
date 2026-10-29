@@ -2,7 +2,8 @@ import express from "express";
 import { ObjectId } from "mongodb";
 import { cleanObject } from "../utils/cleaners.js";
 import { requireAdmin, requireDb } from "../middleware/auth.js";
-import { syncCharactersFromSFTP, uploadImagesBatch } from "../services/characterSync.js";
+import { uploadImagesBatch } from "../services/characterSync.js";
+import { enrichBotDatabase } from "../services/botDatabase.js";
 import { syncCharactersFromGame, TRAIT_FILTERS_SETTING } from "../services/gameDb/gameSync.js";
 import { computeStatMax, convertDateToFormat, reorderCharactersByReleaseDate } from "../utils/characterHelpers.js";
 import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.js";
@@ -484,20 +485,6 @@ router.post("/admin/create-indexes", requireAdmin, async (req, res) => {
   }
 });
 
-// POST update characters from the SFTP source (dryRun: report what would change, write nothing)
-router.post("/update", requireAdmin, async (req, res) => {
-  try {
-    const result = await syncCharactersFromSFTP(req.db, {
-      uploadImages: req.body?.uploadImages === true,
-      dryRun: req.body?.dryRun === true,
-    });
-    res.json({ success: true, ...result });
-  } catch (error) {
-    sendStatusCodeError(res, error, "Erreur serveur lors de la synchronisation", "❌ Erreur lors de la mise à jour via SFTP:");
-  }
-});
-
-
 // POST { dryRun }: sync from the game master tables (simulation by default)
 router.post("/game-sync", requireAdmin, async (req, res) => {
   try {
@@ -507,6 +494,15 @@ router.post("/game-sync", requireAdmin, async (req, res) => {
   }
 });
 
+
+// POST { dryRun }: fills the bot character file (database.json) with the site ids and bucket URLs (simulation by default)
+router.post("/bot-database/enrich", requireAdmin, async (req, res) => {
+  try {
+    res.json({ success: true, ...(await enrichBotDatabase(req.db, { dryRun: req.body?.dryRun !== false })) });
+  } catch (error) {
+    sendStatusCodeError(res, error, "Erreur serveur lors de l'enrichissement de database.json", "❌ Erreur enrichissement database.json:");
+  }
+});
 
 // POST upload images in batches (avoids Vercel timeouts)
 router.post("/update/images", requireAdmin, async (req, res) => {

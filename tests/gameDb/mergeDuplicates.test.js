@@ -1,7 +1,6 @@
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient, ObjectId } from 'mongodb';
 import { mergeDuplicates } from '../../src/services/gameDb/mergeDuplicates.js';
-import { syncCharactersFromSFTP } from '../../src/services/characterSync.js';
 
 jest.setTimeout(60000);
 
@@ -50,11 +49,5 @@ describe('mergeDuplicates', () => {
       [other, []],
     ]);
     expect(await db.collection('characters').countDocuments({ _id: twin })).toBe(0);
-  });
-});
-
-describe('legacy database.json sync', () => {
-  it('refuses to run once characters come from the game tables', async () => {
-    await expect(syncCharactersFromSFTP(db, { dryRun: true })).rejects.toMatchObject({ statusCode: 409 });
   });
 });
