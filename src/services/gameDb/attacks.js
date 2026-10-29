@@ -157,10 +157,13 @@ export const buildAttacks = (dict, row, attacksByGroup, collisions, hits = NO_HI
     // windows cannot be shared out, only their total is known
     const shared = button !== 'normal' && new Set(rows.map((attack) => attack.atk_number)).size > 1;
     const clipOf = (attack) => (button === 'normal' ? `Attack${number(attack.atk_number)}` : CLIPS[button]);
+    const steps = rows.map((attack) => attackStep(dict, attack, collisions, traps, shared ? 0 : hits.windows(clipOf(attack), number(attack.variation_index) ?? 0)));
+    // Windows that do not match the variations of the table: only their total is reliable
+    const unmatched = !shared && button !== 'normal' && steps.some((step) => step.hits === null);
     return [button, {
       cooldown: Math.max(...rows.map((attack) => number(attack.cooltime) ?? 0)) || null,
-      hits: shared ? hits.total(CLIPS[button]) || null : null,
-      steps: rows.map((attack) => attackStep(dict, attack, collisions, traps, shared ? 0 : hits.windows(clipOf(attack), number(attack.variation_index) ?? 0))),
+      hits: shared || unmatched ? hits.total(CLIPS[button]) || null : null,
+      steps,
     }];
   })
   .filter(([, attack]) => attack));

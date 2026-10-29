@@ -73,6 +73,10 @@ describe('attacks', () => {
     expect(attacks.heavy3).toMatchObject({ hits: 4, steps: [{ hits: null }, { hits: null }] });
     expect(attacks.ex.steps[0].hits).toBeNull();
     expect(buildAttacks(dict, row, attacksByGroup, collisions).heavy1.steps[0].hits).toBeNull();
+
+    // Windows all on the first variation while the table has two: the total is given instead
+    const mismatched = buildAttacks(dict, row, attacksByGroup, collisions, animationHits([{ clip: 'Sp1', variation_index: '0', hits: '3' }]));
+    expect(mismatched.heavy1).toMatchObject({ hits: 3, steps: [{ hits: 3 }, { hits: null }] });
   });
 
   it('reads the blasts of a trap and counts them as the hits of its step', () => {
