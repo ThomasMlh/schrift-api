@@ -1,5 +1,6 @@
 import express from 'express';
-import { requireDb, requireAdmin } from '../middleware/auth.js';
+import { requireDb, requireAdmin, requireAuth } from '../middleware/auth.js';
+import { ALBUM_SETTINGS_ID, leadersCanEditAlbums } from '../services/albumSettings.js';
 import { getScoreLockDays } from '../services/scoreLock.js';
 import { sanitizeDisabledTypes } from '../utils/notificationTypes.js';
 import { sendServerErrorWithFlag } from '../utils/httpErrors.js';
@@ -92,6 +93,33 @@ router.put('/scores', requireAdmin, async (req, res) => {
     );
 
     res.json({ success: true, message: 'Verrouillage des scores mis à jour', lock_after_days: value });
+  } catch (err) {
+    sendServerErrorWithFlag(res, err);
+  }
+});
+
+// GET whether guild leaders and officers may fill their players' albums (read by any logged-in user,
+// so the site shows them the edit controls)
+router.get('/albums', requireAuth, async (req, res) => {
+  try {
+    res.json({ success: true, leaders_can_edit: await leadersCanEditAlbums(req.db) });
+  } catch (err) {
+    sendServerErrorWithFlag(res, err);
+  }
+});
+
+// PUT the album option (admins only)
+router.put('/albums', requireAdmin, async (req, res) => {
+  try {
+    if (typeof req.body.leaders_can_edit !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'leaders_can_edit doit être un booléen' });
+    }
+    await req.db.collection('app_settings').updateOne(
+      { _id: ALBUM_SETTINGS_ID },
+      { $set: { leaders_can_edit: req.body.leaders_can_edit } },
+      { upsert: true }
+    );
+    res.json({ success: true, message: 'Option des albums mise à jour', leaders_can_edit: req.body.leaders_can_edit });
   } catch (err) {
     sendServerErrorWithFlag(res, err);
   }
