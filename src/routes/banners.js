@@ -37,6 +37,35 @@ router.get('/', async (req, res) => {
   }
 });
 
+const SUMMON_CHARACTER_FIELDS = { name: 1, version: 1, version_name: 1, game_version: 1, game_id: 1, affinity: 1, attack_type: 1 };
+
+// GET a game summon by group id, with the site characters it features (summon page)
+router.get('/game/:gachaGroupId', async (req, res) => {
+  try {
+    const gachaGroupId = Number(req.params.gachaGroupId);
+    if (!Number.isInteger(gachaGroupId)) {
+      return res.status(400).json({ success: false, message: 'Identifiant d\'invocation invalide' });
+    }
+    const banner = await req.db.collection('banners').findOne({ gacha_group_id: gachaGroupId });
+    if (!banner) {
+      return res.status(404).json({ success: false, message: 'Invocation non trouvée' });
+    }
+
+    const gameIds = [...new Set([
+      ...(banner.details?.featured ?? []).map(f => f.game_id),
+      ...(banner.character_game_ids ?? []),
+    ])];
+    const characters = gameIds.length > 0
+      ? await req.db.collection('characters').find({ game_id: { $in: gameIds } }, { projection: SUMMON_CHARACTER_FIELDS }).toArray()
+      : [];
+
+    res.json({ success: true, data: { ...banner, characters } });
+  } catch (error) {
+    logger.error('Erreur lors de la récupération de l\'invocation:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur lors de la récupération de l\'invocation' });
+  }
+});
+
 // GET a banner by id
 router.get('/:id', async (req, res) => {
   try {
