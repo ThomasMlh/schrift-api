@@ -1,5 +1,6 @@
 import { getDB } from '../config/database.js';
 import { logger } from './logger.js';
+import { logActivity } from './activityLog.js';
 
 /**
  * Sends notifications to the Discord bot through its HTTP server, and logs every event in
@@ -30,20 +31,6 @@ const resolveNotificationSettings = async (db, channel) => {
   } catch (err) {
     logger.error(`[notifyDiscord] Erreur résolution settings (non bloquant): ${err.message}`);
     return { guildeId: null, disabledTypes: [] };
-  }
-};
-
-const logActivity = async (db, { type, data, channel, guildeId }) => {
-  try {
-    await db.collection('activity_log').insertOne({
-      type,
-      data,
-      channel_id: channel || null,
-      guilde_id: guildeId,
-      created_at: new Date(),
-    });
-  } catch (err) {
-    logger.error(`[notifyDiscord] Erreur écriture activity_log (non bloquant): ${err.message}`);
   }
 };
 
