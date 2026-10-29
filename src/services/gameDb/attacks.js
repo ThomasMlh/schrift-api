@@ -174,7 +174,8 @@ const HIT_BONUSES = { normal: 'normal_atk_hit_up_num', heavy: 'sp_atk_hit_up_num
 const bonusKey = (button) => (button.startsWith('heavy') ? 'heavy' : button);
 
 const scaled = (value, rate) => (value === null ? null : Math.round(value * rate));
-const SCALED_FIELDS = { sector: ['radius'], rect: ['width', 'length'], circle: ['radius'], projectile: ['width', 'length', 'impact_radius'] };
+// A circle placed ahead of the character moves away with it: its distance grows too
+const SCALED_FIELDS = { sector: ['radius'], rect: ['width', 'length'], circle: ['radius', 'distance'], projectile: ['width', 'length', 'impact_radius'] };
 
 export const widenShape = (shape, percent) => {
   if (!shape || !percent) return shape;

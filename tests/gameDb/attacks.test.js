@@ -99,7 +99,7 @@ describe('attacks', () => {
   it('widens the areas and adds the extra hits of the unit abilities', () => {
     expect(widenShape({ kind: 'projectile', width: 1000, length: 200, range: 1600, impact_radius: 0 }, 20))
       .toEqual({ kind: 'projectile', width: 1200, length: 240, range: 1600, impact_radius: 0 });
-    expect(widenShape({ kind: 'circle', radius: 525, distance: 500 }, 20)).toEqual({ kind: 'circle', radius: 630, distance: 500 });
+    expect(widenShape({ kind: 'circle', radius: 525, distance: 500 }, 20)).toEqual({ kind: 'circle', radius: 630, distance: 600 });
 
     const step = (radius) => ({ shape: { kind: 'sector', radius, angle: 360 } });
     const attacks = { normal: { steps: [step(375)] }, heavy1: { steps: [step(625)] }, ex: { steps: [step(2000)] } };
