@@ -90,6 +90,8 @@ describe('bot database file', () => {
     const withSubtitles = botFields({ _id: 'b', quote: { fr: 'Texte' } }, options);
     expect(withSubtitles['URL Phrase EN']).toBe('https://bucket.bbs-schrift.fr/characters/phrase-en/b.png');
     expect(withSubtitles).not.toHaveProperty('Phrase EN');
+    // Group 0 holds the old summons in the game tables: not a summon id
+    expect(botFields({ _id: 'c', banners: [{ gacha_group_id: 0 }] }, options)).not.toHaveProperty('Game Banner ID');
   });
 
   it('gives only the images present on the bucket, and the release summon when it was archived', () => {
@@ -98,6 +100,7 @@ describe('bot database file', () => {
     expect(fields).toEqual({
       'Base ID': 'a',
       'Game ID': 61727,
+      'Game Banner ID': 562,
       Link: 'https://bucket.bbs-schrift.fr/characters/thumb/a.png',
       'URL Artwork': 'https://bucket.bbs-schrift.fr/characters/artwork/a.png',
       'URL ATK': 'https://bucket.bbs-schrift.fr/characters/attack/a.png',

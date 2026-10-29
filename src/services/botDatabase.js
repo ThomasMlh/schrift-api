@@ -23,7 +23,9 @@ const IMAGE_COLUMNS = [
 // File column -> language of the game quote text
 const QUOTE_COLUMNS = [['Phrase FR', 'fr'], ['Phrase EN', 'en']];
 const BUCKET_FOLDERS = [...new Set(IMAGE_COLUMNS.flatMap(([, folders]) => folders))];
-export const BOT_FIELDS = ['Base ID', 'Game ID', ...IMAGE_COLUMNS.map(([column]) => column), 'URL Portail', ...QUOTE_COLUMNS.map(([column]) => column)];
+export const BOT_FIELDS = [
+  'Base ID', 'Game ID', 'Game Banner ID', ...IMAGE_COLUMNS.map(([column]) => column), 'URL Portail', ...QUOTE_COLUMNS.map(([column]) => column),
+];
 
 const normalizeName = (name) => String(name ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const killersOf = (row) => new Set(String(row.Killers ?? [row['Killer 1'], row['Killer 2']].filter(Boolean).join(','))
@@ -93,8 +95,9 @@ export const botFields = (character, { files, uploadedBanners }) => {
   for (const [column, language] of QUOTE_COLUMNS) {
     if (character.quote?.[language]) fields[column] = character.quote[language];
   }
-  // The summon the unit was released in; most old summon visuals could not be archived
+  // The summon the unit was released in; old ones are filed under group 0 in the game tables, not a summon id
   const summon = character.banners?.[0];
+  if (summon?.gacha_group_id) fields['Game Banner ID'] = summon.gacha_group_id;
   if (summon && uploadedBanners.has(summon.gacha_group_id) && files.banners?.has(`gacha_${summon.gacha_group_id}.png`)) {
     fields['URL Portail'] = `${BUCKET_URL}/banners/gacha_${summon.gacha_group_id}.png`;
   }
