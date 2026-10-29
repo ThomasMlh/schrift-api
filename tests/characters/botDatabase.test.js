@@ -78,6 +78,20 @@ describe('bot database file', () => {
     expect(missing.map((c) => c._id)).toEqual(['d']);
   });
 
+  it('gives the quote texts, and the game quote picture for English when no subtitled one was archived', () => {
+    const files = { thumb: new Set(), artwork: new Set(), phrase: new Set(['a.png', 'b.png']), 'phrase-en': new Set(['b.png']), attack: new Set(), banners: new Set() };
+    const options = { files, uploadedBanners: new Set() };
+    expect(botFields({ _id: 'a', quote: { fr: 'Merci, Zangetsu.', en: 'Thank you, Zangetsu.' } }, options)).toMatchObject({
+      'URL Phrase FR': 'https://bucket.bbs-schrift.fr/characters/phrase/a.png',
+      'URL Phrase EN': 'https://bucket.bbs-schrift.fr/characters/phrase/a.png',
+      'Phrase FR': 'Merci, Zangetsu.',
+      'Phrase EN': 'Thank you, Zangetsu.',
+    });
+    const withSubtitles = botFields({ _id: 'b', quote: { fr: 'Texte' } }, options);
+    expect(withSubtitles['URL Phrase EN']).toBe('https://bucket.bbs-schrift.fr/characters/phrase-en/b.png');
+    expect(withSubtitles).not.toHaveProperty('Phrase EN');
+  });
+
   it('gives only the images present on the bucket, and the release summon when it was archived', () => {
     const files = { thumb: new Set(['a.png']), artwork: new Set(['a.png']), phrase: new Set(), 'phrase-en': new Set(), attack: new Set(['a.png']), banners: new Set(['gacha_562.png']) };
     const fields = botFields({ _id: 'a', game_id: 61727, banners: [{ gacha_group_id: 562 }] }, { files, uploadedBanners: new Set([562]) });
