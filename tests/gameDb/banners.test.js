@@ -82,6 +82,46 @@ describe('game summons', () => {
     expect(await db.collection('banners').countDocuments()).toBe(4);
   });
 
+  it('copies the official banner of the summon news, archived on the FTP, with the primary one for a missing language', async () => {
+    const banners = buildGameBanners([{ game_id: 3, banners: [summon(950, false), summon(951, false)] }], ['en'], (group) => ({ news_id: group === 950 ? 9292 : 9293 }));
+    // rmfs has neither visual: the news is enough to queue them
+    await saveGameBanners(db, banners, new Date(), () => false);
+    expect((await banner(950)).images_pending).toEqual(['fr', 'en']);
+
+    const png = (tag) => Buffer.concat([Buffer.from('89504e47', 'hex'), Buffer.from(tag)]);
+    const archive = new Map([['/game-news/fr/9293.html', Buffer.from('<div class="news-view">no banner</div>')]]);
+    const uploads = new Map();
+    const ftp = {
+      uploadBuffer: async (buffer, path) => { uploads.set(path, buffer); archive.set(path, buffer); },
+      downloadBuffer: async (path) => {
+        if (archive.has(path)) return archive.get(path);
+        throw Object.assign(new Error('550'), { status: 404 });
+      },
+    };
+    const requests = [];
+    const bannerUrl = 'https://prod-web-game15.akamaized.net/fr/generated_image/1/News/9292/banner_image_abc12.png';
+    global.fetch = async (url) => {
+      requests.push(url);
+      if (url.includes('urahara-shop')) return new Response(`<section class="news-view"><img src="${bannerUrl}"></section>`);
+      if (url === bannerUrl) return new Response(png('fr'));
+      return new Response(null, { status: 302 });
+    };
+
+    expect(await uploadGameBanners(db, ftp, 10)).toMatchObject({ uploaded: 2 });
+    // The news is fetched once, archived, and its banner kept for both languages
+    expect(requests.filter((url) => url.includes('urahara-shop'))).toHaveLength(1);
+    expect(archive.get('/game-news/fr/9292.html').toString()).toContain(bannerUrl);
+    expect(uploads.get('/bucket.bbs-schrift.fr/banners/gacha_950.png')).toEqual(png('fr'));
+    expect(uploads.get('/bucket.bbs-schrift.fr/banners/gacha_950.en.png')).toEqual(png('fr'));
+    expect(await banner(950)).toMatchObject({ image_status: 'uploaded', image_origin: 'official', translations: { en: { image_status: 'uploaded', image_origin: 'official-fr' } } });
+    // A news without a banner (archived news read from the FTP, no request) and no rmfs visual
+    expect(await banner(951)).toMatchObject({ image_status: 'missing', images_pending: [] });
+
+    // Copied once: a later sync does not queue them again
+    await saveGameBanners(db, banners, new Date(), () => false);
+    expect((await banner(950)).images_pending).toEqual([]);
+  });
+
   it('does not queue a visual the game files do not have', async () => {
     await saveGameBanners(db, buildGameBanners([{ game_id: 2, banners: [summon(900)] }], ['en']), new Date(), (url) => !url.includes('/en/'));
     expect((await banner(900)).images_pending).toEqual(['fr']);
@@ -95,6 +135,6 @@ describe('game summons', () => {
     // A later sync whose tables no longer list 868 adds 869 and keeps every known summon
     await saveGameBanners(db, buildGameBanners([{ game_id: 1, banners: [summon(869)] }]));
     expect(await removeLegacyBanners(db)).toBe(0);
-    expect((await db.collection('banners').find().toArray()).map((b) => b.gacha_group_id).sort()).toEqual([866, 867, 868, 869, 900]);
+    expect((await db.collection('banners').find().toArray()).map((b) => b.gacha_group_id).sort()).toEqual([866, 867, 868, 869, 900, 950, 951]);
   });
 });
