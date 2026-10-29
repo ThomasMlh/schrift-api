@@ -2,7 +2,8 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAuth } from '../middleware/auth.js';
 import { sendHiddenServiceError } from '../utils/httpErrors.js';
-import { getGuildAccountRoster } from '../utils/bbsAccounts.js';
+import { buildGuildRoles, getGuildAccountRoster } from '../utils/bbsAccounts.js';
+import { leadersCanEditAlbums } from '../services/albumSettings.js';
 
 // Character albums: one document per bbs account (keyed by bbs_id, like the score history, so the
 // album follows the account when it is transferred between users).
@@ -14,12 +15,32 @@ export const MAX_SPE = 5;
 
 router.use(requireDb);
 
-// Does the bbs account exist, and which user owns it?
-const findAccountOwner = (db, bbsId) =>
-  db.collection('users').findOne(
+// Does the bbs account exist, which user owns it and which guild is it in?
+const findAccount = async (db, bbsId) => {
+  const owner = await db.collection('users').findOne(
     { $or: [{ 'bbs_accounts.bbs_id': bbsId }, { bbs_id: bbsId }] },
-    { projection: { _id: 1 } }
+    { projection: { _id: 1, bbs_id: 1, guilde_id: 1, bbs_accounts: 1 } }
   );
+  if (!owner) return null;
+  const account = (owner.bbs_accounts || []).find(a => a.bbs_id === bbsId);
+  const guildeId = account ? account.guilde_id : (owner.bbs_id === bbsId ? owner.guilde_id : null);
+  return { ownerId: String(owner._id), guildeId: guildeId ? String(guildeId) : null };
+};
+
+// Guilds where the user leads one of their accounts (chef or sous-chef), read from the database since
+// the token may be older than a role change
+const ledGuildIds = async (db, user) => {
+  if (!user?._id || !ObjectId.isValid(user._id)) return [];
+  const doc = await db.collection('users').findOne({ _id: new ObjectId(user._id) }, { projection: { bbs_accounts: 1 } });
+  return buildGuildRoles(doc?.bbs_accounts).map(g => String(g.guilde_id)).filter(Boolean);
+};
+
+// The account owner, an admin, or a leader of the guild the account is in when admins allow it
+const canEditAlbum = async (db, user, account) => {
+  if (user.is_admin || account.ownerId === String(user._id)) return true;
+  if (!account.guildeId || !(await leadersCanEditAlbums(db))) return false;
+  return (await ledGuildIds(db, user)).includes(account.guildeId);
+};
 
 // GET the albums of every bbs account in a guild (logged-in users only). `characters` is null for an
 // account that never filled its album, so it can be told apart from an empty one.
@@ -59,7 +80,7 @@ router.get('/:bbsId', async (req, res) => {
   }
 });
 
-// PUT a character's spec in an account's album (account owner or admin).
+// PUT a character's spec in an account's album (account owner, admin, or a leader of its guild).
 // spe = 0 removes the character from the album.
 router.put('/:bbsId/characters/:characterId', requireAuth, async (req, res) => {
   try {
@@ -73,12 +94,12 @@ router.put('/:bbsId/characters/:characterId', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Format d\'ID personnage invalide' });
     }
 
-    const owner = await findAccountOwner(req.db, bbsId);
-    if (!owner) {
+    const account = await findAccount(req.db, bbsId);
+    if (!account) {
       return res.status(404).json({ success: false, message: 'Compte bbs introuvable' });
     }
-    if (!req.user.is_admin && String(owner._id) !== String(req.user._id)) {
-      return res.status(403).json({ success: false, message: 'Tu ne peux modifier que l\'album de tes propres comptes' });
+    if (!(await canEditAlbum(req.db, req.user, account))) {
+      return res.status(403).json({ success: false, message: 'Tu ne peux modifier que l\'album de tes comptes ou des joueurs de ta guilde' });
     }
 
     const character = await req.db.collection('characters').findOne(

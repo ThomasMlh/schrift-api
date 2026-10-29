@@ -122,6 +122,32 @@ describe('PUT /api/albums/:bbsId/characters/:characterId', () => {
     expect(admin.body.data.characters).toEqual({ [characterId]: 2 });
   });
 
+  it('lets a guild leader or officer edit the albums of their guild only when admins allow it', async () => {
+    const guildA = new ObjectId();
+    const guildB = new ObjectId();
+    const chefId = new ObjectId();
+    const memberId = new ObjectId();
+    const characterId = new ObjectId();
+    await db.collection('users').insertMany([
+      // Leads guild A on an alt, plain member of guild B on the main account
+      { _id: chefId, bbs_accounts: [{ bbs_id: 'chefmain', guilde_id: guildB, role: 'membre' }, { bbs_id: 'chefalt', guilde_id: guildA, role: 'sous-chef' }] },
+      { _id: memberId, bbs_accounts: [{ bbs_id: 'inA', guilde_id: guildA, role: 'membre' }, { bbs_id: 'inB', guilde_id: guildB, role: 'membre' }] },
+    ]);
+    await db.collection('characters').insertOne({ _id: characterId, name: 'Rangiku' });
+    // The token says nothing about roles: they are read from the database
+    const chef = tokenFor({ _id: chefId.toString() });
+    const put = (bbsId) => request(app).put(`/api/albums/${bbsId}/characters/${characterId}`).set(chef).send({ spe: 3 });
+
+    expect((await put('inA')).status).toBe(403);
+
+    await db.collection('app_settings').insertOne({ _id: 'albums', leaders_can_edit: true });
+    const allowed = await put('inA');
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.data.characters).toEqual({ [characterId.toString()]: 3 });
+    // Same player, account in a guild they do not lead
+    expect((await put('inB')).status).toBe(403);
+  });
+
   it('rejects an invalid spé, an unknown account or an unknown character', async () => {
     const { ownerId, characterId } = await seed();
     const auth = tokenFor({ _id: ownerId });
