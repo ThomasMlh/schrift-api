@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireDb, requireScoresAccess } from '../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
-import { isValidNotificationType } from '../utils/notificationTypes.js';
+import { isValidActivityType } from '../utils/notificationTypes.js';
 import { sendServerErrorWithFlag } from '../utils/httpErrors.js';
 
 const router = express.Router();
@@ -25,8 +25,8 @@ router.get('/', requireScoresAccess, async (req, res) => {
     }
 
     if (type) {
-      if (!isValidNotificationType(type)) {
-        return res.status(400).json({ success: false, message: `Type de notification inconnu: ${type}` });
+      if (!isValidActivityType(type)) {
+        return res.status(400).json({ success: false, message: `Type d'activité inconnu: ${type}` });
       }
       filter.type = type;
     }

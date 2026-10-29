@@ -4,6 +4,9 @@ import { requireDb, requireAuth } from '../middleware/auth.js';
 import { sendHiddenServiceError } from '../utils/httpErrors.js';
 import { buildGuildRoles, getGuildAccountRoster } from '../utils/bbsAccounts.js';
 import { leadersCanEditAlbums } from '../services/albumSettings.js';
+import { logActivity } from '../utils/activityLog.js';
+import { getUserDisplayName } from '../utils/nameMatching.js';
+import { USER_DISPLAY } from '../utils/projections.js';
 
 // Character albums: one document per bbs account (keyed by bbs_id, like the score history, so the
 // album follows the account when it is transferred between users).
@@ -19,12 +22,16 @@ router.use(requireDb);
 const findAccount = async (db, bbsId) => {
   const owner = await db.collection('users').findOne(
     { $or: [{ 'bbs_accounts.bbs_id': bbsId }, { bbs_id: bbsId }] },
-    { projection: { _id: 1, bbs_id: 1, guilde_id: 1, bbs_accounts: 1 } }
+    { projection: { _id: 1, bbs_id: 1, bbs_name: 1, guilde_id: 1, bbs_accounts: 1 } }
   );
   if (!owner) return null;
   const account = (owner.bbs_accounts || []).find(a => a.bbs_id === bbsId);
   const guildeId = account ? account.guilde_id : (owner.bbs_id === bbsId ? owner.guilde_id : null);
-  return { ownerId: String(owner._id), guildeId: guildeId ? String(guildeId) : null };
+  return {
+    ownerId: String(owner._id),
+    guildeId: guildeId ? String(guildeId) : null,
+    bbsName: account?.bbs_name || owner.bbs_name || bbsId,
+  };
 };
 
 // Guilds where the user leads one of their accounts (chef or sous-chef), read from the database since
@@ -41,6 +48,12 @@ const canEditAlbum = async (db, user, account) => {
   if (!account.guildeId || !(await leadersCanEditAlbums(db))) return false;
   return (await ledGuildIds(db, user)).includes(account.guildeId);
 };
+
+const albumPayload = (bbsId, album) => ({
+  bbs_id: bbsId,
+  characters: album?.characters || {},
+  updated_at: album?.updated_at || null,
+});
 
 // GET the albums of every bbs account in a guild (logged-in users only). `characters` is null for an
 // account that never filled its album, so it can be told apart from an empty one.
@@ -67,31 +80,50 @@ router.get('/:bbsId', async (req, res) => {
     const { bbsId } = req.params;
     const album = await req.db.collection('albums').findOne({ bbs_id: bbsId });
 
-    res.json({
-      success: true,
-      data: {
-        bbs_id: bbsId,
-        characters: album?.characters || {},
-        updated_at: album?.updated_at || null
-      }
-    });
+    res.json({ success: true, data: albumPayload(bbsId, album) });
   } catch (error) {
     sendHiddenServiceError(res, error, 'Erreur lors de la récupération de l\'album:');
   }
 });
 
-// PUT a character's spec in an account's album (account owner, admin, or a leader of its guild).
-// spe = 0 removes the character from the album.
-router.put('/:bbsId/characters/:characterId', requireAuth, async (req, res) => {
-  try {
-    const { bbsId, characterId } = req.params;
-    const spe = Number(req.body?.spe);
+// Added, removed and changed characters, with their names, for the activity log
+const describeChanges = (before, changes, characters) => {
+  const byId = new Map(characters.map(c => [String(c._id), c]));
+  const label = (id) => {
+    const c = byId.get(id);
+    return { name: c?.name || id, version: c?.version || c?.game_version?.fr || '' };
+  };
+  const added = [];
+  const removed = [];
+  const changed = [];
+  for (const [id, spe] of Object.entries(changes)) {
+    const from = before[id] ?? 0;
+    if (from === spe) continue;
+    if (from === 0) added.push({ ...label(id), spe });
+    else if (spe === 0) removed.push({ ...label(id), spe: from });
+    else changed.push({ ...label(id), from, to: spe });
+  }
+  return { added, removed, changed };
+};
 
-    if (!Number.isInteger(spe) || spe < 0 || spe > MAX_SPE) {
-      return res.status(400).json({ success: false, message: `spe doit être un entier entre 0 et ${MAX_SPE}` });
+// PUT every change of an editing session at once (account owner, admin, or a leader of its guild).
+// Body: { changes: { <character _id>: spe } }, spe = 0 removes the character from the album.
+router.put('/:bbsId', requireAuth, async (req, res) => {
+  try {
+    const { bbsId } = req.params;
+    const changes = req.body?.changes;
+
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
+      return res.status(400).json({ success: false, message: 'changes doit être un objet { personnage: spé }' });
     }
-    if (!ObjectId.isValid(characterId)) {
-      return res.status(400).json({ success: false, message: 'Format d\'ID personnage invalide' });
+    const entries = Object.entries(changes);
+    for (const [characterId, spe] of entries) {
+      if (!ObjectId.isValid(characterId)) {
+        return res.status(400).json({ success: false, message: 'Format d\'ID personnage invalide' });
+      }
+      if (!Number.isInteger(spe) || spe < 0 || spe > MAX_SPE) {
+        return res.status(400).json({ success: false, message: `spe doit être un entier entre 0 et ${MAX_SPE}` });
+      }
     }
 
     const account = await findAccount(req.db, bbsId);
@@ -102,33 +134,54 @@ router.put('/:bbsId/characters/:characterId', requireAuth, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Tu ne peux modifier que l\'album de tes comptes ou des joueurs de ta guilde' });
     }
 
-    const character = await req.db.collection('characters').findOne(
-      { _id: new ObjectId(characterId) },
-      { projection: { _id: 1 } }
-    );
-    if (!character) {
+    const albums = req.db.collection('albums');
+    const current = await albums.findOne({ bbs_id: bbsId });
+    if (entries.length === 0) return res.json({ success: true, data: albumPayload(bbsId, current) });
+
+    const characters = await req.db.collection('characters').find(
+      { _id: { $in: entries.map(([id]) => new ObjectId(id)) } },
+      { projection: { name: 1, version: 1, 'game_version.fr': 1 } }
+    ).toArray();
+    if (characters.length !== entries.length) {
       return res.status(404).json({ success: false, message: 'Personnage non trouvé' });
     }
 
-    const field = `characters.${characterId}`;
-    const update = spe === 0
-      ? { $unset: { [field]: '' }, $set: { updated_at: new Date() } }
-      : { $set: { [field]: spe, updated_at: new Date() } };
-
-    const album = await req.db.collection('albums').findOneAndUpdate(
+    const summary = describeChanges(current?.characters || {}, changes, characters);
+    const set = { updated_at: new Date() };
+    const unset = {};
+    for (const [characterId, spe] of entries) {
+      if (spe === 0) unset[`characters.${characterId}`] = '';
+      else set[`characters.${characterId}`] = spe;
+    }
+    const album = await albums.findOneAndUpdate(
       { bbs_id: bbsId },
-      update,
+      { $set: set, ...(Object.keys(unset).length > 0 && { $unset: unset }) },
       { upsert: true, returnDocument: 'after' }
     );
 
-    res.json({
-      success: true,
-      data: {
-        bbs_id: bbsId,
-        characters: album?.characters || {},
-        updated_at: album?.updated_at || null
-      }
-    });
+    if (summary.added.length + summary.removed.length + summary.changed.length > 0) {
+      const [editor, guild] = await Promise.all([
+        ObjectId.isValid(req.user._id)
+          ? req.db.collection('users').findOne({ _id: new ObjectId(req.user._id) }, { projection: USER_DISPLAY })
+          : null,
+        account.guildeId && ObjectId.isValid(account.guildeId)
+          ? req.db.collection('guildes').findOne({ _id: new ObjectId(account.guildeId) }, { projection: { name: 1 } })
+          : null,
+      ]);
+      await logActivity(req.db, {
+        type: 'album_update',
+        guildeId: account.guildeId,
+        data: {
+          edited_by: getUserDisplayName(editor),
+          bbs_id: bbsId,
+          bbs_name: account.bbsName,
+          guild_name: guild?.name || null,
+          ...summary,
+        },
+      });
+    }
+
+    res.json({ success: true, data: albumPayload(bbsId, album) });
   } catch (error) {
     sendHiddenServiceError(res, error, 'Erreur lors de la mise à jour de l\'album:');
   }

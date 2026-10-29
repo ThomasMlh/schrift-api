@@ -84,40 +84,70 @@ describe('GET /api/albums/:bbsId', () => {
   });
 });
 
-describe('PUT /api/albums/:bbsId/characters/:characterId', () => {
-  it('lets the account owner add, update and remove a character, on an alt too', async () => {
+describe('PUT /api/albums/:bbsId', () => {
+  it('saves every change of a session at once, on an alt too', async () => {
     const { ownerId, characterId } = await seed();
-    const url = `/api/albums/alt1/characters/${characterId}`;
+    const other = (await db.collection('characters').insertOne({ name: 'Gin', version: 'Bankai' })).insertedId.toString();
+    const put = (changes) => request(app).put('/api/albums/alt1').set(tokenFor({ _id: ownerId })).send({ changes });
 
-    let res = await request(app).put(url).set(tokenFor({ _id: ownerId })).send({ spe: 1 });
+    let res = await put({ [characterId]: 1, [other]: 4 });
     expect(res.status).toBe(200);
-    expect(res.body.data.characters).toEqual({ [characterId]: 1 });
+    expect(res.body.data.characters).toEqual({ [characterId]: 1, [other]: 4 });
 
-    res = await request(app).put(url).set(tokenFor({ _id: ownerId })).send({ spe: 5 });
+    res = await put({ [characterId]: 5, [other]: 0 });
     expect(res.body.data.characters).toEqual({ [characterId]: 5 });
 
-    res = await request(app).put(url).set(tokenFor({ _id: ownerId })).send({ spe: 0 });
-    expect(res.body.data.characters).toEqual({});
-
     const pub = await request(app).get('/api/albums/alt1');
-    expect(pub.body.data.characters).toEqual({});
+    expect(pub.body.data.characters).toEqual({ [characterId]: 5 });
     expect(await db.collection('albums').countDocuments()).toBe(1);
+  });
+
+  it('logs one activity entry per save with what changed, none when nothing did', async () => {
+    const guildeId = new ObjectId();
+    const userId = new ObjectId();
+    const { insertedIds } = await db.collection('characters').insertMany([
+      { name: 'Rangiku', version: 'Bankai' }, { name: 'Gin' }, { name: 'Toshiro' },
+    ]);
+    const [a, b, c] = Object.values(insertedIds).map(String);
+    await db.collection('users').insertOne({ _id: userId, bbs_name: 'Owner', bbs_accounts: [{ bbs_id: 'main1', bbs_name: 'Main', guilde_id: guildeId, is_primary: true }] });
+    await db.collection('guildes').insertOne({ _id: guildeId, name: 'Schrift' });
+    await db.collection('albums').insertOne({ bbs_id: 'main1', characters: { [b]: 2, [c]: 3 } });
+    const put = (changes) => request(app).put('/api/albums/main1').set(tokenFor({ _id: userId.toString() })).send({ changes });
+
+    expect((await put({ [a]: 1, [b]: 0, [c]: 5 })).status).toBe(200);
+    await put({ [a]: 1 });
+    await put({});
+
+    const log = await db.collection('activity_log').find().toArray();
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({
+      type: 'album_update',
+      guilde_id: guildeId.toString(),
+      data: {
+        edited_by: 'Owner',
+        bbs_id: 'main1',
+        bbs_name: 'Main',
+        guild_name: 'Schrift',
+        added: [{ name: 'Rangiku', version: 'Bankai', spe: 1 }],
+        removed: [{ name: 'Gin', version: '', spe: 2 }],
+        changed: [{ name: 'Toshiro', version: '', from: 3, to: 5 }],
+      },
+    });
   });
 
   it('requires a token', async () => {
     const { characterId } = await seed();
-    const res = await request(app).put(`/api/albums/main1/characters/${characterId}`).send({ spe: 1 });
+    const res = await request(app).put('/api/albums/main1').send({ changes: { [characterId]: 1 } });
     expect(res.status).toBe(401);
   });
 
   it("refuses to edit another player's album, but allows admins", async () => {
     const { otherId, characterId } = await seed();
-    const url = `/api/albums/main1/characters/${characterId}`;
+    const put = (payload) => request(app).put('/api/albums/main1').set(tokenFor(payload)).send({ changes: { [characterId]: 2 } });
 
-    const denied = await request(app).put(url).set(tokenFor({ _id: otherId })).send({ spe: 2 });
-    expect(denied.status).toBe(403);
+    expect((await put({ _id: otherId })).status).toBe(403);
 
-    const admin = await request(app).put(url).set(tokenFor({ _id: otherId, is_admin: true })).send({ spe: 2 });
+    const admin = await put({ _id: otherId, is_admin: true });
     expect(admin.status).toBe(200);
     expect(admin.body.data.characters).toEqual({ [characterId]: 2 });
   });
@@ -136,7 +166,7 @@ describe('PUT /api/albums/:bbsId/characters/:characterId', () => {
     await db.collection('characters').insertOne({ _id: characterId, name: 'Rangiku' });
     // The token says nothing about roles: they are read from the database
     const chef = tokenFor({ _id: chefId.toString() });
-    const put = (bbsId) => request(app).put(`/api/albums/${bbsId}/characters/${characterId}`).set(chef).send({ spe: 3 });
+    const put = (bbsId) => request(app).put(`/api/albums/${bbsId}`).set(chef).send({ changes: { [characterId]: 3 } });
 
     expect((await put('inA')).status).toBe(403);
 
@@ -148,16 +178,18 @@ describe('PUT /api/albums/:bbsId/characters/:characterId', () => {
     expect((await put('inB')).status).toBe(403);
   });
 
-  it('rejects an invalid spé, an unknown account or an unknown character', async () => {
+  it('rejects invalid changes, an unknown account or an unknown character, and then writes nothing', async () => {
     const { ownerId, characterId } = await seed();
     const auth = tokenFor({ _id: ownerId });
+    const put = (bbsId, changes) => request(app).put(`/api/albums/${bbsId}`).set(auth).send({ changes });
 
-    for (const spe of [6, -1, 1.5, 'abc', undefined]) {
-      const res = await request(app).put(`/api/albums/main1/characters/${characterId}`).set(auth).send({ spe });
-      expect(res.status).toBe(400);
+    for (const spe of [6, -1, 1.5, 'abc', null]) {
+      expect((await put('main1', { [characterId]: spe })).status).toBe(400);
     }
-    expect((await request(app).put(`/api/albums/main1/characters/nope`).set(auth).send({ spe: 1 })).status).toBe(400);
-    expect((await request(app).put(`/api/albums/ghost/characters/${characterId}`).set(auth).send({ spe: 1 })).status).toBe(404);
-    expect((await request(app).put(`/api/albums/main1/characters/${new ObjectId()}`).set(auth).send({ spe: 1 })).status).toBe(404);
+    for (const changes of [undefined, [], 'x']) expect((await put('main1', changes)).status).toBe(400);
+    expect((await put('main1', { nope: 1 })).status).toBe(400);
+    expect((await put('ghost', { [characterId]: 1 })).status).toBe(404);
+    expect((await put('main1', { [characterId]: 1, [new ObjectId()]: 1 })).status).toBe(404);
+    expect(await db.collection('albums').countDocuments()).toBe(0);
   });
 });

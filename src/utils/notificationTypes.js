@@ -23,5 +23,10 @@ export const NOTIFICATION_TYPES = [
 
 export const isValidNotificationType = (type) => NOTIFICATION_TYPES.includes(type);
 
+// Events only written to the activity log, never sent to Discord
+export const ACTIVITY_ONLY_TYPES = ['album_update'];
+
+export const isValidActivityType = (type) => isValidNotificationType(type) || ACTIVITY_ONLY_TYPES.includes(type);
+
 export const sanitizeDisabledTypes = (input) =>
   Array.isArray(input) ? [...new Set(input.filter(isValidNotificationType))] : [];
