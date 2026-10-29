@@ -6,7 +6,10 @@ of its animations; every OnStartedHitJudge event opens one hit window.
 Writes attack_hits.csv (resource_3d_id, clip, variation_index, hits), read by the sync next to the
 other tables: put it in the game-db language folder of the primary language.
 
-Usage: python extract_attack_hits.py <rmfs folder> <output csv>
+A dump only holds the models the client downloaded. Pass the previous attack_hits.csv to keep the
+models missing from this dump: they keep their rows, the models found again are replaced.
+
+Usage: python extract_attack_hits.py <rmfs folder> <output csv> [previous csv]
 """
 import csv
 import os
@@ -48,7 +51,12 @@ def model_hits(path):
     return Counter()
 
 
-def main(rmfs, output):
+def read_previous(path):
+    with open(path, newline='', encoding='utf-8') as file:
+        return [(r['resource_3d_id'], r['clip'], r['variation_index'], int(r['hits'])) for r in csv.DictReader(file)]
+
+
+def main(rmfs, output, previous=None):
     rows = []
     for name in sorted(os.listdir(rmfs)):
         if not name.endswith('_mdl.byte'):
@@ -61,14 +69,19 @@ def main(rmfs, output):
             continue
         rows.extend((model, clip, variation, count) for (clip, variation), count in sorted(hits.items()))
 
+    found = {row[0] for row in rows}
+    kept = [row for row in read_previous(previous) if row[0] not in found] if previous else []
+    rows = sorted(rows + kept)
+
     with open(output, 'w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         writer.writerow(['resource_3d_id', 'clip', 'variation_index', 'hits'])
         writer.writerows(rows)
-    print(f'{len({row[0] for row in rows})} models, {len(rows)} rows -> {output}')
+    print(f'{len(found)} models from the dump, {len({row[0] for row in kept})} kept from the previous file, '
+          f'{len({row[0] for row in rows})} models, {len(rows)} rows -> {output}')
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         sys.exit(__doc__)
-    main(sys.argv[1], sys.argv[2])
+    main(*sys.argv[1:])

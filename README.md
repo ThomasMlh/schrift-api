@@ -62,8 +62,10 @@ The game tables only count the hits of projectiles. Melee hits are read from the
 
 ```
 pip install -r tools/attack-hits/requirements.txt
-python tools/attack-hits/extract_attack_hits.py <rmfs folder> attack_hits.csv
+python tools/attack-hits/extract_attack_hits.py <rmfs folder> attack_hits.csv [previous attack_hits.csv]
 ```
+
+A dump only holds the models the client downloaded: pass the current `attack_hits.csv` as previous file so models missing from the new dump keep their hits (models found again are replaced).
 
 Put `attack_hits.csv` next to the other tables of the primary language (`game-db/fr`). The sync reads it when present; units whose model is missing from rmfs keep an unknown hit count.
 
