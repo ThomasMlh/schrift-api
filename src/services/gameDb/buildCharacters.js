@@ -202,8 +202,8 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
     const traits = {
       link: byPriority([...link].map(([type, value]) => linkTrait(dict, type, value))),
       passive: byPriority((passives.get(row.m_passive_ability_group_id) ?? []).map((p) => passiveTrait(dict, p))),
-      tree: byPriority([...treeAbilities.values()].map(({ type, value }) => treeTrait(dict, type, value, statusUps))),
-      ex: byPriority([row.m_extra_ability_id1, row.m_extra_ability_id2].filter((id) => extras.has(id)).map((id) => extraTrait(dict, extras.get(id), statusUps))),
+      tree: byPriority([...treeAbilities.values()].map(({ type, value }) => treeTrait(dict, type, value, statusUps, belongAttributes))),
+      ex: byPriority([row.m_extra_ability_id1, row.m_extra_ability_id2].filter((id) => extras.has(id)).map((id) => extraTrait(dict, extras.get(id), statusUps, belongAttributes))),
       destruction: (destructionBonuses.get(row.m_destruction_bonus_group_id) ?? [])
         .sort((a, b) => Number(a.destruction_count) - Number(b.destruction_count))
         .map((bonus) => destructionTrait(dict, bonus)),
