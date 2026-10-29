@@ -21,8 +21,9 @@ const imageFields = (language) => (language === PRIMARY_LANGUAGE
 
 const valueAt = (doc, path) => path.split('.').reduce((value, key) => value?.[key], doc);
 
-// One document per summon, from the summons listed on the game characters
-export const buildGameBanners = (gameCharacters, languages = []) => {
+// One document per summon, from the summons listed on the game characters. detailsOf(group) adds what
+// the summon tables tell (modes, steps, featured units, medal shop)
+export const buildGameBanners = (gameCharacters, languages = [], detailsOf = () => null) => {
   const byGroup = new Map();
   for (const character of gameCharacters) {
     for (const summon of character.banners ?? []) {
@@ -37,6 +38,7 @@ export const buildGameBanners = (gameCharacters, languages = []) => {
           image_source: image(PRIMARY_LANGUAGE),
           translation_sources: Object.fromEntries(languages.map((language) => [language, image(language)])),
           character_game_ids: [],
+          details: detailsOf(summon.gacha_group_id),
         });
       }
       byGroup.get(summon.gacha_group_id).character_game_ids.push(character.game_id);
