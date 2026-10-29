@@ -18,7 +18,7 @@ const renji = {
 describe('attack buttons picture', () => {
   it('uses the same button pieces as the character page', () => {
     expect(buttonBase('heavy2', renji.heavy2.steps)).toBe('bt_buff_heavy');
-    expect(buttonIcon('heavy2', renji.heavy2.steps)).toBe('7_heavy2');
+    expect(buttonIcon('heavy2', renji.heavy2.steps)).toBe('6_heavy4');
     expect(buttonIcon('ex', renji.ex.steps)).toBe('10_special1');
     expect(buttonBase('normal', [step({ color: 'B' })])).toBe('bt_projectile');
   });

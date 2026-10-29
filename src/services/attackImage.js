@@ -69,6 +69,8 @@ export const buttonIcon = (button, steps) => {
   if (button === 'extra_action') return 'ex_action01';
   if (button === 'ex') return steps.some((s) => s.revival) ? '10_special1' : '11_skill1';
   if (steps.some((s) => s.twice)) return '11_heavy3';
+  // A buff that also heals has its own icon (party with a "+"), the heal drop goes in a badge
+  if (steps.some((s) => s.buff) && steps.some((s) => s.heal)) return '6_heavy4';
   const buff = steps.find((s) => s.buff)?.buff;
   const weapon = buff ? (buff.target === 2 ? 7 : 6) : steps.some((s) => s.heal) ? 5 : steps.find((s) => s.weapon)?.weapon;
   if (!weapon) return null;
@@ -94,8 +96,25 @@ const hasButton = (attacks, button) => (attacks?.[button]?.steps?.length ?? 0) >
 // Size of the picture: wider for a unit with an EX move
 export const attackImageSize = (attacks) => ({ width: WIDTH + (hasButton(attacks, 'extra_action') ? EX_MOVE_SHIFT : 0), height: HEIGHT });
 
-// Status badge: a dark disc with a gold ring, the status icon in the middle, an orange "+" on the top left
-const BADGE = { base: 'ailment_base_heavy_02', scale: 0.95, size: 50, icon: 34, offset: [-7, -6], next: 13 };
+// Status badges, measured on the game screen. Each frame is a dark disc whose shadow follows the button
+// ring: the big normal button has its own frames, the "+" statuses a gold ring and an orange "+".
+// offset: frame top left from the circle's top left, center: middle of the disc in the frame, icon: size
+const BADGES = {
+  small: {
+    plain: { frame: 'ailment_base_heavy', offset: [0, -1], center: [16, 17], icon: 28 },
+    plus: { frame: 'ailment_base_heavy_02', offset: [-2, -1], center: [21, 19], icon: 28, sign: [-6, 0] },
+  },
+  big: {
+    plain: { frame: 'ailment_base', offset: [-4, -3], center: [23, 23], icon: 34 },
+    plus: { frame: 'ailment_base_02', offset: [-4, -3], center: [23, 22], icon: 34, sign: [-6, 2] },
+  },
+};
+// A second status of the same button sits next to the first one
+const NEXT_BADGE = 24;
+const STATUS_ICON_SIZE = 36;
+
+// Drop of a buff that heals: on a black disc at the bottom right of the button
+const SUB_BADGE = { inset: 16, scale: 0.65 };
 
 // Buttons of the unit, placed for its layout
 const slotsOf = (attacks) => {
@@ -123,21 +142,22 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
 
   const left = slot.x - slot.size / 2;
   const top = slot.y - slot.size / 2;
+  const badges = BADGES[button === 'normal' ? 'big' : 'small'];
   statusBadges(steps).forEach((badge, index) => {
-    const x = left + BADGE.offset[0] + index * BADGE.next;
-    const y = top + BADGE.offset[1];
-    const middle = BADGE.size / 2;
-    pieces.push({ name: BADGE.base, x, y, scale: BADGE.scale, anchor: 'top-left' });
-    pieces.push({ name: badge.icon, x: x + middle, y: y + middle, scale: BADGE.icon / 36, anchor: 'center' });
-    if (badge.plus) pieces.push({ name: 'ailment_plus', x: x - 3, y: y - 3, scale: 1, anchor: 'top-left' });
+    const style = badge.plus ? badges.plus : badges.plain;
+    const x = left + style.offset[0] + index * NEXT_BADGE;
+    const y = top + style.offset[1];
+    pieces.push({ name: style.frame, x, y, scale: 1, anchor: 'top-left' });
+    pieces.push({ name: badge.icon, x: x + style.center[0], y: y + style.center[1], scale: style.icon / STATUS_ICON_SIZE, anchor: 'center' });
+    if (badge.plus) pieces.push({ name: 'ailment_plus', x: x + style.sign[0], y: y + style.sign[1], scale: 1, anchor: 'top-left' });
   });
 
   const sub = subBadge(steps);
   if (sub) {
-    const x = slot.x + slot.size / 2 - 30;
-    const y = slot.y + slot.size / 2 - 30;
-    pieces.push({ name: 'ailment_base_2', x, y, scale: 1, anchor: 'top-left' });
-    pieces.push({ name: sub, x: x - 3, y: y - 3, scale: 43 / 54, anchor: 'top-left' });
+    const x = slot.x + slot.size / 2 - SUB_BADGE.inset;
+    const y = slot.y + slot.size / 2 - SUB_BADGE.inset;
+    pieces.push({ name: 'ailment_base_2', x, y, scale: 1, anchor: 'center' });
+    pieces.push({ name: sub, x, y, scale: SUB_BADGE.scale, anchor: 'center' });
   }
   return pieces;
 });
