@@ -68,6 +68,8 @@ beforeAll(async () => {
   mkdirSync(join(dir, 'en'));
   for (const name of GAME_TABLES) writeFileSync(join(dir, 'fr', `${name}.csv`), csv(TABLES[name] ?? [{ id: '' }]));
   writeFileSync(join(dir, 'en', 'm_dictionary.csv'), csv([{ dictkey: 'lb_ICG', content_en: 'Ichigo Kurosaki EN' }]));
+  // Made on the side from the model bundles: at the root, out of reach of a new dump in fr/
+  writeFileSync(join(dir, 'attack_hits.csv'), csv([{ resource_3d_id: '0001_ICG_mdl', clip: 'Sp1', variation_index: '0', hits: '3' }]));
   process.env.GAME_DB_DIR = dir;
 
   mongod = await MongoMemoryServer.create();
@@ -102,7 +104,7 @@ describe('POST /api/characters/game-sync', () => {
   it('only simulates by default', async () => {
     const res = await sync({});
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ dryRun: true, languages: ['fr', 'en'], statistics: { linked: 1, firstLinks: 1, created: 1 } });
+    expect(res.body).toMatchObject({ dryRun: true, languages: ['fr', 'en'], statistics: { linked: 1, firstLinks: 1, created: 1, attackHitModels: 1 } });
     expect(await db.collection('characters').countDocuments()).toBe(1);
   });
 

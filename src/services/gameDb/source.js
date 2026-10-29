@@ -81,8 +81,9 @@ export const rmfsImages = (game, exists = () => true) => {
 
 const downloadText = async (ftp, remotePath) => (await ftp.downloadBuffer(remotePath)).toString('utf8');
 
-// Reads the tables of the primary language folder and the dictionary of every other language folder;
-// an optional table missing from the folder is read as empty
+// Reads the tables of the primary language folder and the dictionary of every other language folder.
+// Optional tables are read at the root first: files made on the side (attack_hits) live there, so
+// uploading a new dump into the language folder never removes them; missing, they are read as empty.
 const readGameData = async ({ listFolders, readTable, root }, names, optional) => {
   const folders = (await listFolders(root)).filter((name) => LANGUAGE_FOLDER.test(name));
   const primary = `${root}/${PRIMARY_LANGUAGE}`;
@@ -95,7 +96,9 @@ const readGameData = async ({ listFolders, readTable, root }, names, optional) =
     }
   }
   for (const name of optional) {
-    tables[name] = await readTable(`${primary}/${name}.csv`).then(parseCsv, () => []);
+    tables[name] = await readTable(`${root}/${name}.csv`)
+      .catch(() => readTable(`${primary}/${name}.csv`))
+      .then(parseCsv, () => []);
   }
   const translations = [];
   for (const language of folders.filter((name) => name !== PRIMARY_LANGUAGE)) {

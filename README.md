@@ -67,7 +67,7 @@ python tools/attack-hits/extract_attack_hits.py <rmfs folder> attack_hits.csv [p
 
 A dump only holds the models the client downloaded: pass the current `attack_hits.csv` as previous file so models missing from the new dump keep their hits (models found again are replaced).
 
-Put `attack_hits.csv` next to the other tables of the primary language (`game-db/fr`). The sync reads it when present; units whose model is missing from rmfs keep an unknown hit count.
+Put `attack_hits.csv` at the root of the game data (`game-db/attack_hits.csv`), not in a language folder: uploading a new dump there then never removes it. The sync reads it when present; units whose model is missing from rmfs keep an unknown hit count.
 
 Two entrypoints coexist: `src/server.js` (long-running process, listens on `PORT`, used for classic cPanel deployment) and `api/index.js` (serverless-adapted, caches the Mongo connection across invocations, used by `vercel.json`). Both mount the same `src/routes/index.js` router.
 
