@@ -42,6 +42,8 @@ const NORMAL_ICON_FRAMES = {
 const iconFrame = (icon) => {
   if (NORMAL_ICON_FRAMES[icon]) return NORMAL_ICON_FRAMES[icon];
   if (icon === 'ex_action01') return { frame: [70, 70], offset: [6, 6] };
+  // The double strike icon is drawn smaller in the atlas: the game shows it at the size of the others
+  if (icon === '11_heavy3') return { frame: [64, 64], offset: [5, 5], shown: 88 };
   return /_(special1|skill1)$/.test(icon) ? { frame: [88, 88], offset: [8, 8] } : { frame: [88, 88], offset: [7, 8] };
 };
 
@@ -135,9 +137,10 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
 
   const icon = buttonIcon(button, steps);
   if (icon) {
-    const { frame, offset } = iconFrame(icon);
+    const { frame, offset, shown } = iconFrame(icon);
+    const iconScale = scale * (shown ? shown / frame[0] : 1);
     // Top left of the icon inside its frame, the frame centered on the button
-    pieces.push({ name: icon, x: slot.x + (offset[0] - frame[0] / 2) * scale, y: slot.y + (offset[1] - frame[1] / 2) * scale, scale, anchor: 'top-left' });
+    pieces.push({ name: icon, x: slot.x + (offset[0] - frame[0] / 2) * iconScale, y: slot.y + (offset[1] - frame[1] / 2) * iconScale, scale: iconScale, anchor: 'top-left' });
   }
 
   const left = slot.x - slot.size / 2;
