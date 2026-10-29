@@ -183,14 +183,26 @@ export const widenShape = (shape, percent) => {
   return { ...shape, ...Object.fromEntries(SCALED_FIELDS[shape.kind].map((field) => [field, scaled(shape[field], rate)])) };
 };
 
+// Status chance against some enemies only (m_ability_regist_belong_attribute), pointed to by the ability
+const CONDITIONAL_STATUS_CHANCES = new Set(['belong_attribute_bad_status_probability', 'attribute_bad_status_probability']);
+
 // Applies the unit's own abilities (passives, fully unlocked soul tree, EX): areas are shown at their
 // widest, as in battle. Extra hits are only given beside the hits, the game adds them on its side.
-export const applyAttackBonuses = (attacks, traits) => {
+// condition(ref): { value, belong, affinity } of a conditional status chance, null when unknown.
+export const applyAttackBonuses = (attacks, traits, condition = () => null) => {
+  const all = [...traits.passive, ...traits.tree, ...traits.ex];
   const totals = new Map();
-  for (const trait of [...traits.passive, ...traits.tree, ...traits.ex]) {
+  for (const trait of all) {
     const value = Number(trait.value);
     if (trait.type && Number.isFinite(value)) totals.set(trait.type, (totals.get(trait.type) ?? 0) + value);
   }
+  // Same for every attack that inflicts a status: longer statuses (ms), a higher chance (percent)
+  const statusBonus = {
+    duration: totals.get('attack_bad_status_up_time') || 0,
+    probability: totals.get('attack_bad_status_up_probability') || 0,
+    conditional: all.filter((trait) => CONDITIONAL_STATUS_CHANCES.has(trait.type) && trait.ref).map((trait) => condition(trait.ref)).filter(Boolean),
+  };
+  const hasStatusBonus = statusBonus.duration > 0 || statusBonus.probability > 0 || statusBonus.conditional.length > 0;
   return Object.fromEntries(Object.entries(attacks).map(([button, attack]) => {
     const key = bonusKey(button);
     const range = totals.get(RANGE_BONUSES[key]) || null;
@@ -199,6 +211,7 @@ export const applyAttackBonuses = (attacks, traits) => {
       ...attack,
       range_bonus: range,
       hit_bonus: hitBonus,
+      status_bonus: hasStatusBonus && attack.steps.some((step) => step.statuses?.length > 0) ? statusBonus : null,
       steps: range ? attack.steps.map((step) => ({ ...step, shape: widenShape(step.shape, range) })) : attack.steps,
     }];
   }));

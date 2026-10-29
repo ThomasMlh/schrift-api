@@ -113,4 +113,24 @@ describe('attacks', () => {
     expect(result.normal).toMatchObject({ range_bonus: null, hit_bonus: null, steps: [{ shape: { radius: 375 } }] });
     expect(result.ex).toMatchObject({ range_bonus: null, hit_bonus: 1 });
   });
+
+  it('adds the status duration and chance abilities, with the enemies a chance is limited to', () => {
+    const attacks = {
+      heavy3: { steps: [{ statuses: [{ code: 'ero' }], shape: null }] },
+      ex: { steps: [{ statuses: [], shape: null }] },
+    };
+    const traits = {
+      passive: [],
+      tree: [
+        { type: 'attack_bad_status_up_time', value: 2000 },
+        { type: 'attack_bad_status_up_probability', value: 10 },
+        { type: 'belong_attribute_bad_status_probability', value: null, ref: '618091' },
+      ],
+      ex: [],
+    };
+    const condition = (ref) => (ref === '618091' ? { value: 20, belong: ['Arrancar'], affinity: null } : null);
+    const result = applyAttackBonuses(attacks, traits, condition);
+    expect(result.heavy3.status_bonus).toEqual({ duration: 2000, probability: 10, conditional: [{ value: 20, belong: ['Arrancar'], affinity: null }] });
+    expect(result.ex.status_bonus).toBeNull();
+  });
 });
