@@ -68,14 +68,19 @@ export const createRmfsIndex = async (folders) => {
   };
 };
 
+// Source of the attack buttons picture: drawn by the site from the unit's attacks, not read from the game files
+export const GENERATED_ATTACK_IMAGE = 'generated:attack-buttons';
+
 // Game images of a unit in rmfs; the quote is left out when the game files do not have it
 export const rmfsImages = (game, exists = () => true) => {
-  if (!game.resource_2d_id) return {};
+  const attack = Object.keys(game.attacks ?? {}).length > 0 ? { attack: GENERATED_ATTACK_IMAGE } : {};
+  if (!game.resource_2d_id) return attack;
   const quote = rmfsUrl(`CharacterGacha/TexturesDialog/dialog_${game.resource_2d_id}.png`);
   return {
     thumbnail: rmfsUrl(`Characters/${game.resource_2d_id}/thumb.png`),
     artwork: rmfsUrl(`Characters/${game.resource_2d_id}/stand_gacha.png`),
     ...(exists(quote) ? { quote } : {}),
+    ...attack,
   };
 };
 

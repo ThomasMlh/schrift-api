@@ -4,7 +4,8 @@
  */
 import sharp from 'sharp';
 import { logger } from '../utils/logger.js';
-import { downloadGameFile } from './gameDb/source.js';
+import { downloadGameFile, GENERATED_ATTACK_IMAGE } from './gameDb/source.js';
+import { ATTACK_PIECES_PATH, renderAttackImage } from './attackImage.js';
 
 const BUCKET_ROOT = '/bucket.bbs-schrift.fr/characters';
 
@@ -57,17 +58,41 @@ export const onBlackBackground = (image) => sharp(image)
 // How each game image is prepared before upload. Bump GAME_IMAGE_REVISIONS when a treatment changes:
 // the next sync uploads that image again for every character.
 const GAME_IMAGE_PROCESSING = { artwork: trimTransparent, quote: onBlackBackground };
-export const GAME_IMAGE_REVISIONS = { thumbnail: 1, artwork: 1, quote: 2 };
+export const GAME_IMAGE_REVISIONS = { thumbnail: 1, artwork: 1, quote: 2, attack: 1 };
+
+// Button pieces of the game interface, read once per process from the bucket
+const attackPieces = new Map();
+const loadAttackPiece = (ftp) => (name) => {
+  if (!attackPieces.has(name)) {
+    const download = ftp.downloadBuffer(`${ATTACK_PIECES_PATH}/${name}.png`);
+    attackPieces.set(name, download);
+    download.catch(() => attackPieces.delete(name));
+  }
+  return attackPieces.get(name);
+};
 
 /**
  * Uploads one target. Returns true when the stored file matches the source, 'missing' when a game
  * image does not exist (not every unit has a quote or a banner in the game files), false to retry:
  * a missing silhouette still uploads the plain artwork but returns false so the next batch tries again.
  */
-export const uploadImageTarget = async (ftp, target, sources, characterId) => {
+export const uploadImageTarget = async (ftp, target, sources, characterId, character = null) => {
   const path = imagePath(target, characterId);
   const main = sources?.[target.sources[0]];
   if (!main) return true;
+
+  // Drawn from the attacks of the character, like the game battle screen
+  if (main === GENERATED_ATTACK_IMAGE) {
+    try {
+      const image = await renderAttackImage(character?.attacks, loadAttackPiece(ftp));
+      if (!image) return 'missing';
+      await ftp.uploadBuffer(image, path);
+      return true;
+    } catch (err) {
+      logger.error(`❌ Image des attaques ${characterId}:`, err.message);
+      return false;
+    }
+  }
 
   if (isGameImage(main)) {
     try {

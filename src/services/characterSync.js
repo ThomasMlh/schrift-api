@@ -91,7 +91,7 @@ export const uploadCharacterImages = async (db, ftp, character) => {
       continue;
     }
     if (!pending.has(target.key) && await ftp.fileExists(imagePath(target, character._id))) continue;
-    const result = await uploadImageTarget(ftp, target, character.source_images, character._id);
+    const result = await uploadImageTarget(ftp, target, character.source_images, character._id, character);
     if (result === 'missing') {
       missing.push(target.sources[0]);
       done.push(target.key);
