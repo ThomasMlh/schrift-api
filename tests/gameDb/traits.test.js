@@ -1,5 +1,6 @@
 import { createDictionary } from '../../src/services/gameDb/dictionary.js';
 import { extraTrait, treeTrait } from '../../src/services/gameDb/traits.js';
+import { labelOf } from '../../src/services/gameDb/traitFilters.js';
 
 const dict = createDictionary([
   { dictkey: 'belong_attribute_bad_status_probability_618231', content_fr: "Gêneur d'aucune catégorie" },
@@ -35,5 +36,20 @@ describe('soul tree abilities', () => {
   it('gives every level of an EX ability limited to some enemies', () => {
     const row = { type: 'ex_belong_attribute_damage_up', level1_parameter: '618057', level2_parameter: '618057', level3_parameter: '', level4_parameter: '', level5_parameter: '' };
     expect(extraTrait(dict, row, new Map(), belongAttributes)).toMatchObject({ values: [20, 20], text: { fr: 'Attaques puissantes renforcées Shinigamis (+20\u00a0%)' } });
+  });
+});
+
+describe('filter labels', () => {
+  const filterDict = createDictionary([
+    { dictkey: 'ui_sort_filter_passive_bad_state_brn_over_time', content_fr: 'Embrasement' },
+    { dictkey: 'lb_effect_guild_battle_killer_effect_rate', content_fr: 'Effet tueur augmenté\nQuêtes de groupe' },
+    { dictkey: 'ui_sort_filter_belong_enemy_bad_status_damage_rate', content_fr: 'Fléau catégorie/affinité' },
+  ]);
+
+  it('finds the game name of every kind of ability type, on one line', () => {
+    expect(labelOf(filterDict, 'bad_state_brn_over_time')).toEqual({ fr: 'Embrasement' });
+    expect(labelOf(filterDict, 'guild_battle_killer_effect_rate')).toEqual({ fr: 'Effet tueur augmenté (Quêtes de groupe)' });
+    expect(labelOf(filterDict, 'attribute_enemy_bad_status_damage_rate')).toEqual({ fr: 'Fléau catégorie/affinité' });
+    expect(labelOf(filterDict, 'unknown_type')).toEqual({ fr: 'unknown_type' });
   });
 });

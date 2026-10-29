@@ -7,7 +7,33 @@ import { createDictionary } from './dictionary.js';
 // An EX trait uses the ability type with an ex_ prefix
 export const filterType = (type) => type.replace(/^ex_/, '');
 
-const labelOf = (dict, type) => dict.text(`ui_sort_filter_${type}`) ?? dict.text(`lb_${type}`) ?? dict.text(`lb_attribute_tree_${type}`) ?? { fr: type };
+// Where the game names an ability type, the filter names first: passive and accessory filters, the
+// category/affinity filter the affinity-only types belong to, then the ability, soul link and link texts
+const LABEL_KEYS = [
+  (type) => `ui_sort_filter_${type}`,
+  (type) => `ui_sort_filter_passive_${type}`,
+  (type) => `ui_sort_filter_acce_effect_${type}`,
+  (type) => `ui_sort_filter_${type.replace(/^attribute_/, 'belong_')}`,
+  (type) => `lb_${type}`,
+  (type) => `lb_attribute_tree_${type}`,
+  (type) => `lb_effect_${type}`,
+  (type) => `soullink_${type}`,
+  (type) => `lb_character_link_${type}`,
+];
+
+// A text written on two lines in the game: "Effet tueur augmenté\nQuêtes de groupe" -> "Effet tueur augmenté (Quêtes de groupe)"
+const oneLine = (text) => {
+  const [first, ...rest] = text.split('\n').map((part) => part.trim()).filter(Boolean);
+  return rest.length > 0 ? `${first} (${rest.join(' ')})` : first;
+};
+
+export const labelOf = (dict, type) => {
+  for (const key of LABEL_KEYS) {
+    const text = dict.text(key(type), {}, '\n');
+    if (text) return Object.fromEntries(Object.entries(text).map(([lang, value]) => [lang, oneLine(value)]));
+  }
+  return { fr: type };
+};
 
 // Kinds of special attack (barrier, heal...) and elimination bonuses, with the game's filter names
 export const buildSpecialFilters = (tables, dict = createDictionary(tables.m_dictionary)) => (tables.m_character_filter ?? [])
