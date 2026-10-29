@@ -349,12 +349,12 @@ router.get("/meta", async (req, res) => {
 });
 
 // GET the full, lightweight character catalog (player albums): no pagination, only the fields a
-// thumbnail grid needs. Declared before /:id.
+// thumbnail grid and its filters need. Declared before /:id.
 router.get("/catalog", async (req, res) => {
   try {
     const characters = await req.db
       .collection("characters")
-      .find({}, { projection: { name: 1, search_name: 1, version: 1, affinity: 1, attack_type: 1, killers: 1, categories: 1 } })
+      .find({}, { projection: { name: 1, search_name: 1, version: 1, affinity: 1, attack_type: 1, killers: 1, categories: 1, filters: 1 } })
       .sort({ sort_order: 1, release_date: -1 })
       .toArray();
 
