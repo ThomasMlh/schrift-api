@@ -89,7 +89,7 @@ describe('character documents', () => {
     const stored = Object.fromEntries(Object.entries(update.set).filter(([k]) => k.startsWith('source_images.')).map(([k, v]) => [k.slice('source_images.'.length), v]));
     expect(imageUpdate(game, { source_images: stored, images_revisions: update.set.images_revisions })).toBeNull();
     // A character uploaded before the black quote background gets its quote again, only that
-    expect(imageUpdate(game, { source_images: stored }).pending).toEqual(['quote']);
+    expect(imageUpdate(game, { source_images: stored, images_revisions: { attack: 2 } }).pending).toEqual(['quote']);
 
     // URLs stored before the language folders move to rmfs/fr without any upload
     const beforeFolders = Object.fromEntries(Object.entries(stored).map(([k, v]) => [k, v?.replace('/rmfs/fr/', '/rmfs/')]));
