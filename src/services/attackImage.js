@@ -95,6 +95,12 @@ export const statusBadges = (steps) => {
 // Heal of a buff that also heals: a drop badge on the bottom right
 const subBadge = (steps) => (steps.some((s) => s.buff) && steps.some((s) => s.heal) ? 'sub_5' : null);
 
+// The EX move button always shows its own icon: a buff goes in a badge, on the unit or on the team
+const exMoveBadge = (steps) => {
+  const buff = steps.find((s) => s.buff)?.buff;
+  return buff ? `${buff.target === 2 ? 7 : 6}_heavy1` : null;
+};
+
 const hasButton = (attacks, button) => (attacks?.[button]?.steps?.length ?? 0) > 0;
 
 // Size of the picture: wider for a unit with an EX move
@@ -123,6 +129,9 @@ const STATUS_ICON_SIZE = 36;
 
 // Drop of a buff that heals: on a black disc at the bottom right of the button
 const SUB_BADGE = { inset: 16, scale: 0.65 };
+// Buff of an EX move on a black disc: from the center of the button, outside its ring
+// The buff piece has its own white ring, which the game leaves out: only its inner circle is kept
+const EX_MOVE_BADGE = { shift: [28, 19], disc: 0.92, scale: 0.42, innerRadius: 31 };
 
 // Buttons of the unit, placed for its layout
 const slotsOf = (attacks) => {
@@ -182,16 +191,31 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
     pieces.push({ name: 'ailment_base_2', x, y, scale: 1, anchor: 'center' });
     pieces.push({ name: sub, x, y, scale: SUB_BADGE.scale, anchor: 'center' });
   }
+
+  const exMove = button === 'extra_action' ? exMoveBadge(steps) : null;
+  if (exMove) {
+    const x = slot.x + EX_MOVE_BADGE.shift[0];
+    const y = slot.y + EX_MOVE_BADGE.shift[1];
+    pieces.push({ name: 'ailment_base_2', x, y, scale: EX_MOVE_BADGE.disc, anchor: 'center' });
+    pieces.push({ name: exMove, x, y, scale: EX_MOVE_BADGE.scale, anchor: 'center', innerRadius: EX_MOVE_BADGE.innerRadius });
+  }
   return pieces;
 });
+
+// Piece cut to a circle around its center
+const innerCircle = (buffer, { width, height }, radius) => sharp(buffer).composite([{
+  input: Buffer.from(`<svg width="${width}" height="${height}"><circle cx="${width / 2}" cy="${height / 2}" r="${radius}"/></svg>`),
+  blend: 'dest-in',
+}]).png().toBuffer();
 
 // loadPiece(name) -> PNG buffer of a button piece; a missing piece is left out
 export const renderAttackImage = async (attacks, loadPiece) => {
   const layers = [];
   for (const piece of attackImageLayout(attacks)) {
-    const buffer = await loadPiece(piece.name).catch(() => null);
-    if (!buffer) continue;
-    const { width, height } = await sharp(buffer).metadata();
+    const loaded = await loadPiece(piece.name).catch(() => null);
+    if (!loaded) continue;
+    const { width, height } = await sharp(loaded).metadata();
+    const buffer = piece.innerRadius ? await innerCircle(loaded, { width, height }, piece.innerRadius) : loaded;
     const w = Math.max(1, Math.round(width * piece.scale));
     const h = Math.max(1, Math.round(height * piece.scale));
     const input = w === width && h === height ? buffer : await sharp(buffer).resize(w, h).png().toBuffer();

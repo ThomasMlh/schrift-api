@@ -57,6 +57,16 @@ describe('attack buttons picture', () => {
     expect(next.scale).toBeLessThan(main.scale);
   });
 
+  it('shows the buff of an EX move in a badge on the bottom right, on the unit or on the team', () => {
+    const exMove = (buff) => ({ extra_action: { steps: [step({ color: 'B', buff })] } });
+    const names = (attacks) => attackImageLayout(attacks).map((p) => p.name);
+    expect(names(exMove({ target: 1 }))).toEqual(expect.arrayContaining(['ailment_base_2', '6_heavy1']));
+    expect(names(exMove({ target: 2 }))).toContain('7_heavy1');
+    expect(names(exMove(null))).not.toContain('ailment_base_2');
+    // Other buttons show a buff on the button itself
+    expect(names({ heavy1: { steps: [step({ buff: { target: 1 } })] } })).not.toContain('6_heavy1');
+  });
+
   it('renders a transparent PNG of the game screen size, without the pieces it cannot load', async () => {
     const square = await sharp({ create: { width: 99, height: 99, channels: 4, background: { r: 200, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
     const loadPiece = async (name) => {
