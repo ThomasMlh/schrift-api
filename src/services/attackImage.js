@@ -9,10 +9,10 @@ import sharp from 'sharp';
 export const ATTACK_PIECES_PATH = '/bucket.bbs-schrift.fr/game-ui/attacks';
 const WIDTH = 294;
 // Room above the top buttons for a second status, which sticks out of them
-const TOP_ROOM = 16;
+const TOP_ROOM = 20;
 const HEIGHT = 280 + TOP_ROOM;
 // Room left of the EX move button for the "+" of its status
-const LEFT_ROOM = 8;
+const LEFT_ROOM = 16;
 // Room around the canvas for pieces that stick out (badges), cut off at the end
 const MARGIN = 40;
 
@@ -27,13 +27,13 @@ const SLOTS = {
 // The game places the buttons differently for a unit with an EX move, measured on its battle screen
 const EX_MOVE_SLOTS = {
   normal: { x: 293.5, y: 195, size: 164 },
-  heavy1: { x: 146.8, y: 229, size: 97 },
-  heavy2: { x: 157.9, y: 130.2, size: 97 },
-  heavy3: { x: 228.2, y: 60.3, size: 97 },
-  ex: { x: 330.5, y: 46.5, size: 97 },
-  extra_action: { x: 38.6, y: 149.3, size: 76 },
+  heavy1: { x: 143.3, y: 230.2, size: 97 },
+  heavy2: { x: 155.3, y: 129.4, size: 97 },
+  heavy3: { x: 227.4, y: 57.1, size: 97 },
+  ex: { x: 331.5, y: 43.2, size: 97 },
+  extra_action: { x: 32.7, y: 148.6, size: 76 },
 };
-const EX_MOVE_WIDTH = 378 + LEFT_ROOM;
+const EX_MOVE_WIDTH = 381 + LEFT_ROOM;
 
 // Diameter of the circle drawn by a background at its atlas size: 168 px pieces (normal buttons) have a 1 px
 // edge, the 99 px ones (strong attacks, special) a ring of 97
@@ -157,10 +157,8 @@ const slotsOf = (attacks) => {
   return Object.entries(EX_MOVE_SLOTS).map(([button, slot]) => [button, lower(slot, LEFT_ROOM)]);
 };
 
-// Pieces to draw, in order, with their place on the canvas (before the margin)
-export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button, slot]) => {
-  const steps = attacks?.[button]?.steps;
-  if (!steps?.length) return [];
+// Pieces of a button: the button itself, then its badges
+const buttonPieces = (button, slot, steps) => {
   const base = buttonBase(button, steps);
   const scale = slot.size / circleOf(base);
   const pieces = [{ name: base, x: slot.x, y: slot.y, scale, anchor: 'center' }];
@@ -173,6 +171,7 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
     pieces.push({ name: icon, x: slot.x + (offset[0] - frame[0] / 2) * iconScale, y: slot.y + (offset[1] - frame[1] / 2) * iconScale, scale: iconScale, anchor: 'top-left' });
   }
 
+  const buttonEnd = pieces.length;
   const left = slot.x - slot.size / 2;
   const top = slot.y - slot.size / 2;
   const size = button === 'normal' ? 'big' : 'small';
@@ -213,8 +212,14 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
       }
     }
   }
-  return pieces;
-});
+  return { button: pieces.slice(0, buttonEnd), badges: pieces.slice(buttonEnd) };
+};
+
+// Pieces to draw, in order, with their place on the canvas (before the margin): badges go over every button
+export const attackImageLayout = (attacks) => {
+  const buttons = slotsOf(attacks).filter(([button]) => hasButton(attacks, button)).map(([button, slot]) => buttonPieces(button, slot, attacks[button].steps));
+  return [...buttons.flatMap((b) => b.button), ...buttons.flatMap((b) => b.badges)];
+};
 
 // loadPiece(name) -> PNG buffer of a button piece; a missing piece is left out
 export const renderAttackImage = async (attacks, loadPiece) => {
