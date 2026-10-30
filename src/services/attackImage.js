@@ -9,10 +9,10 @@ import sharp from 'sharp';
 export const ATTACK_PIECES_PATH = '/bucket.bbs-schrift.fr/game-ui/attacks';
 const WIDTH = 294;
 // Room above the top buttons for a second status, which sticks out of them
-const TOP_ROOM = 6;
+const TOP_ROOM = 16;
 const HEIGHT = 280 + TOP_ROOM;
-// A unit with an EX move gets its button on the left: the screen is wider and the others move right
-const EX_MOVE_SHIFT = 84;
+// Room left of the EX move button for the "+" of its status
+const LEFT_ROOM = 8;
 // Room around the canvas for pieces that stick out (badges), cut off at the end
 const MARGIN = 40;
 
@@ -24,7 +24,16 @@ const SLOTS = {
   heavy3: { x: 134, y: 59, size: 97 },
   ex: { x: 239, y: 60, size: 97 },
 };
-const EX_MOVE_SLOT = { x: 41.5, y: 154.5, size: 76 };
+// The game places the buttons differently for a unit with an EX move, measured on its battle screen
+const EX_MOVE_SLOTS = {
+  normal: { x: 293.5, y: 195, size: 164 },
+  heavy1: { x: 146.8, y: 229, size: 97 },
+  heavy2: { x: 157.9, y: 130.2, size: 97 },
+  heavy3: { x: 228.2, y: 60.3, size: 97 },
+  ex: { x: 330.5, y: 46.5, size: 97 },
+  extra_action: { x: 38.6, y: 149.3, size: 76 },
+};
+const EX_MOVE_WIDTH = 378 + LEFT_ROOM;
 
 // Diameter of the circle drawn by a background at its atlas size: 168 px pieces (normal buttons) have a 1 px
 // edge, the 99 px ones (strong attacks, special) a ring of 97
@@ -107,7 +116,7 @@ const exMoveBadges = (steps) => [
 const hasButton = (attacks, button) => (attacks?.[button]?.steps?.length ?? 0) > 0;
 
 // Size of the picture: wider for a unit with an EX move
-export const attackImageSize = (attacks) => ({ width: WIDTH + (hasButton(attacks, 'extra_action') ? EX_MOVE_SHIFT : 0), height: HEIGHT });
+export const attackImageSize = (attacks) => ({ width: hasButton(attacks, 'extra_action') ? EX_MOVE_WIDTH : WIDTH, height: HEIGHT });
 
 // Status badges, measured on the game screen. Each frame is a dark disc whose shadow follows the button
 // ring: the big normal button has its own frames, the "+" statuses a gold ring and an orange "+".
@@ -132,20 +141,20 @@ const STATUS_ICON_SIZE = 36;
 
 // Drop of a buff that heals: on a black disc at the bottom right of the button
 const SUB_BADGE = { inset: 16, scale: 0.65 };
-// Badges of an EX move on a black disc: shift from the center of the button, outside its ring
+// Badges of an EX move on a black disc. shift: from the center of the button, outside its ring, scale:
+// of their atlas frame, in which each piece goes back to its place (trimmed like the icons)
+const SUB_FRAME = 70;
+const SUB_OFFSETS = { bt_sub: [1, 1], sub_6: [7, 7], sub_debuff1: [8, 7] };
 const EX_MOVE_BADGES = {
-  buff: { name: 'sub_6', shift: [28, 19], disc: 0.43, scale: 0.55 },
-  debuff: { name: 'sub_debuff1', shift: [9, 29], disc: 0.38, scale: 0.5 },
+  buff: { name: 'sub_6', shift: [31, 19], scale: 0.46 },
+  debuff: { name: 'sub_debuff1', shift: [9, 30], scale: 0.4 },
 };
 
 // Buttons of the unit, placed for its layout
 const slotsOf = (attacks) => {
-  const lower = (slot) => ({ ...slot, y: slot.y + TOP_ROOM });
+  const lower = (slot, left = 0) => ({ ...slot, x: slot.x + left, y: slot.y + TOP_ROOM });
   if (!hasButton(attacks, 'extra_action')) return Object.entries(SLOTS).map(([button, slot]) => [button, lower(slot)]);
-  return [
-    ...Object.entries(SLOTS).map(([button, slot]) => [button, lower({ ...slot, x: slot.x + EX_MOVE_SHIFT })]),
-    ['extra_action', lower(EX_MOVE_SLOT)],
-  ];
+  return Object.entries(EX_MOVE_SLOTS).map(([button, slot]) => [button, lower(slot, LEFT_ROOM)]);
 };
 
 // Pieces to draw, in order, with their place on the canvas (before the margin)
@@ -198,8 +207,10 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
     for (const badge of exMoveBadges(steps)) {
       const x = slot.x + badge.shift[0];
       const y = slot.y + badge.shift[1];
-      pieces.push({ name: 'bt_sub', x, y, scale: badge.disc, anchor: 'center' });
-      pieces.push({ name: badge.name, x, y, scale: badge.scale, anchor: 'center' });
+      for (const name of ['bt_sub', badge.name]) {
+        const [left, top] = SUB_OFFSETS[name];
+        pieces.push({ name, x: x + (left - SUB_FRAME / 2) * badge.scale, y: y + (top - SUB_FRAME / 2) * badge.scale, scale: badge.scale, anchor: 'top-left' });
+      }
     }
   }
   return pieces;
