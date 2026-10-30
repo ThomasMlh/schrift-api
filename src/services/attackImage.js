@@ -82,24 +82,27 @@ export const buttonIcon = (button, steps) => {
   return candidates.find((name) => WEAPON_ICONS.has(name)) ?? [...WEAPON_ICONS].find((name) => name.startsWith(`${weapon}_`)) ?? null;
 };
 
+// Order of the statuses in the game: m_enemy_regist_bad_status, the same as in its "Burn and Lacerate" texts
+const STATUS_ORDER = ['par', 'frz', 'psn', 'brn', 'wek', 'inj', 'ero', 'cnf', 'spd', 'tko'];
+
 export const statusBadges = (steps) => {
   const seen = new Map();
   for (const status of steps.flatMap((s) => s.statuses ?? [])) {
     if (!STATUS_CODES.has(status.code)) continue;
     const key = `${status.code}${status.plus ? '+' : ''}`;
-    if (!seen.has(key)) seen.set(key, { icon: `ailment_${status.code}`, plus: status.plus });
+    if (!seen.has(key)) seen.set(key, { code: status.code, icon: `ailment_${status.code}`, plus: status.plus });
   }
-  return [...seen.values()].slice(0, 2);
+  return [...seen.values()].sort((a, b) => STATUS_ORDER.indexOf(a.code) - STATUS_ORDER.indexOf(b.code)).slice(0, 2);
 };
 
 // Heal of a buff that also heals: a drop badge on the bottom right
 const subBadge = (steps) => (steps.some((s) => s.buff) && steps.some((s) => s.heal) ? 'sub_5' : null);
 
-// The EX move button always shows its own icon: a buff goes in a badge, on the unit or on the team
-const exMoveBadge = (steps) => {
-  const buff = steps.find((s) => s.buff)?.buff;
-  return buff ? `${buff.target === 2 ? 7 : 6}_heavy1` : null;
-};
+// The EX move button always shows its own icon: its buff and its debuff on the enemies go in badges
+const exMoveBadges = (steps) => [
+  ...(steps.some((s) => s.buff) ? [EX_MOVE_BADGES.buff] : []),
+  ...(steps.some((s) => s.debuff) ? [EX_MOVE_BADGES.debuff] : []),
+];
 
 const hasButton = (attacks, button) => (attacks?.[button]?.steps?.length ?? 0) > 0;
 
@@ -129,9 +132,11 @@ const STATUS_ICON_SIZE = 36;
 
 // Drop of a buff that heals: on a black disc at the bottom right of the button
 const SUB_BADGE = { inset: 16, scale: 0.65 };
-// Buff of an EX move on a black disc: from the center of the button, outside its ring
-// The buff piece has its own white ring, which the game leaves out: only its inner circle is kept
-const EX_MOVE_BADGE = { shift: [28, 19], disc: 0.92, scale: 0.42, innerRadius: 31 };
+// Badges of an EX move on a black disc: shift from the center of the button, outside its ring
+const EX_MOVE_BADGES = {
+  buff: { name: 'sub_6', shift: [28, 19], disc: 0.43, scale: 0.55 },
+  debuff: { name: 'sub_debuff1', shift: [9, 29], disc: 0.38, scale: 0.5 },
+};
 
 // Buttons of the unit, placed for its layout
 const slotsOf = (attacks) => {
@@ -162,10 +167,7 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
   const left = slot.x - slot.size / 2;
   const top = slot.y - slot.size / 2;
   const size = button === 'normal' ? 'big' : 'small';
-  // The game shows the last status of the attack in the main disc
-  const statuses = statusBadges(steps);
-  const first = statuses.at(-1);
-  const second = statuses.length > 1 ? statuses[0] : null;
+  const [first, second] = statusBadges(steps);
   if (first) {
     const style = BADGES[size][first.plus ? 'plus' : 'plain'];
     const x = left + style.offset[0];
@@ -192,30 +194,24 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
     pieces.push({ name: sub, x, y, scale: SUB_BADGE.scale, anchor: 'center' });
   }
 
-  const exMove = button === 'extra_action' ? exMoveBadge(steps) : null;
-  if (exMove) {
-    const x = slot.x + EX_MOVE_BADGE.shift[0];
-    const y = slot.y + EX_MOVE_BADGE.shift[1];
-    pieces.push({ name: 'ailment_base_2', x, y, scale: EX_MOVE_BADGE.disc, anchor: 'center' });
-    pieces.push({ name: exMove, x, y, scale: EX_MOVE_BADGE.scale, anchor: 'center', innerRadius: EX_MOVE_BADGE.innerRadius });
+  if (button === 'extra_action') {
+    for (const badge of exMoveBadges(steps)) {
+      const x = slot.x + badge.shift[0];
+      const y = slot.y + badge.shift[1];
+      pieces.push({ name: 'bt_sub', x, y, scale: badge.disc, anchor: 'center' });
+      pieces.push({ name: badge.name, x, y, scale: badge.scale, anchor: 'center' });
+    }
   }
   return pieces;
 });
-
-// Piece cut to a circle around its center
-const innerCircle = (buffer, { width, height }, radius) => sharp(buffer).composite([{
-  input: Buffer.from(`<svg width="${width}" height="${height}"><circle cx="${width / 2}" cy="${height / 2}" r="${radius}"/></svg>`),
-  blend: 'dest-in',
-}]).png().toBuffer();
 
 // loadPiece(name) -> PNG buffer of a button piece; a missing piece is left out
 export const renderAttackImage = async (attacks, loadPiece) => {
   const layers = [];
   for (const piece of attackImageLayout(attacks)) {
-    const loaded = await loadPiece(piece.name).catch(() => null);
-    if (!loaded) continue;
-    const { width, height } = await sharp(loaded).metadata();
-    const buffer = piece.innerRadius ? await innerCircle(loaded, { width, height }, piece.innerRadius) : loaded;
+    const buffer = await loadPiece(piece.name).catch(() => null);
+    if (!buffer) continue;
+    const { width, height } = await sharp(buffer).metadata();
     const w = Math.max(1, Math.round(width * piece.scale));
     const h = Math.max(1, Math.round(height * piece.scale));
     const input = w === width && h === height ? buffer : await sharp(buffer).resize(w, h).png().toBuffer();

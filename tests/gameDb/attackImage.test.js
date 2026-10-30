@@ -42,10 +42,10 @@ describe('attack buttons picture', () => {
     expect(attackImageSize(withExMove)).toEqual({ width: 378, height: 286 });
   });
 
-  it('puts a second status in a smaller disc on the top right, the last status of the attack in the main disc', () => {
-    // Renji, creator special version in the game: burn in the main disc, lacerate on its top right
-    const statuses = [{ code: 'inj', plus: false }, { code: 'brn', plus: false }];
-    const pieces = attackImageLayout({ heavy1: { steps: [step({ statuses })] } });
+  it('puts a second status in a smaller disc on the top right, in the order of the game', () => {
+    // In the game Renji has burn in the main disc whatever the order in the tables, Gremmy paralyze
+    const layout = (statuses) => attackImageLayout({ heavy1: { steps: [step({ statuses })] } });
+    const pieces = layout([{ code: 'inj', plus: false }, { code: 'brn', plus: false }]);
     const names = pieces.map((p) => p.name);
     expect(names).toEqual(expect.arrayContaining(['ailment_base_heavy', 'ailment_brn', 'ailment_base_2', 'ailment_inj']));
     expect(names.filter((n) => n === 'ailment_base_heavy')).toHaveLength(1);
@@ -55,16 +55,21 @@ describe('attack buttons picture', () => {
     const next = pieces.find((p) => p.name === 'ailment_inj');
     expect([next.x - main.x, next.y - main.y]).toEqual([19, -15]);
     expect(next.scale).toBeLessThan(main.scale);
+
+    const gremmy = layout([{ code: 'ero', plus: false }, { code: 'par', plus: false }]).map((p) => p.name);
+    expect(gremmy.indexOf('ailment_par')).toBeLessThan(gremmy.indexOf('ailment_ero'));
   });
 
-  it('shows the buff of an EX move in a badge on the bottom right, on the unit or on the team', () => {
-    const exMove = (buff) => ({ extra_action: { steps: [step({ color: 'B', buff })] } });
+  it('shows the buff and the debuff of an EX move in badges on the bottom right', () => {
+    const exMove = (fields) => ({ extra_action: { steps: [step({ color: 'B', ...fields })] } });
     const names = (attacks) => attackImageLayout(attacks).map((p) => p.name);
-    expect(names(exMove({ target: 1 }))).toEqual(expect.arrayContaining(['ailment_base_2', '6_heavy1']));
-    expect(names(exMove({ target: 2 }))).toContain('7_heavy1');
-    expect(names(exMove(null))).not.toContain('ailment_base_2');
+    // Same badge on the unit or on the team, like Gremmy in the game
+    expect(names(exMove({ buff: { target: 1 } }))).toEqual(expect.arrayContaining(['bt_sub', 'sub_6']));
+    expect(names(exMove({ buff: { target: 2 } }))).toContain('sub_6');
+    expect(names(exMove({ buff: { target: 2 }, debuff: true }))).toEqual(expect.arrayContaining(['sub_6', 'sub_debuff1']));
+    expect(names(exMove({}))).not.toContain('bt_sub');
     // Other buttons show a buff as their own icon, without a badge
-    expect(names({ heavy1: { steps: [step({ buff: { target: 1 } })] } })).not.toContain('ailment_base_2');
+    expect(names({ heavy1: { steps: [step({ buff: { target: 1 } })] } })).not.toContain('bt_sub');
   });
 
   it('renders a transparent PNG of the game screen size, without the pieces it cannot load', async () => {

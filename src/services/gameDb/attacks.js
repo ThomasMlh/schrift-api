@@ -123,6 +123,8 @@ const attackStep = (dict, row, collisions, traps, windows) => {
         duration: number(row.buff_effect_time),
       }
       : null,
+    // Lowers the stats of the enemies
+    debuff: filled(row.debuff_target_type),
     barrier: filled(row.barrier_effect_id),
     revival: filled(row.revival_id),
     trap,
