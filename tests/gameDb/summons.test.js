@@ -1,5 +1,5 @@
 import { createDictionary } from '../../src/services/gameDb/dictionary.js';
-import { createSummonDetails } from '../../src/services/gameDb/summons.js';
+import { createSummonCatalog, createSummonDetails } from '../../src/services/gameDb/summons.js';
 
 const dict = createDictionary([
   { dictkey: 'rate5', content_fr: '5 % de chance d\'obtenir un 5★' },
@@ -75,5 +75,59 @@ describe('summon details', () => {
 
   it('gives null for a group the tables do not have', () => {
     expect(details(1)).toBeNull();
+  });
+});
+
+describe('summon catalog', () => {
+  const catalogDict = createDictionary([
+    { dictkey: 'lottery', content_fr: 'Loterie' },
+    { dictkey: 'ticket', content_fr: 'Ticket 5★' },
+  ]);
+  const gacha = (id, fields) => ({
+    id, name: '', gacha_type: 'GACHA_BASIC', payment_method: 'gold', gacha_content_type: 'character',
+    start_date: '2026-10-24 16:00:00', end_date: '2026-11-07 15:59:59', gacha_ticket_id: '', ...fields,
+  });
+  const group = (id, fields) => ({ id, name: 'lottery', single_gacha_id: id, multiple_gacha_id: id, list_view_img_path: '', ...fields });
+  const catalog = createSummonCatalog({
+    m_gacha: [
+      gacha('1', { gacha_type: 'GACHA_NO_RESET_STEP_UP' }),
+      gacha('2', { gacha_type: 'GACHA_TICKET_PICK', payment_method: 'gacha_ticket', gacha_ticket_id: '370', end_date: '2034-03-31 00:00:00' }),
+      gacha('3', { gacha_content_type: 'accessory' }),
+      gacha('4', { gacha_content_type: 'accessory', payment_method: 'gacha_ticket', gacha_ticket_id: '371' }),
+      gacha('5', { gacha_content_type: 'box' }),
+    ],
+    m_gacha_group: [
+      group('1', { list_view_img_path: 'bn_gacha_limited_1_sub' }),
+      group('2', { name: 'ticket' }),
+      group('3'),
+      group('4'),
+      group('5'),
+      group('6'),
+    ],
+    m_item: [{ id: '370', resource_2d_id: '0511' }],
+  }, catalogDict);
+
+  it('sorts summons into the four categories and leaves the other contents out', () => {
+    expect(catalog.map((s) => [s.gacha_group_id, s.list_category])).toEqual([
+      [1, 'character_gacha'], [2, 'character_ticket'], [3, 'accessory_gacha'], [4, 'accessory_ticket'],
+    ]);
+  });
+
+  it('keeps the kind of summon, its dates and its visual', () => {
+    expect(catalog[0]).toMatchObject({
+      name: { fr: 'Loterie' },
+      summon_type: 'step_up',
+      start_date: '24/10/2026',
+      end_date: '07/11/2026',
+      started_at: new Date('2026-10-24T16:00:00Z'),
+      image_path: 'Localize/bn_gacha_limited_1_sub',
+      ticket_icon_path: null,
+    });
+    expect(catalog[1]).toMatchObject({ summon_type: 'choice', ticket_icon_path: 'Items/0511/thumb.png' });
+  });
+
+  it('gives no end to what never expires', () => {
+    expect(catalog[1]).toMatchObject({ end_date: null, ended_at: null });
+    expect(catalog[3].end_date).toBe('07/11/2026');
   });
 });
