@@ -8,7 +8,9 @@ import sharp from 'sharp';
 
 export const ATTACK_PIECES_PATH = '/bucket.bbs-schrift.fr/game-ui/attacks';
 const WIDTH = 294;
-const HEIGHT = 280;
+// Room above the top buttons for a second status, which sticks out of them
+const TOP_ROOM = 6;
+const HEIGHT = 280 + TOP_ROOM;
 // A unit with an EX move gets its button on the left: the screen is wider and the others move right
 const EX_MOVE_SHIFT = 84;
 // Room around the canvas for pieces that stick out (badges), cut off at the end
@@ -111,8 +113,12 @@ const BADGES = {
     plus: { frame: 'ailment_base_02', offset: [-4, -3], center: [23, 22], icon: 34, sign: [-6, 2] },
   },
 };
-// A second status of the same button sits next to the first one
-const NEXT_BADGE = 24;
+// A second status is a smaller plain disc stuck to the first one, on its top right. shift: from the
+// center of the first disc, scale: of the disc frame, sign: "+" from the center of the disc
+const SECOND_BADGES = {
+  small: { frame: 'ailment_base_2', shift: [19, -15], scale: 0.8, icon: 22, sign: [-14, -12] },
+  big: { frame: 'ailment_base_2', shift: [23, -18], scale: 0.97, icon: 27, sign: [-17, -15] },
+};
 const STATUS_ICON_SIZE = 36;
 
 // Drop of a buff that heals: on a black disc at the bottom right of the button
@@ -120,10 +126,11 @@ const SUB_BADGE = { inset: 16, scale: 0.65 };
 
 // Buttons of the unit, placed for its layout
 const slotsOf = (attacks) => {
-  if (!hasButton(attacks, 'extra_action')) return Object.entries(SLOTS);
+  const lower = (slot) => ({ ...slot, y: slot.y + TOP_ROOM });
+  if (!hasButton(attacks, 'extra_action')) return Object.entries(SLOTS).map(([button, slot]) => [button, lower(slot)]);
   return [
-    ...Object.entries(SLOTS).map(([button, slot]) => [button, { ...slot, x: slot.x + EX_MOVE_SHIFT }]),
-    ['extra_action', EX_MOVE_SLOT],
+    ...Object.entries(SLOTS).map(([button, slot]) => [button, lower({ ...slot, x: slot.x + EX_MOVE_SHIFT })]),
+    ['extra_action', lower(EX_MOVE_SLOT)],
   ];
 };
 
@@ -145,15 +152,28 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
 
   const left = slot.x - slot.size / 2;
   const top = slot.y - slot.size / 2;
-  const badges = BADGES[button === 'normal' ? 'big' : 'small'];
-  statusBadges(steps).forEach((badge, index) => {
-    const style = badge.plus ? badges.plus : badges.plain;
-    const x = left + style.offset[0] + index * NEXT_BADGE;
+  const size = button === 'normal' ? 'big' : 'small';
+  // The game shows the last status of the attack in the main disc
+  const statuses = statusBadges(steps);
+  const first = statuses.at(-1);
+  const second = statuses.length > 1 ? statuses[0] : null;
+  if (first) {
+    const style = BADGES[size][first.plus ? 'plus' : 'plain'];
+    const x = left + style.offset[0];
     const y = top + style.offset[1];
+    const center = [x + style.center[0], y + style.center[1]];
     pieces.push({ name: style.frame, x, y, scale: 1, anchor: 'top-left' });
-    pieces.push({ name: badge.icon, x: x + style.center[0], y: y + style.center[1], scale: style.icon / STATUS_ICON_SIZE, anchor: 'center' });
-    if (badge.plus) pieces.push({ name: 'ailment_plus', x: x + style.sign[0], y: y + style.sign[1], scale: 1, anchor: 'top-left' });
-  });
+    pieces.push({ name: first.icon, x: center[0], y: center[1], scale: style.icon / STATUS_ICON_SIZE, anchor: 'center' });
+    if (first.plus) pieces.push({ name: 'ailment_plus', x: x + style.sign[0], y: y + style.sign[1], scale: 1, anchor: 'top-left' });
+    if (second) {
+      const next = SECOND_BADGES[size];
+      const nextX = center[0] + next.shift[0];
+      const nextY = center[1] + next.shift[1];
+      pieces.push({ name: next.frame, x: nextX, y: nextY, scale: next.scale, anchor: 'center' });
+      pieces.push({ name: second.icon, x: nextX, y: nextY, scale: next.icon / STATUS_ICON_SIZE, anchor: 'center' });
+      if (second.plus) pieces.push({ name: 'ailment_plus', x: nextX + next.sign[0], y: nextY + next.sign[1], scale: 1, anchor: 'top-left' });
+    }
+  }
 
   const sub = subBadge(steps);
   if (sub) {

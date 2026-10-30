@@ -76,7 +76,7 @@ describe('character documents', () => {
   it('points the images to the game files and uploads only the changed ones', () => {
     const game = built;
     const rmfs = 'https://bucket.bbs-schrift.fr/rmfs/fr';
-    const legacy = { source_images: { thumbnail: 'https://bbs-simulator/x.png', artwork: 'a', silhouette: 's', attack: 'att', quote_en: 'en' } };
+    const legacy = { source_images: { thumbnail: 'https://bbs-simulator/x.png', artwork: 'a', silhouette: 's', attack: 'att', quote_en: 'en' }, images_revisions: { attack: 2 } };
     const update = imageUpdate(game, legacy);
     expect(update.pending).toEqual(['thumbnail', 'artwork', 'quote']);
     expect(update.set).toMatchObject({
