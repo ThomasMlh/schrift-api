@@ -33,6 +33,56 @@ const characters = [
 const banner = (id) => db.collection('banners').findOne({ gacha_group_id: id });
 
 describe('game summons', () => {
+  describe('catalog', () => {
+    const entry = (id, fields) => ({
+      gacha_group_id: id, name: { fr: `Ticket ${id}` }, list_category: 'character_ticket', summon_type: 'standard',
+      start_date: '25/09/2026', end_date: null, started_at: new Date('2026-09-25T00:00:00Z'), ended_at: null,
+      image_path: null, ticket_icon_path: 'Items/0511/thumb.png', ...fields,
+    });
+
+    it('adds the summons no character lists, and sorts those that do', () => {
+      const catalog = [
+        entry(866, { list_category: 'character_gacha', ticket_icon_path: null, name: { fr: 'Autre nom' } }),
+        entry(5000, { list_category: 'accessory_gacha', ticket_icon_path: null, image_path: 'Localize/bn_5000' }),
+      ];
+      const banners = buildGameBanners(characters, ['en'], () => ({ news_id: 1 }), catalog);
+      const known = banners.find((b) => b.gacha_group_id === 866);
+      expect(known).toMatchObject({ name: 'Loterie 866', list_category: 'character_gacha', character_game_ids: [65116, 65122] });
+      expect(banners.find((b) => b.gacha_group_id === 5000)).toMatchObject({
+        name: 'Ticket 5000',
+        character_game_ids: [],
+        image_source: 'https://bucket.bbs-schrift.fr/rmfs/fr/Localize/bn_5000.png',
+        translation_sources: { en: 'https://bucket.bbs-schrift.fr/rmfs/en/Localize/bn_5000.png' },
+        details: { news_id: 1 },
+      });
+    });
+
+    it('copies the item icon of a ticket without reading its news', async () => {
+      const [ticket] = buildGameBanners([], ['en'], () => ({ news_id: 42 }), [entry(39000)]);
+      expect(ticket).toMatchObject({ image_source: 'https://bucket.bbs-schrift.fr/rmfs/fr/Items/0511/thumb.png', translation_sources: {} });
+
+      await saveGameBanners(db, [ticket]);
+      expect((await banner(39000)).images_pending).toEqual(['fr']);
+
+      global.fetch = jest.fn();
+      const uploads = [];
+      const reads = [];
+      const ftp = {
+        uploadBuffer: async (buffer, path) => uploads.push(path),
+        downloadBuffer: async (path) => {
+          reads.push(path);
+          return Buffer.from('png');
+        },
+      };
+      await uploadGameBanners(db, ftp, 50);
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(reads).toEqual(['/bucket.bbs-schrift.fr/rmfs/fr/Items/0511/thumb.png']);
+      expect(uploads).toEqual(['/bucket.bbs-schrift.fr/banners/gacha_39000.png']);
+      expect((await banner(39000)).image_status).toBe('uploaded');
+      await db.collection('banners').deleteMany({});
+    });
+  });
+
   it('builds one banner per summon with the characters featured in it', () => {
     const banners = buildGameBanners(characters, ['en']);
     expect(banners.map((b) => [b.gacha_group_id, b.character_game_ids])).toEqual([[866, [65116, 65122]], [867, [65122]], [868, [65122]]]);

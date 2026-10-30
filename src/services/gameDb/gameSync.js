@@ -16,7 +16,7 @@ import { mergeDuplicates } from './mergeDuplicates.js';
 import {
   buildGameBanners, countBannerImagesToQueue, GAME_BANNER_SOURCE, legacyBannersFilter, removeLegacyBanners, saveGameBanners,
 } from './banners.js';
-import { createSummonDetails, SUMMON_TABLES } from './summons.js';
+import { createSummonCatalog, createSummonDetails, SUMMON_TABLES } from './summons.js';
 
 const PREVIEW_LIMIT = 50;
 export const TRAIT_FILTERS_SETTING = 'game_trait_filters';
@@ -69,7 +69,7 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   const exists = await createRmfsIndex(indexedRmfsFolders(languages));
   const plan = planGameSync(siteCharacters, gameCharacters, new Date(), exists);
   const preview = previewOf(plan, dict.languages);
-  const banners = buildGameBanners(gameCharacters, languages, createSummonDetails(tables, dict));
+  const banners = buildGameBanners(gameCharacters, languages, createSummonDetails(tables, dict), createSummonCatalog(tables, dict));
   const knownBanners = new Set(await db.collection('banners').distinct('gacha_group_id', { source: GAME_BANNER_SOURCE }));
   preview.statistics.banners = banners.length;
   preview.statistics.newBanners = banners.filter((b) => !knownBanners.has(b.gacha_group_id)).length;

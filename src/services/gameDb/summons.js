@@ -6,7 +6,7 @@
 import { rmfsUrl } from './source.js';
 
 // Read as optional: a dump without them only leaves the details empty
-export const SUMMON_TABLES = ['m_step_up_gacha_group', 'm_step_up_gacha_layout', 'm_exchange_shop_category', 'm_exchange_shop_product'];
+export const SUMMON_TABLES = ['m_step_up_gacha_group', 'm_step_up_gacha_layout', 'm_exchange_shop_category', 'm_exchange_shop_product', 'm_item'];
 
 // The medal shop of a summon is the shop category numbered 100000 + summon group
 const MEDAL_SHOP_OFFSET = 100000;
@@ -26,6 +26,59 @@ const byNumber = (key) => (a, b) => Number(a[key]) - Number(b[key]);
 const gameDateTime = (raw) => {
   const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(raw || '');
   return match && match[1] !== '0000' ? `${match[3]}/${match[2]}/${match[1]} ${match[4]}:${match[5]}` : null;
+};
+
+// "2026-10-24 16:00:00" -> "24/10/2026"
+const gameDay = (raw) => gameDateTime(raw)?.slice(0, 10) ?? null;
+
+const gameInstant = (raw) => {
+  const date = /^[1-9]\d{3}-/.test(raw || '') ? new Date(`${raw.replace(' ', 'T')}Z`) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+};
+
+const CATEGORIES = {
+  character: { gacha: 'character_gacha', ticket: 'character_ticket' },
+  accessory: { gacha: 'accessory_gacha', ticket: 'accessory_ticket' },
+};
+
+export const TICKET_CATEGORIES = [CATEGORIES.character.ticket, CATEGORIES.accessory.ticket];
+
+const summonType = (gachaType) => {
+  if (/STEP_UP/.test(gachaType)) return 'step_up';
+  if (/PICK|SELECTABLE|CHOICE/.test(gachaType)) return 'choice';
+  return 'standard';
+};
+
+// What never expires ends years ahead in the tables (2034, 2099, 2126)
+const PERMANENT_FROM_YEAR = 2030;
+const isPermanent = (raw) => Number(raw?.slice(0, 4)) >= PERMANENT_FROM_YEAR;
+
+// Every summon of the catalog, whether or not it features a site character. Summons of other contents
+// (lucky boxes...) are left out.
+export const createSummonCatalog = (tables, dict) => {
+  const gachas = new Map((tables.m_gacha ?? []).map((r) => [r.id, r]));
+  const items = new Map((tables.m_item ?? []).map((r) => [r.id, r]));
+  return (tables.m_gacha_group ?? []).flatMap((group) => {
+    const main = gachas.get(group.multiple_gacha_id) ?? gachas.get(group.single_gacha_id);
+    const categories = CATEGORIES[main?.gacha_content_type];
+    if (!categories) return [];
+    const isTicket = main.payment_method === 'gacha_ticket';
+    const endDate = isPermanent(main.end_date) ? null : main.end_date;
+    return [{
+      gacha_group_id: Number(group.id),
+      name: dict.text(group.name) ?? dict.text(main.name),
+      list_category: isTicket ? categories.ticket : categories.gacha,
+      summon_type: summonType(main.gacha_type),
+      start_date: gameDay(main.start_date),
+      end_date: gameDay(endDate),
+      started_at: gameInstant(main.start_date),
+      ended_at: gameInstant(endDate),
+      image_path: group.list_view_img_path ? `Localize/${group.list_view_img_path}` : null,
+      ticket_icon_path: isTicket && items.get(main.gacha_ticket_id)?.resource_2d_id
+        ? `Items/${items.get(main.gacha_ticket_id).resource_2d_id}/thumb.png`
+        : null,
+    }];
+  });
 };
 
 export const createSummonDetails = (tables, dict) => {

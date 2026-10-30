@@ -3,9 +3,10 @@
  * localized: one per client language, the primary one in image_status, the others in
  * translations.<language>. Each is copied once to the bucket: the official banner of the summon news
  * when it has one (the English one falls back to the primary), otherwise the list visual of rmfs, which
- * only holds the summons the game client cached.
+ * only holds the summons the game client cached. A ticket has no banner: its visual is the item icon.
  */
 import { downloadGameFile, PRIMARY_LANGUAGE, rmfsUrl } from './source.js';
+import { TICKET_CATEGORIES } from './summons.js';
 import { downloadNewsBanner, newsBannerUrl, readSummonNews } from './summonNews.js';
 
 export const GAME_BANNER_SOURCE = 'game';
@@ -26,13 +27,15 @@ const imageFields = (language) => (language === PRIMARY_LANGUAGE
   });
 
 // A visual is worth trying when the summon has a news (official banner) or rmfs has its list visual
-const canQueue = (summon, url, exists) => Boolean(summon?.details?.news_id) || Boolean(url && exists(url));
+const isTicket = (summon) => TICKET_CATEGORIES.includes(summon?.list_category);
+const officialNewsId = (summon) => (isTicket(summon) ? null : summon?.details?.news_id);
+const canQueue = (summon, url, exists) => Boolean(officialNewsId(summon)) || Boolean(url && exists(url));
 
 const valueAt = (doc, path) => path.split('.').reduce((value, key) => value?.[key], doc);
 
-// One document per summon, from the summons listed on the game characters. detailsOf(group) adds what
-// the summon tables tell (modes, steps, featured units, medal shop)
-export const buildGameBanners = (gameCharacters, languages = [], detailsOf = () => null) => {
+// One document per summon, from the summons listed on the game characters and the catalog of all summons.
+// detailsOf(group) adds what the summon tables tell (modes, steps, featured units, medal shop)
+export const buildGameBanners = (gameCharacters, languages = [], detailsOf = () => null, catalog = []) => {
   const byGroup = new Map();
   for (const character of gameCharacters) {
     for (const summon of character.banners ?? []) {
@@ -52,6 +55,22 @@ export const buildGameBanners = (gameCharacters, languages = [], detailsOf = () 
       }
       byGroup.get(summon.gacha_group_id).character_game_ids.push(character.game_id);
     }
+  }
+  for (const { name, image_path: imagePath, ticket_icon_path: iconPath, ...entry } of catalog) {
+    const image = (language) => (imagePath ? rmfsUrl(`${imagePath}.png`, language) : null);
+    const banner = byGroup.get(entry.gacha_group_id) ?? {
+      name: name?.[PRIMARY_LANGUAGE] ?? Object.values(name ?? {})[0] ?? null,
+      names: name,
+      image_source: image(PRIMARY_LANGUAGE),
+      translation_sources: Object.fromEntries(languages.map((language) => [language, image(language)])),
+      character_game_ids: [],
+      details: detailsOf(entry.gacha_group_id),
+    };
+    byGroup.set(entry.gacha_group_id, {
+      ...banner,
+      ...entry,
+      ...(iconPath && { image_source: rmfsUrl(iconPath), translation_sources: {} }),
+    });
   }
   return [...byGroup.values()];
 };
@@ -133,7 +152,7 @@ const createOfficialBanners = (ftp) => {
 // Visual of a summon in a language: the official banner, the primary one for a language the news does
 // not have, then the rmfs list visual
 const summonVisual = async (ftp, banner, language, officialBanner) => {
-  const newsId = banner.details?.news_id;
+  const newsId = officialNewsId(banner);
   if (newsId) {
     const official = await officialBanner(newsId, language).catch(() => null);
     if (official) return { buffer: official, origin: 'official' };
