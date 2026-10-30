@@ -63,8 +63,8 @@ describe('attack buttons picture', () => {
     expect(names(exMove({ target: 1 }))).toEqual(expect.arrayContaining(['ailment_base_2', '6_heavy1']));
     expect(names(exMove({ target: 2 }))).toContain('7_heavy1');
     expect(names(exMove(null))).not.toContain('ailment_base_2');
-    // Other buttons show a buff on the button itself
-    expect(names({ heavy1: { steps: [step({ buff: { target: 1 } })] } })).not.toContain('6_heavy1');
+    // Other buttons show a buff as their own icon, without a badge
+    expect(names({ heavy1: { steps: [step({ buff: { target: 1 } })] } })).not.toContain('ailment_base_2');
   });
 
   it('renders a transparent PNG of the game screen size, without the pieces it cannot load', async () => {
