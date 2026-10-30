@@ -58,7 +58,7 @@ export const onBlackBackground = (image) => sharp(image)
 // How each game image is prepared before upload. Bump GAME_IMAGE_REVISIONS when a treatment changes:
 // the next sync uploads that image again for every character.
 const GAME_IMAGE_PROCESSING = { artwork: trimTransparent, quote: onBlackBackground };
-export const GAME_IMAGE_REVISIONS = { thumbnail: 1, artwork: 1, quote: 2, attack: 1 };
+export const GAME_IMAGE_REVISIONS = { thumbnail: 1, artwork: 1, quote: 2, attack: 2 };
 
 // Button pieces of the game interface, read once per process from the bucket
 const attackPieces = new Map();

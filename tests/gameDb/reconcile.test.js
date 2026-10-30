@@ -76,7 +76,7 @@ describe('character documents', () => {
   it('points the images to the game files and uploads only the changed ones', () => {
     const game = built;
     const rmfs = 'https://bucket.bbs-schrift.fr/rmfs/fr';
-    const legacy = { source_images: { thumbnail: 'https://bbs-simulator/x.png', artwork: 'a', silhouette: 's', attack: 'att', quote_en: 'en' } };
+    const legacy = { source_images: { thumbnail: 'https://bbs-simulator/x.png', artwork: 'a', silhouette: 's', attack: 'att', quote_en: 'en' }, images_revisions: { attack: 2 } };
     const update = imageUpdate(game, legacy);
     expect(update.pending).toEqual(['thumbnail', 'artwork', 'quote']);
     expect(update.set).toMatchObject({
@@ -89,7 +89,7 @@ describe('character documents', () => {
     const stored = Object.fromEntries(Object.entries(update.set).filter(([k]) => k.startsWith('source_images.')).map(([k, v]) => [k.slice('source_images.'.length), v]));
     expect(imageUpdate(game, { source_images: stored, images_revisions: update.set.images_revisions })).toBeNull();
     // A character uploaded before the black quote background gets its quote again, only that
-    expect(imageUpdate(game, { source_images: stored }).pending).toEqual(['quote']);
+    expect(imageUpdate(game, { source_images: stored, images_revisions: { attack: 2 } }).pending).toEqual(['quote']);
 
     // URLs stored before the language folders move to rmfs/fr without any upload
     const beforeFolders = Object.fromEntries(Object.entries(stored).map(([k, v]) => [k, v?.replace('/rmfs/fr/', '/rmfs/')]));

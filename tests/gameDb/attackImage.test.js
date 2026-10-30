@@ -26,20 +26,56 @@ describe('attack buttons picture', () => {
   it('lays the buttons out like the game: the big one is the normal attack', () => {
     const pieces = attackImageLayout(renji);
     const base = (name) => pieces.find((p) => p.name === name);
-    expect(base('bt_fighting')).toMatchObject({ x: 209.5, y: 195 });
-    expect(base('bt_skill')).toMatchObject({ x: 239, y: 60 });
+    expect(base('bt_fighting')).toMatchObject({ x: 209.5, y: 215 });
+    expect(base('bt_skill')).toMatchObject({ x: 239, y: 80 });
     // Status badges on every button but the buff, the drop badge on the buff that heals
     expect(pieces.filter((p) => p.name === 'ailment_wek')).toHaveLength(4);
     expect(pieces.filter((p) => p.name === 'sub_5')).toHaveLength(1);
-    expect(attackImageSize(renji)).toEqual({ width: 294, height: 280 });
+    expect(attackImageSize(renji)).toEqual({ width: 294, height: 300 });
   });
 
   it('moves the buttons right to make room for an EX move', () => {
     const withExMove = { ...renji, extra_action: { steps: [step({ color: 'B' })] } };
     const pieces = attackImageLayout(withExMove);
-    expect(pieces.find((p) => p.name === 'bt_fighting')).toMatchObject({ x: 209.5 + 84 });
-    expect(pieces.find((p) => p.name === 'ex_action_base01')).toMatchObject({ x: 41.5, y: 154.5 });
-    expect(attackImageSize(withExMove)).toEqual({ width: 378, height: 280 });
+    expect(pieces.find((p) => p.name === 'bt_fighting')).toMatchObject({ x: 309.5 });
+    expect(pieces.find((p) => p.name === 'ex_action_base01')).toMatchObject({ x: 48.7, y: 168.6 });
+    expect(attackImageSize(withExMove)).toEqual({ width: 397, height: 300 });
+  });
+
+  it('puts a second status in a smaller disc on the top right, in the order of the game', () => {
+    // In the game Renji has burn in the main disc whatever the order in the tables, Gremmy paralyze
+    const layout = (statuses) => attackImageLayout({ heavy1: { steps: [step({ statuses })] } });
+    const pieces = layout([{ code: 'inj', plus: false }, { code: 'brn', plus: false }]);
+    const names = pieces.map((p) => p.name);
+    expect(names).toEqual(expect.arrayContaining(['ailment_base_heavy', 'ailment_brn', 'ailment_base_2', 'ailment_inj']));
+    expect(names.filter((n) => n === 'ailment_base_heavy')).toHaveLength(1);
+    // Drawn over the first disc, the frame with the dark corner stays the first one
+    expect(names.indexOf('ailment_inj')).toBeGreaterThan(names.indexOf('ailment_brn'));
+    const main = pieces.find((p) => p.name === 'ailment_brn');
+    const next = pieces.find((p) => p.name === 'ailment_inj');
+    expect([next.x - main.x, next.y - main.y]).toEqual([19, -15]);
+    expect(next.scale).toBeLessThan(main.scale);
+
+    const gremmy = layout([{ code: 'ero', plus: false }, { code: 'par', plus: false }]).map((p) => p.name);
+    expect(gremmy.indexOf('ailment_par')).toBeLessThan(gremmy.indexOf('ailment_ero'));
+  });
+
+  it('shows the buff and the debuff of an EX move in badges on the bottom right', () => {
+    const exMove = (fields) => ({ extra_action: { steps: [step({ color: 'B', ...fields })] } });
+    const names = (attacks) => attackImageLayout(attacks).map((p) => p.name);
+    // Same badge on the unit or on the team, like Gremmy in the game
+    expect(names(exMove({ buff: { target: 1 } }))).toEqual(expect.arrayContaining(['bt_sub', 'sub_6']));
+    expect(names(exMove({ buff: { target: 2 } }))).toContain('sub_6');
+    expect(names(exMove({ buff: { target: 2 }, debuff: true }))).toEqual(expect.arrayContaining(['sub_6', 'sub_debuff1']));
+    expect(names(exMove({}))).not.toContain('bt_sub');
+    // Other buttons show a buff as their own icon, without a badge
+    expect(names({ heavy1: { steps: [step({ buff: { target: 1 } })] } })).not.toContain('bt_sub');
+  });
+
+  it('draws the badges over every button', () => {
+    const statuses = [{ code: 'par', plus: false }];
+    const names = attackImageLayout({ heavy1: { steps: [step({ statuses })] }, heavy2: { steps: [step()] } }).map((p) => p.name);
+    expect(names.indexOf('ailment_par')).toBeGreaterThan(names.lastIndexOf('bt_fighting_heavy'));
   });
 
   it('renders a transparent PNG of the game screen size, without the pieces it cannot load', async () => {
@@ -49,7 +85,7 @@ describe('attack buttons picture', () => {
       return square;
     };
     const image = await renderAttackImage(renji, loadPiece);
-    expect(await sharp(image).metadata()).toMatchObject({ width: 294, height: 280, format: 'png', hasAlpha: true });
+    expect(await sharp(image).metadata()).toMatchObject({ width: 294, height: 300, format: 'png', hasAlpha: true });
     expect(await renderAttackImage({}, loadPiece)).toBeNull();
   });
 
@@ -61,6 +97,6 @@ describe('attack buttons picture', () => {
     const sources = { ...rmfsImages(game) };
     const fromOtherSite = { source_images: { ...sources, attack: 'https://bucket.bbs-simulator.com/characters/x.png' }, images_revisions: { quote: 2 } };
     expect(imageUpdate(game, fromOtherSite).pending).toEqual(['attack']);
-    expect(imageUpdate(game, { source_images: sources, images_revisions: { quote: 2, attack: 1 } })).toBeNull();
+    expect(imageUpdate(game, { source_images: sources, images_revisions: { quote: 2, attack: 2 } })).toBeNull();
   });
 });

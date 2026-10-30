@@ -8,9 +8,11 @@ import sharp from 'sharp';
 
 export const ATTACK_PIECES_PATH = '/bucket.bbs-schrift.fr/game-ui/attacks';
 const WIDTH = 294;
-const HEIGHT = 280;
-// A unit with an EX move gets its button on the left: the screen is wider and the others move right
-const EX_MOVE_SHIFT = 84;
+// Room above the top buttons for a second status, which sticks out of them
+const TOP_ROOM = 20;
+const HEIGHT = 280 + TOP_ROOM;
+// Room left of the EX move button for the "+" of its status
+const LEFT_ROOM = 16;
 // Room around the canvas for pieces that stick out (badges), cut off at the end
 const MARGIN = 40;
 
@@ -22,7 +24,16 @@ const SLOTS = {
   heavy3: { x: 134, y: 59, size: 97 },
   ex: { x: 239, y: 60, size: 97 },
 };
-const EX_MOVE_SLOT = { x: 41.5, y: 154.5, size: 76 };
+// The game places the buttons differently for a unit with an EX move, measured on its battle screen
+const EX_MOVE_SLOTS = {
+  normal: { x: 293.5, y: 195, size: 164 },
+  heavy1: { x: 143.3, y: 230.2, size: 97 },
+  heavy2: { x: 155.3, y: 129.4, size: 97 },
+  heavy3: { x: 227.4, y: 57.1, size: 97 },
+  ex: { x: 331.5, y: 43.2, size: 97 },
+  extra_action: { x: 32.7, y: 148.6, size: 76 },
+};
+const EX_MOVE_WIDTH = 381 + LEFT_ROOM;
 
 // Diameter of the circle drawn by a background at its atlas size: 168 px pieces (normal buttons) have a 1 px
 // edge, the 99 px ones (strong attacks, special) a ring of 97
@@ -80,23 +91,32 @@ export const buttonIcon = (button, steps) => {
   return candidates.find((name) => WEAPON_ICONS.has(name)) ?? [...WEAPON_ICONS].find((name) => name.startsWith(`${weapon}_`)) ?? null;
 };
 
+// Order of the statuses in the game: m_enemy_regist_bad_status, the same as in its "Burn and Lacerate" texts
+const STATUS_ORDER = ['par', 'frz', 'psn', 'brn', 'wek', 'inj', 'ero', 'cnf', 'spd', 'tko'];
+
 export const statusBadges = (steps) => {
   const seen = new Map();
   for (const status of steps.flatMap((s) => s.statuses ?? [])) {
     if (!STATUS_CODES.has(status.code)) continue;
     const key = `${status.code}${status.plus ? '+' : ''}`;
-    if (!seen.has(key)) seen.set(key, { icon: `ailment_${status.code}`, plus: status.plus });
+    if (!seen.has(key)) seen.set(key, { code: status.code, icon: `ailment_${status.code}`, plus: status.plus });
   }
-  return [...seen.values()].slice(0, 2);
+  return [...seen.values()].sort((a, b) => STATUS_ORDER.indexOf(a.code) - STATUS_ORDER.indexOf(b.code)).slice(0, 2);
 };
 
 // Heal of a buff that also heals: a drop badge on the bottom right
 const subBadge = (steps) => (steps.some((s) => s.buff) && steps.some((s) => s.heal) ? 'sub_5' : null);
 
+// The EX move button always shows its own icon: its buff and its debuff on the enemies go in badges
+const exMoveBadges = (steps) => [
+  ...(steps.some((s) => s.buff) ? [EX_MOVE_BADGES.buff] : []),
+  ...(steps.some((s) => s.debuff) ? [EX_MOVE_BADGES.debuff] : []),
+];
+
 const hasButton = (attacks, button) => (attacks?.[button]?.steps?.length ?? 0) > 0;
 
 // Size of the picture: wider for a unit with an EX move
-export const attackImageSize = (attacks) => ({ width: WIDTH + (hasButton(attacks, 'extra_action') ? EX_MOVE_SHIFT : 0), height: HEIGHT });
+export const attackImageSize = (attacks) => ({ width: hasButton(attacks, 'extra_action') ? EX_MOVE_WIDTH : WIDTH, height: HEIGHT });
 
 // Status badges, measured on the game screen. Each frame is a dark disc whose shadow follows the button
 // ring: the big normal button has its own frames, the "+" statuses a gold ring and an orange "+".
@@ -111,26 +131,34 @@ const BADGES = {
     plus: { frame: 'ailment_base_02', offset: [-4, -3], center: [23, 22], icon: 34, sign: [-6, 2] },
   },
 };
-// A second status of the same button sits next to the first one
-const NEXT_BADGE = 24;
+// A second status is a smaller plain disc stuck to the first one, on its top right. shift: from the
+// center of the first disc, scale: of the disc frame, sign: "+" from the center of the disc
+const SECOND_BADGES = {
+  small: { frame: 'ailment_base_2', shift: [19, -15], scale: 0.8, icon: 22, sign: [-14, -12] },
+  big: { frame: 'ailment_base_2', shift: [23, -18], scale: 0.97, icon: 27, sign: [-17, -15] },
+};
 const STATUS_ICON_SIZE = 36;
 
 // Drop of a buff that heals: on a black disc at the bottom right of the button
 const SUB_BADGE = { inset: 16, scale: 0.65 };
+// Badges of an EX move on a black disc. shift: from the center of the button, outside its ring, scale:
+// of their atlas frame, in which each piece goes back to its place (trimmed like the icons)
+const SUB_FRAME = 70;
+const SUB_OFFSETS = { bt_sub: [1, 1], sub_6: [7, 7], sub_debuff1: [8, 7] };
+const EX_MOVE_BADGES = {
+  buff: { name: 'sub_6', shift: [31, 19], scale: 0.46 },
+  debuff: { name: 'sub_debuff1', shift: [9, 30], scale: 0.4 },
+};
 
 // Buttons of the unit, placed for its layout
 const slotsOf = (attacks) => {
-  if (!hasButton(attacks, 'extra_action')) return Object.entries(SLOTS);
-  return [
-    ...Object.entries(SLOTS).map(([button, slot]) => [button, { ...slot, x: slot.x + EX_MOVE_SHIFT }]),
-    ['extra_action', EX_MOVE_SLOT],
-  ];
+  const lower = (slot, left = 0) => ({ ...slot, x: slot.x + left, y: slot.y + TOP_ROOM });
+  if (!hasButton(attacks, 'extra_action')) return Object.entries(SLOTS).map(([button, slot]) => [button, lower(slot)]);
+  return Object.entries(EX_MOVE_SLOTS).map(([button, slot]) => [button, lower(slot, LEFT_ROOM)]);
 };
 
-// Pieces to draw, in order, with their place on the canvas (before the margin)
-export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button, slot]) => {
-  const steps = attacks?.[button]?.steps;
-  if (!steps?.length) return [];
+// Pieces of a button: the button itself, then its badges
+const buttonPieces = (button, slot, steps) => {
   const base = buttonBase(button, steps);
   const scale = slot.size / circleOf(base);
   const pieces = [{ name: base, x: slot.x, y: slot.y, scale, anchor: 'center' }];
@@ -143,17 +171,28 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
     pieces.push({ name: icon, x: slot.x + (offset[0] - frame[0] / 2) * iconScale, y: slot.y + (offset[1] - frame[1] / 2) * iconScale, scale: iconScale, anchor: 'top-left' });
   }
 
+  const buttonEnd = pieces.length;
   const left = slot.x - slot.size / 2;
   const top = slot.y - slot.size / 2;
-  const badges = BADGES[button === 'normal' ? 'big' : 'small'];
-  statusBadges(steps).forEach((badge, index) => {
-    const style = badge.plus ? badges.plus : badges.plain;
-    const x = left + style.offset[0] + index * NEXT_BADGE;
+  const size = button === 'normal' ? 'big' : 'small';
+  const [first, second] = statusBadges(steps);
+  if (first) {
+    const style = BADGES[size][first.plus ? 'plus' : 'plain'];
+    const x = left + style.offset[0];
     const y = top + style.offset[1];
+    const center = [x + style.center[0], y + style.center[1]];
     pieces.push({ name: style.frame, x, y, scale: 1, anchor: 'top-left' });
-    pieces.push({ name: badge.icon, x: x + style.center[0], y: y + style.center[1], scale: style.icon / STATUS_ICON_SIZE, anchor: 'center' });
-    if (badge.plus) pieces.push({ name: 'ailment_plus', x: x + style.sign[0], y: y + style.sign[1], scale: 1, anchor: 'top-left' });
-  });
+    pieces.push({ name: first.icon, x: center[0], y: center[1], scale: style.icon / STATUS_ICON_SIZE, anchor: 'center' });
+    if (first.plus) pieces.push({ name: 'ailment_plus', x: x + style.sign[0], y: y + style.sign[1], scale: 1, anchor: 'top-left' });
+    if (second) {
+      const next = SECOND_BADGES[size];
+      const nextX = center[0] + next.shift[0];
+      const nextY = center[1] + next.shift[1];
+      pieces.push({ name: next.frame, x: nextX, y: nextY, scale: next.scale, anchor: 'center' });
+      pieces.push({ name: second.icon, x: nextX, y: nextY, scale: next.icon / STATUS_ICON_SIZE, anchor: 'center' });
+      if (second.plus) pieces.push({ name: 'ailment_plus', x: nextX + next.sign[0], y: nextY + next.sign[1], scale: 1, anchor: 'top-left' });
+    }
+  }
 
   const sub = subBadge(steps);
   if (sub) {
@@ -162,8 +201,25 @@ export const attackImageLayout = (attacks) => slotsOf(attacks).flatMap(([button,
     pieces.push({ name: 'ailment_base_2', x, y, scale: 1, anchor: 'center' });
     pieces.push({ name: sub, x, y, scale: SUB_BADGE.scale, anchor: 'center' });
   }
-  return pieces;
-});
+
+  if (button === 'extra_action') {
+    for (const badge of exMoveBadges(steps)) {
+      const x = slot.x + badge.shift[0];
+      const y = slot.y + badge.shift[1];
+      for (const name of ['bt_sub', badge.name]) {
+        const [left, top] = SUB_OFFSETS[name];
+        pieces.push({ name, x: x + (left - SUB_FRAME / 2) * badge.scale, y: y + (top - SUB_FRAME / 2) * badge.scale, scale: badge.scale, anchor: 'top-left' });
+      }
+    }
+  }
+  return { button: pieces.slice(0, buttonEnd), badges: pieces.slice(buttonEnd) };
+};
+
+// Pieces to draw, in order, with their place on the canvas (before the margin): badges go over every button
+export const attackImageLayout = (attacks) => {
+  const buttons = slotsOf(attacks).filter(([button]) => hasButton(attacks, button)).map(([button, slot]) => buttonPieces(button, slot, attacks[button].steps));
+  return [...buttons.flatMap((b) => b.button), ...buttons.flatMap((b) => b.badges)];
+};
 
 // loadPiece(name) -> PNG buffer of a button piece; a missing piece is left out
 export const renderAttackImage = async (attacks, loadPiece) => {
