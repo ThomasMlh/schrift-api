@@ -16,6 +16,7 @@ import { mergeDuplicates } from './mergeDuplicates.js';
 import {
   buildGameBanners, countBannerImagesToQueue, GAME_BANNER_SOURCE, legacyBannersFilter, removeLegacyBanners, saveGameBanners,
 } from './banners.js';
+import { queueSummonRates } from './summonRates.js';
 import { createSummonCatalog, createSummonDetails, SUMMON_TABLES } from './summons.js';
 
 const PREVIEW_LIMIT = 50;
@@ -113,6 +114,7 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   const merged = await mergeDuplicates(db, plan.duplicates);
   await removeLegacyBanners(db);
   await saveGameBanners(db, banners, new Date(), exists);
+  await queueSummonRates(db);
   await saveAccessories(db, accessories, subeffects, new Date(), exists);
   await saveBonusAbilities(db, bonusAbilities);
   if (plan.created.length > 0 || plan.updates.some((u) => u.changes.some((field) => field === 'release_date' || field === 'book_order'))) await reorderCharactersByReleaseDate(db);

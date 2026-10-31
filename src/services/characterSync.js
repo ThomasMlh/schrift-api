@@ -4,6 +4,7 @@
 import { FTPUploader } from '../utils/ftp.js';
 import { IMAGE_TARGETS, imagePath, uploadImageTarget } from './characterImages.js';
 import { pendingGameBanners, uploadGameBanners } from './gameDb/banners.js';
+import { archiveSummonRates, pendingSummonRates } from './gameDb/summonRates.js';
 import { pendingAccessoryImages, uploadAccessoryImages } from './gameDb/accessories.js';
 import { downloadGameFile } from './gameDb/source.js';
 import { trackUploadRun } from './imageUploadRun.js';
@@ -65,7 +66,7 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
   batchSize = Math.min(parseInt(batchSize) || 100, 200);
 
   const remainingImages = async () => await db.collection('characters').countDocuments(imagesToUploadFilter())
-    + await pendingGameBanners(db) + await pendingAccessoryImages(db);
+    + await pendingGameBanners(db) + await pendingAccessoryImages(db) + await pendingSummonRates(db);
   const remainingBefore = await remainingImages();
   const characters = await db.collection('characters')
     .find(imagesToUploadFilter())
@@ -101,14 +102,15 @@ export const uploadImagesBatch = async (db, batchSize = 100) => {
   // Summon visuals of the game, copied once from rmfs to the bucket
   const summons = await uploadGameBanners(db, ftpUploader, batchSize);
   const accessoryImages = await uploadAccessoryImages(db, ftpUploader, batchSize, downloadGameFile);
+  const rates = await archiveSummonRates(db, ftpUploader, batchSize);
 
   try { await ftpUploader.disconnect(); } catch { /* Ignore disconnect errors */ }
 
   const bannersUploaded = summons.uploaded + accessoryImages.uploaded;
 
   const remaining = await remainingImages();
-  const message = `Batch terminé: ${uploaded} images uploadées pour ${processed} personnages, ${bannersUploaded} bannières, ${remaining} restants`;
-  const statistics = { processed, uploaded, bannersUploaded, remaining, errors: errors.length };
+  const message = `Batch terminé: ${uploaded} images uploadées pour ${processed} personnages, ${bannersUploaded} bannières, ${rates.archived} pages de taux, ${remaining} restants`;
+  const statistics = { processed, uploaded, bannersUploaded, ratesArchived: rates.archived, remaining, errors: errors.length };
 
   // Discord only hears about the start, each quarter and the end of the whole upload
   await trackUploadRun(db, { remainingBefore, remainingAfter: remaining, uploaded: uploaded + bannersUploaded, errors: errors.length });

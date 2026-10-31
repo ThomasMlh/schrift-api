@@ -113,6 +113,8 @@ router.get('/game', async (req, res) => {
 
 const SUMMON_CHARACTER_FIELDS = { name: 1, version: 1, version_name: 1, game_version: 1, game_id: 1, affinity: 1, attack_type: 1 };
 
+const SUMMON_ACCESSORY_FIELDS = { name: 1, names: 1, code: 1, rarity: 1, game_identity_id: 1 };
+
 // GET a game summon by group id, with the site characters it features (summon page)
 router.get('/game/:gachaGroupId', async (req, res) => {
   try {
@@ -127,12 +129,18 @@ router.get('/game/:gachaGroupId', async (req, res) => {
 
     // The featured ids of an accessory summon are accessories, which could match a character game id
     const featuredIds = banner.list_category?.startsWith('accessory') ? [] : (banner.details?.featured ?? []).map(f => f.game_id);
-    const gameIds = [...new Set([...featuredIds, ...(banner.character_game_ids ?? [])])];
+    const rateIds = (banner.rates?.sections ?? []).flatMap(section => section.units.map(unit => unit.game_id)).filter(Boolean);
+    const gameIds = [...new Set([...featuredIds, ...rateIds, ...(banner.character_game_ids ?? [])])];
     const characters = gameIds.length > 0
       ? await req.db.collection('characters').find({ game_id: { $in: gameIds } }, { projection: SUMMON_CHARACTER_FIELDS }).toArray()
       : [];
 
-    res.json({ success: true, data: { ...banner, characters } });
+    const accessoryIds = banner.details?.accessory_identity_ids ?? [];
+    const accessories = accessoryIds.length > 0
+      ? await req.db.collection('accessories').find({ game_identity_id: { $in: accessoryIds } }, { projection: SUMMON_ACCESSORY_FIELDS }).toArray()
+      : [];
+
+    res.json({ success: true, data: { ...banner, characters, accessories } });
   } catch (error) {
     logger.error('Erreur lors de la récupération de l\'invocation:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur lors de la récupération de l\'invocation' });
