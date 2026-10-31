@@ -15,9 +15,11 @@ const BANNER_PATTERN = /https:\/\/prod-web-game\d+\.akamaized\.net\/[a-z]{2}\/ge
 
 export const newsArchivePath = (newsId, language = PRIMARY_LANGUAGE) => `${NEWS_FTP_PATH()}/${language}/${newsId}.html`;
 
-export const newsSourceUrl = (newsId, language = PRIMARY_LANGUAGE) => (
-  `${NEWS_SOURCE_URL()}?lang=${language}&path=${encodeURIComponent(`news/view?id=${newsId}`)}`
+export const gameNewsUrl = (path, language = PRIMARY_LANGUAGE) => (
+  `${NEWS_SOURCE_URL()}?lang=${language}&path=${encodeURIComponent(path)}`
 );
+
+export const newsSourceUrl = (newsId, language = PRIMARY_LANGUAGE) => gameNewsUrl(`news/view?id=${newsId}`, language);
 
 // Banner of the news in a language: the page links the one of its own language, the others share its path
 export const newsBannerUrl = (html, language) => {
@@ -25,7 +27,7 @@ export const newsBannerUrl = (html, language) => {
   return match ? match[0].replace(/\.net\/[a-z]{2}\/generated_image\//, `.net/${language}/generated_image/`) : null;
 };
 
-const fetchWithTimeout = async (url) => {
+export const fetchWithTimeout = async (url) => {
   const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status} pour ${url}`), { status: response.status });
   return response;
