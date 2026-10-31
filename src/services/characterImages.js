@@ -7,14 +7,15 @@ import sharp from 'sharp';
 import { logger } from '../utils/logger.js';
 import { downloadGameFile, GENERATED_ATTACK_IMAGE } from './gameDb/source.js';
 import { ATTACK_PIECES_PATH, renderAttackImage } from './attackImage.js';
+import { renderQuoteImage } from './quoteImage.js';
 
 const BUCKET_ROOT = '/bucket.bbs-schrift.fr/characters';
 
 export const IMAGE_TARGETS = [
   { key: 'thumbnail', folder: 'thumb', sources: ['thumbnail'] },
   { key: 'artwork', folder: 'artwork', sources: ['artwork', 'silhouette', 'background'] },
-  { key: 'quote', folder: 'phrase', sources: ['quote'] },
-  { key: 'quote_en', folder: 'phrase-en', sources: ['quote_en'] },
+  { key: 'quote', folder: 'phrase/fr', sources: ['quote'], language: 'fr' },
+  { key: 'quote_en', folder: 'phrase/en', sources: ['quote'], language: 'en' },
   { key: 'attack', folder: 'attack', sources: ['attack'] },
 ];
 
@@ -47,15 +48,6 @@ const download = async (url) => {
 // The game artwork sits at the bottom of a square canvas, the rest is transparent
 export const trimTransparent = (image) => sharp(image).trim().png().toBuffer();
 
-// The game quote is white text on a transparent background, edge to edge: laid on black with a margin
-// so it reads on any page
-const BLACK = { r: 0, g: 0, b: 0, alpha: 1 };
-export const onBlackBackground = (image) => sharp(image)
-  .flatten({ background: BLACK })
-  .extend({ top: 40, bottom: 40, left: 60, right: 60, background: BLACK })
-  .png()
-  .toBuffer();
-
 // Share of a trimmed artwork that is opaque from which it already holds its own scenery
 const OPAQUE_SCENERY = 0.98;
 const hasScenery = async (trimmed) => {
@@ -87,8 +79,8 @@ export const composeOnBackground = async (artwork, background) => {
 
 // How each game image is prepared before upload. Bump GAME_IMAGE_REVISIONS when a treatment changes:
 // the next sync uploads that image again for every character.
-const GAME_IMAGE_PROCESSING = { artwork: trimTransparent, quote: onBlackBackground };
-export const GAME_IMAGE_REVISIONS = { thumbnail: 1, artwork: 1, quote: 2, attack: 2 };
+const GAME_IMAGE_PROCESSING = { artwork: trimTransparent };
+export const GAME_IMAGE_REVISIONS = { thumbnail: 1, artwork: 1, quote: 3, quote_en: 2, attack: 2 };
 
 // Button pieces of the game interface, read once per process from the bucket
 const attackPieces = new Map();
@@ -137,6 +129,10 @@ export const uploadImageTarget = async (ftp, target, sources, characterId, chara
           await ftp.uploadBuffer(await trimTransparent(image), path);
           return false;
         }
+      }
+      if (target.language) {
+        await ftp.uploadBuffer(await renderQuoteImage(image, character?.quote?.[target.language]), path);
+        return true;
       }
       const prepare = GAME_IMAGE_PROCESSING[target.key];
       await ftp.uploadBuffer(prepare ? await prepare(image) : image, path);

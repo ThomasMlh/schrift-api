@@ -43,15 +43,15 @@ export const newCharacter = (game, now = new Date(), exists = () => true) => ({
 });
 
 // Images come from the game files: the targets whose source changed are uploaded again.
-// The legacy silhouette is dropped, the game artwork is complete on its own.
+// The legacy silhouette and archived English quote are dropped: the game files cover both.
 // exists(url) tells whether a game file is in rmfs: one that is not keeps the stored source
 export const imageUpdate = (game, doc, exists = () => true) => {
   // URLs stored before rmfs had language folders name the same files: moving them is no reason to upload
   const stored = Object.fromEntries(Object.entries(doc.source_images ?? {}).map(([key, url]) => [key, withLanguageFolder(url)]));
-  const next = { ...stored, ...rmfsImages(game, exists), silhouette: null };
+  const next = { ...stored, ...rmfsImages(game, exists), silhouette: null, quote_en: null };
   // Images prepared with an older treatment are uploaded again (revision 1 before revisions existed)
   const outdated = Object.entries(GAME_IMAGE_REVISIONS)
-    .filter(([key, revision]) => next[key] && (doc.images_revisions?.[key] ?? 1) < revision)
+    .filter(([key, revision]) => next[IMAGE_TARGETS.find((target) => target.key === key).sources[0]] && (doc.images_revisions?.[key] ?? 1) < revision)
     .map(([key]) => key);
   const pending = [...new Set([...changedImageTargets(stored, next), ...outdated])];
   const moved = Object.keys(next).some((key) => (doc.source_images?.[key] ?? null) !== (next[key] ?? null));

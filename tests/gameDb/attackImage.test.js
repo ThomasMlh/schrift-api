@@ -1,3 +1,4 @@
+import { GAME_IMAGE_REVISIONS } from '../../src/services/characterImages.js';
 import sharp from 'sharp';
 import { attackImageLayout, attackImageSize, buttonBase, buttonIcon, renderAttackImage } from '../../src/services/attackImage.js';
 import { imageUpdate } from '../../src/services/gameDb/characterDocuments.js';
@@ -95,8 +96,8 @@ describe('attack buttons picture', () => {
     expect(rmfsImages({ attacks: renji })).toEqual({ attack: GENERATED_ATTACK_IMAGE });
 
     const sources = { ...rmfsImages(game) };
-    const fromOtherSite = { source_images: { ...sources, attack: 'https://bucket.bbs-simulator.com/characters/x.png' }, images_revisions: { quote: 2 } };
+    const fromOtherSite = { source_images: { ...sources, attack: 'https://bucket.bbs-simulator.com/characters/x.png' }, images_revisions: GAME_IMAGE_REVISIONS };
     expect(imageUpdate(game, fromOtherSite).pending).toEqual(['attack']);
-    expect(imageUpdate(game, { source_images: sources, images_revisions: { quote: 2, attack: 2 } })).toBeNull();
+    expect(imageUpdate(game, { source_images: sources, images_revisions: GAME_IMAGE_REVISIONS })).toBeNull();
   });
 });

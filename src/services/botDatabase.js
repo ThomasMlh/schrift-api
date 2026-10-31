@@ -11,13 +11,12 @@ const BUCKET_URL = 'https://bucket.bbs-schrift.fr';
 const BUCKET_ROOT = '/bucket.bbs-schrift.fr';
 const PREVIEW_LIMIT = 100;
 
-// File column -> bucket folders of the character image, first one present wins. The game quote picture is
-// the same in every client language: the English column falls back to it when no subtitled one was archived
+// File column -> bucket folders of the character image, first one present wins
 const IMAGE_COLUMNS = [
   ['Link', ['thumb']],
   ['URL Artwork', ['artwork']],
-  ['URL Phrase FR', ['phrase']],
-  ['URL Phrase EN', ['phrase-en', 'phrase']],
+  ['URL Phrase FR', ['phrase/fr']],
+  ['URL Phrase EN', ['phrase/en']],
   ['URL ATK', ['attack']],
 ];
 // File column -> language of the game quote text
