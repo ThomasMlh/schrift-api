@@ -117,6 +117,8 @@ export const createSummonDetails = (tables, dict) => {
     }));
   };
 
+  const accessories = new Map((tables.m_accessory ?? []).map((r) => [r.id, r]));
+
   const featuredOf = (groupId) => {
     const featured = new Map();
     for (const layout of (layoutsByGroup.get(groupId) ?? []).sort(byNumber('layout_order'))) {
@@ -156,7 +158,9 @@ export const createSummonDetails = (tables, dict) => {
     const main = multiple ?? single;
     const steps = multiple ? stepsOf(multiple, String(groupId)) : [];
     const attentionKey = (stepsByGacha.get(multiple?.id) ?? []).find((r) => r.attention)?.attention;
+    const featured = featuredOf(String(groupId));
     return {
+      main_gacha_id: toNumber(main?.id),
       news_id: toNumber(group.news_id) || toNumber(main?.news_id) || null,
       category: main?.layout_category || null,
       start_at: gameDateTime(main?.start_date),
@@ -164,7 +168,11 @@ export const createSummonDetails = (tables, dict) => {
       modes: [single && mode('single', single), multiple && mode('multiple', multiple)].filter(Boolean),
       steps,
       attention: dict.text(attentionKey),
-      featured: featuredOf(String(groupId)),
+      featured,
+      // Layouts of an accessory summon point to accessories, keyed by identity on the site
+      accessory_identity_ids: main?.gacha_content_type === 'accessory'
+        ? [...new Set(featured.map((f) => toNumber(accessories.get(String(f.game_id))?.identity_id)).filter(Boolean))]
+        : [],
       medal_shop: medalShopOf(groupId),
     };
   };
