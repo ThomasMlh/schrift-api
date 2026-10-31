@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { rmfsImages } from '../../src/services/gameDb/source.js';
 import { IMAGE_TARGETS, changedImageTargets, composeOnBackground, uploadImageTarget } from '../../src/services/characterImages.js';
 
 const target = (key) => IMAGE_TARGETS.find((t) => t.key === key);
@@ -71,6 +72,12 @@ describe('game images', () => {
       expect([width, height]).toEqual([1260, 710]);
       expect(await pixel(image, 10, 10)).toEqual([0, 0, 200]);
       expect(await pixel(image, 630, 700)).toEqual([200, 0, 0]);
+    });
+
+    it('uses the background of the unit, or the default one of the game', () => {
+      const background = (game) => rmfsImages({ resource_2d_id: '1949', ...game }).background;
+      expect(background({ background_image_path: 'bg_rainy' })).toMatch(/\/fr\/RarityBg\/bg_rainy\.png$/);
+      expect(background({ background_image_path: null })).toMatch(/\/fr\/RarityBg\/default_raritybg_5\.png$/);
     });
 
     it('queues only the artwork when a unit gets a background', () => {
