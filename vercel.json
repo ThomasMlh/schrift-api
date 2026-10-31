@@ -9,6 +9,7 @@
         "includeFiles": [
           "node_modules/tesseract.js-core/**/*.wasm",
           "node_modules/tesseract.js-core/**/*.js",
+          "node_modules/@fontsource/lato/files/lato-latin-400-normal.woff",
           "eng.traineddata",
           "jpn.traineddata",
           "chi_sim.traineddata"

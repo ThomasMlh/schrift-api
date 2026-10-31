@@ -64,7 +64,7 @@ describe('character documents', () => {
 
   it('creates a new character waiting for its images', () => {
     expect(newCharacter({ ...built, game_version: { fr: 'version Noël' } }, now)).toMatchObject({
-      game_id: 61758, search_name: 'Ichibe Hyosube version Noël', version: 'Force Noël Ichibe Hyosube', images_pending: ['thumbnail', 'artwork', 'quote'], created_at: now,
+      game_id: 61758, search_name: 'Ichibe Hyosube version Noël', version: 'Force Noël Ichibe Hyosube', images_pending: ['thumbnail', 'artwork', 'quote', 'quote_en'], created_at: now,
       source_images: {
         thumbnail: 'https://bucket.bbs-schrift.fr/rmfs/fr/Characters/1872/thumb.png',
         artwork: 'https://bucket.bbs-schrift.fr/rmfs/fr/Characters/1872/stand_gacha.png',
@@ -78,18 +78,18 @@ describe('character documents', () => {
     const rmfs = 'https://bucket.bbs-schrift.fr/rmfs/fr';
     const legacy = { source_images: { thumbnail: 'https://bbs-simulator/x.png', artwork: 'a', silhouette: 's', attack: 'att', quote_en: 'en' }, images_revisions: { attack: 2 } };
     const update = imageUpdate(game, legacy);
-    expect(update.pending).toEqual(['thumbnail', 'artwork', 'quote']);
+    expect(update.pending).toEqual(['thumbnail', 'artwork', 'quote', 'quote_en']);
     expect(update.set).toMatchObject({
       'source_images.thumbnail': `${rmfs}/Characters/1872/thumb.png`,
       'source_images.silhouette': null,
       'source_images.attack': 'att',
-      'source_images.quote_en': 'en',
+      'source_images.quote_en': null,
     });
     // Once stored, nothing changes until the game files or the image treatments do
     const stored = Object.fromEntries(Object.entries(update.set).filter(([k]) => k.startsWith('source_images.')).map(([k, v]) => [k.slice('source_images.'.length), v]));
     expect(imageUpdate(game, { source_images: stored, images_revisions: update.set.images_revisions })).toBeNull();
-    // A character uploaded before the black quote background gets its quote again, only that
-    expect(imageUpdate(game, { source_images: stored, images_revisions: { attack: 2 } }).pending).toEqual(['quote']);
+    // A character uploaded before the per-language quote pictures gets both of them again, only those
+    expect(imageUpdate(game, { source_images: stored, images_revisions: { attack: 2 } }).pending).toEqual(['quote', 'quote_en']);
 
     // URLs stored before the language folders move to rmfs/fr without any upload
     const beforeFolders = Object.fromEntries(Object.entries(stored).map(([k, v]) => [k, v?.replace('/rmfs/fr/', '/rmfs/')]));

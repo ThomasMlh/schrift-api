@@ -36,12 +36,14 @@ describe('game images', () => {
 
     expect(String(uploads['/bucket.bbs-schrift.fr/characters/thumb/c1.png'])).toBe('thumb');
 
-    // The quote, white text on a transparent canvas, is laid on an opaque black background
-    const quoteFtp = { ...ftp, downloadBuffer: async () => sharp({ create: { width: 4, height: 2, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 0 } } }).png().toBuffer() };
-    expect(await uploadImageTarget(quoteFtp, target('quote'), sources, 'c2')).toBe(true);
-    const { data, info } = await sharp(uploads['/bucket.bbs-schrift.fr/characters/phrase/c2.png']).raw().toBuffer({ resolveWithObject: true });
-    expect(info.channels).toBe(3);
-    expect([...data.subarray(0, 3)]).toEqual([0, 0, 0]);
+    // One quote picture per language, each with its own translation
+    const quoteFtp = { ...ftp, downloadBuffer: async () => sharp({ create: { width: 400, height: 100, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer() };
+    const character = { quote: { fr: 'Merci, Zangetsu.', en: 'Thank you, Zangetsu.' } };
+    expect(await uploadImageTarget(quoteFtp, target('quote'), sources, 'c2', character)).toBe(true);
+    expect(await uploadImageTarget(quoteFtp, target('quote_en'), sources, 'c2', character)).toBe(true);
+    const french = uploads['/bucket.bbs-schrift.fr/characters/phrase/fr/c2.png'];
+    const english = uploads['/bucket.bbs-schrift.fr/characters/phrase/en/c2.png'];
+    expect(french.equals(english)).toBe(false);
     const artwork = await sharp(uploads['/bucket.bbs-schrift.fr/characters/artwork/c1.png']).metadata();
     expect([artwork.width, artwork.height]).toEqual([40, 20]);
   });
