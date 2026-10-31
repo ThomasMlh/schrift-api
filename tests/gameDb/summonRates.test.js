@@ -130,7 +130,7 @@ describe('summon rates', () => {
       expect(await pendingSummonRates(db)).toBe(0);
     });
 
-    it('queues new summons and recent missing ones, not old missing or upcoming ones', async () => {
+    it('queues new and upcoming summons and recent missing ones, not old missing ones', async () => {
       const now = new Date('2026-09-20T00:00:00Z');
       await db.collection('banners').insertMany([
         banner(7),
@@ -138,10 +138,11 @@ describe('summon rates', () => {
         banner(9, { rates_status: 'missing', started_at: new Date('2026-01-01T00:00:00Z') }),
         banner(10, { rates_status: 'archived' }),
         banner(11, { started_at: new Date('2026-10-01T00:00:00Z') }),
+        banner(13, { rates_status: 'missing', started_at: new Date('2026-10-01T00:00:00Z') }),
         { gacha_group_id: 12, started_at: started },
       ]);
-      expect(await queueSummonRates(db, now)).toBe(2);
-      expect((await db.collection('banners').find({ rates_pending: true }).toArray()).map((b) => b.gacha_group_id)).toEqual([7, 8]);
+      expect(await queueSummonRates(db, now)).toBe(4);
+      expect((await db.collection('banners').find({ rates_pending: true }).toArray()).map((b) => b.gacha_group_id)).toEqual([7, 8, 11, 13]);
     });
   });
 });

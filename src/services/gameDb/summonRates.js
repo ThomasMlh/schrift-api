@@ -142,14 +142,15 @@ const pendingFilter = { rates_pending: true };
 
 export const pendingSummonRates = (db) => db.collection('banners').countDocuments(pendingFilter);
 
-// Summons whose page is still to read: those never tried, and those which recently started without one
+// Summons whose page is still to read: those never tried, upcoming ones included since their page comes
+// out ahead of them, and those without a page that are upcoming or recently started
 export const queueSummonRates = async (db, now = new Date()) => {
   const retrySince = new Date(now.getTime() - RETRY_DAYS * DAY_MS);
   const { modifiedCount } = await db.collection('banners').updateMany(
     {
       list_category: { $exists: true },
-      started_at: { $lte: now },
-      $or: [{ rates_status: { $exists: false } }, { rates_status: 'missing', started_at: { $gte: retrySince, $lte: now } }],
+      started_at: { $ne: null },
+      $or: [{ rates_status: { $exists: false } }, { rates_status: 'missing', started_at: { $gte: retrySince } }],
     },
     { $set: { rates_pending: true } }
   );
