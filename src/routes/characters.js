@@ -365,6 +365,17 @@ router.get("/catalog", async (req, res) => {
   }
 });
 
+// Character summons the unit appears in, from the game tables and the selections of the rate pages. Tickets are left out.
+const summonHistory = async (db, gameId) => {
+  const summons = await db.collection("banners")
+    .find(
+      { list_category: "character_gacha", $or: [{ character_game_ids: gameId }, { "rates.sections.units.game_id": gameId }] },
+      { projection: { _id: 0, gacha_group_id: 1, names: 1, name: 1, start_date: 1, end_date: 1 } }
+    )
+    .toArray();
+  return summons.map(({ names, name, ...summon }) => ({ ...summon, name: names ?? { fr: name } }));
+};
+
 router.get("/:id", async (req, res) => {
   try {
     const character = await req.db
@@ -375,7 +386,8 @@ router.get("/:id", async (req, res) => {
         .status(404)
         .json({ success: false, message: "Personnage non trouvé" });
     }
-    res.json({ success: true, data: character });
+    const history = character.game_id ? { summon_history: await summonHistory(req.db, character.game_id) } : {};
+    res.json({ success: true, data: { ...character, ...history } });
   } catch (error) {
     res.status(500).json({
       success: false,
