@@ -171,10 +171,23 @@ const listBucket = async () => {
 
 const downloadFile = (sftp) => sftp.get(BOT_DATABASE_PATH);
 
+// Rarities of the file for the matched characters without one: a rarity already in the base is never replaced
+export const missingRarities = (rows, matches) => matches.flatMap(({ index, label, character }) => {
+  const rarity = String(rows[index]['Rareté'] ?? '').trim();
+  return rarity && !character.rarity ? [{ _id: character._id, label, rarity }] : [];
+});
+
+const saveRarities = async (db, rarities) => {
+  if (rarities.length === 0) return;
+  await db.collection('characters').bulkWrite(rarities.map(({ _id, rarity }) => ({
+    updateOne: { filter: { _id, rarity: { $in: [null, ''] } }, update: { $set: { rarity } } },
+  })));
+};
+
 export const enrichBotDatabase = async (db, { dryRun = true } = {}) => {
   const [characters, banners, files] = await Promise.all([
     db.collection('characters').find({}, {
-      projection: { name: 1, search_name: 1, game_id: 1, affinity: 1, release_date: 1, killers: 1, attack_type: 1, banners: 1, game_version: 1, quote: 1 },
+      projection: { name: 1, search_name: 1, game_id: 1, affinity: 1, release_date: 1, killers: 1, attack_type: 1, banners: 1, game_version: 1, quote: 1, rarity: 1 },
     }).toArray(),
     db.collection('banners').find({ image_status: 'uploaded' }, { projection: { gacha_group_id: 1 } }).toArray(),
     listBucket(),
@@ -186,6 +199,7 @@ export const enrichBotDatabase = async (db, { dryRun = true } = {}) => {
     const raw = original.toString('utf8');
     const rows = JSON.parse(raw);
     const { matches, unresolved, missing } = matchBotRows(rows, characters);
+    const rarities = missingRarities(rows, matches);
 
     const edits = new Map();
     const fieldCounts = Object.fromEntries(BOT_FIELDS.map((f) => [f, 0]));
@@ -207,6 +221,7 @@ export const enrichBotDatabase = async (db, { dryRun = true } = {}) => {
         updated: updated.length,
         unresolved: unresolved.length,
         missing: missing.length,
+        rarities: rarities.length,
       },
       fieldCounts,
       preview: {
@@ -215,7 +230,11 @@ export const enrichBotDatabase = async (db, { dryRun = true } = {}) => {
         missing: missing.map((c) => ({ _id: c._id, name: c.name, version: c.game_version?.fr ?? null })),
       },
     };
-    if (dryRun || edits.size === 0) return { dryRun, ...preview };
+    if (dryRun) return { dryRun, ...preview };
+    if (edits.size === 0) {
+      await saveRarities(db, rarities);
+      return { dryRun, ...preview };
+    }
 
     const patched = patchBotDatabase(raw, edits);
     // The patched text must read back as the file with exactly these changes
@@ -228,6 +247,7 @@ export const enrichBotDatabase = async (db, { dryRun = true } = {}) => {
       throw Object.assign(new Error('database.json a été modifié pendant l\'opération : relancez la simulation'), { statusCode: 409 });
     }
     await sftp.put(Buffer.from(patched, 'utf8'), BOT_DATABASE_PATH);
+    await saveRarities(db, rarities);
     return { dryRun: false, ...preview };
   });
 };

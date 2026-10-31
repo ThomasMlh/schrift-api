@@ -1,4 +1,4 @@
-import { botFields, matchBotRows, patchBotDatabase } from '../../src/services/botDatabase.js';
+import { botFields, matchBotRows, missingRarities, patchBotDatabase } from '../../src/services/botDatabase.js';
 import { toSearchName } from '../../src/services/characterSource.js';
 
 // Written like the bot file: Python json.dumps with an indent of 4, floats kept as "4.0"
@@ -76,6 +76,20 @@ describe('bot database file', () => {
       { index: 5, label: 'Ichigo copy', reason: 'duplicate', other: 'Ichigo TYBW 2024!' },
     ]);
     expect(missing.map((c) => c._id)).toEqual(['d']);
+  });
+
+  it('takes the rarity of the file only for characters without one', () => {
+    const rows = [{ 'Rareté': 'Premium' }, { 'Rareté': 'Exclusive' }, { 'Rareté': null }, { 'Rareté': 'Saisonnier' }];
+    const matches = [
+      { index: 0, label: 'a', character: { _id: 'a' } },
+      { index: 1, label: 'b', character: { _id: 'b', rarity: 'Premium' } },
+      { index: 2, label: 'c', character: { _id: 'c' } },
+      { index: 3, label: 'd', character: { _id: 'd', rarity: '' } },
+    ];
+    expect(missingRarities(rows, matches)).toEqual([
+      { _id: 'a', label: 'a', rarity: 'Premium' },
+      { _id: 'd', label: 'd', rarity: 'Saisonnier' },
+    ]);
   });
 
   it('gives the quote texts and the picture of each language', () => {
