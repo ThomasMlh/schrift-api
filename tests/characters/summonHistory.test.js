@@ -37,11 +37,13 @@ describe('GET /api/characters/:id summon history', () => {
       summon(2, { character_game_ids: [], rates: { sections: [{ kind: 'selection', units: [{ name: 'Rukia', game_id: 61309 }] }] } }),
       summon(3, { character_game_ids: [1] }),
       summon(4, { list_category: 'character_ticket', character_game_ids: [61309] }),
+      summon(5, { list_category: undefined, character_game_ids: [61309] }),
+      summon(0, { character_game_ids: [61309] }),
     ]);
 
     const { body } = await request(app).get(`/api/characters/${insertedId}`).expect(200);
 
-    expect(body.data.summon_history.map((s) => s.gacha_group_id).sort()).toEqual([1, 2]);
+    expect(body.data.summon_history.map((s) => s.gacha_group_id).sort()).toEqual([1, 2, 5]);
     expect(body.data.summon_history[0]).toMatchObject({ name: { fr: 'Loterie 1', en: 'Summon 1' }, start_date: '01/01/2025' });
   });
 

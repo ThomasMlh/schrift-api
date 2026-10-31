@@ -365,11 +365,16 @@ router.get("/catalog", async (req, res) => {
   }
 });
 
-// Character summons the unit appears in, from the game tables and the selections of the rate pages. Tickets are left out.
+// Character summons the unit appears in, from the game tables and the selections of the rate pages. Tickets
+// are left out, as is group 0, where the game tables file old units without a summon; some old summons have no category.
 const summonHistory = async (db, gameId) => {
   const summons = await db.collection("banners")
     .find(
-      { list_category: "character_gacha", $or: [{ character_game_ids: gameId }, { "rates.sections.units.game_id": gameId }] },
+      {
+        gacha_group_id: { $ne: 0 },
+        list_category: { $in: ["character_gacha", null] },
+        $or: [{ character_game_ids: gameId }, { "rates.sections.units.game_id": gameId }],
+      },
       { projection: { _id: 0, gacha_group_id: 1, names: 1, name: 1, start_date: 1, end_date: 1 } }
     )
     .toArray();
