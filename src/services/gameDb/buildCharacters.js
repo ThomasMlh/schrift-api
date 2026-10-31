@@ -237,6 +237,7 @@ export const buildCharacters = (tables, dict = createDictionary(tables.m_diction
         stats: resurrection?.stats ?? details.stats,
         base_stats: details.stats,
         resource_2d_id: row.resource_2d_id || null,
+        background_image_path: row.background_image_path || null,
         // Order of the game's character book, higher = more recent: sorts units released the same day
         book_order: Number(row.book_order) || null,
         identity: row.chara_identity_id || null,

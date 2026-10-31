@@ -1,6 +1,7 @@
 /**
  * Character images stored on the bucket, one file per target, named after the character id.
- * The artwork target is the artwork with the silhouette laid over it when the source has one.
+ * The artwork target is the artwork with the silhouette laid over it when the source has one, or with
+ * its game background behind it when the unit has one.
  */
 import sharp from 'sharp';
 import { logger } from '../utils/logger.js';
@@ -11,7 +12,7 @@ const BUCKET_ROOT = '/bucket.bbs-schrift.fr/characters';
 
 export const IMAGE_TARGETS = [
   { key: 'thumbnail', folder: 'thumb', sources: ['thumbnail'] },
-  { key: 'artwork', folder: 'artwork', sources: ['artwork', 'silhouette'] },
+  { key: 'artwork', folder: 'artwork', sources: ['artwork', 'silhouette', 'background'] },
   { key: 'quote', folder: 'phrase', sources: ['quote'] },
   { key: 'quote_en', folder: 'phrase-en', sources: ['quote_en'] },
   { key: 'attack', folder: 'attack', sources: ['attack'] },
@@ -55,6 +56,35 @@ export const onBlackBackground = (image) => sharp(image)
   .png()
   .toBuffer();
 
+// Share of a trimmed artwork that is opaque from which it already holds its own scenery
+const OPAQUE_SCENERY = 0.98;
+const hasScenery = async (trimmed) => {
+  const { data, info } = await sharp(trimmed).ensureAlpha().extractChannel(3).raw().toBuffer({ resolveWithObject: true });
+  const opaque = data.reduce((count, alpha) => count + (alpha > 200 ? 1 : 0), 0);
+  return opaque >= OPAQUE_SCENERY * info.width * info.height;
+};
+
+// Game screen of 1136x640, scaled up to the width of the recent artworks. Artworks are shown at 111% of
+// their own size and backgrounds at 1399 px, both centred and bottom aligned: only that screen is kept.
+const SCREEN = { width: 1260, height: 710 };
+const SCREEN_SCALE = SCREEN.width / 1136;
+const ARTWORK_SCALE = 1.11 * SCREEN_SCALE;
+const BACKGROUND_SIZE = Math.round(1399 * SCREEN_SCALE);
+
+const cropToScreen = (image, size) => image
+  .resize(size, size)
+  .extract({ left: Math.floor((size - SCREEN.width) / 2), top: size - SCREEN.height, ...SCREEN });
+
+// Cut-out artwork laid on its background as the game shows it. An artwork with its own scenery stays as it is.
+export const composeOnBackground = async (artwork, background) => {
+  const trimmed = await trimTransparent(artwork);
+  if (await hasScenery(trimmed)) return trimmed;
+  const { width } = await sharp(artwork).metadata();
+  const scene = await cropToScreen(sharp(background), BACKGROUND_SIZE).png().toBuffer();
+  const unit = await cropToScreen(sharp(artwork), Math.round(width * ARTWORK_SCALE)).png().toBuffer();
+  return sharp(scene).composite([{ input: unit }]).png().toBuffer();
+};
+
 // How each game image is prepared before upload. Bump GAME_IMAGE_REVISIONS when a treatment changes:
 // the next sync uploads that image again for every character.
 const GAME_IMAGE_PROCESSING = { artwork: trimTransparent, quote: onBlackBackground };
@@ -97,6 +127,17 @@ export const uploadImageTarget = async (ftp, target, sources, characterId, chara
   if (isGameImage(main)) {
     try {
       const image = await downloadGameFile(ftp, main);
+      if (target.key === 'artwork' && sources.background) {
+        try {
+          const background = await downloadGameFile(ftp, sources.background);
+          await ftp.uploadBuffer(await composeOnBackground(image, background), path);
+          return true;
+        } catch (err) {
+          logger.warn(`⚠️ Fond inutilisable pour ${characterId}: ${err.message}`);
+          await ftp.uploadBuffer(await trimTransparent(image), path);
+          return false;
+        }
+      }
       const prepare = GAME_IMAGE_PROCESSING[target.key];
       await ftp.uploadBuffer(prepare ? await prepare(image) : image, path);
       return true;

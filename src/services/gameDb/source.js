@@ -79,6 +79,7 @@ export const rmfsImages = (game, exists = () => true) => {
   return {
     thumbnail: rmfsUrl(`Characters/${game.resource_2d_id}/thumb.png`),
     artwork: rmfsUrl(`Characters/${game.resource_2d_id}/stand_gacha.png`),
+    ...(game.background_image_path ? { background: rmfsUrl(`RarityBg/${game.background_image_path}.png`) } : {}),
     ...(exists(quote) ? { quote } : {}),
     ...attack,
   };
