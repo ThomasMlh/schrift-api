@@ -192,7 +192,7 @@ describe('getDeclineAlerts', () => {
 });
 
 describe('getCycleRecap', () => {
-  it('summarises a cycle for a guild: top 3, records beaten, best progression and guild averages', async () => {
+  it('summarises a cycle for a guild: the three top 3, records beaten and guild averages', async () => {
     const [k1, k2] = await seedRotations();
     const c1 = await seedCycle('C1', '01/01/2026', [k1, k2]);
     const c2 = await seedCycle('C2', '01/03/2026', [k1, k2]);
@@ -217,11 +217,13 @@ describe('getCycleRecap', () => {
       previous_cycle_name: 'C1',
       participants: 2,
       records_count: 2,
-      best_progression: { pseudo: 'ALICE', previous_average: 150, average: 225, percent: 50 },
       guild_average: 238,
       previous_guild_average: 225,
     });
     expect(recap.top3.map((p) => [p.rank, p.pseudo, p.average])).toEqual([[1, 'BOB', 250], [2, 'ALICE', 225]]);
+    expect(recap.top3_max.map((p) => [p.rank, p.pseudo, p.total])).toEqual([[1, 'BOB', 500], [2, 'ALICE', 450]]);
+    // BOB regressed (300 -> 250): a loss never appears on the progression podium
+    expect(recap.top3_progression).toEqual([{ rank: 1, pseudo: 'ALICE', previous_average: 150, average: 225, percent: 50 }]);
     // Both records have the same relative gain (+50%): their order is not checked
     expect(recap.records.map((r) => [r.killer, r.previous_score, r.new_score]).sort()).toEqual([
       ['Arrancar', 100, 150], ['Espada', 200, 300],
