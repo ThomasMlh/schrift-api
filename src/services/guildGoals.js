@@ -61,15 +61,15 @@ const computeGoalValues = async (db, cycle, guildId, now) => {
   // dates are only known for accounts still in the guild; the others owe every rotation. A score of 0
   // means the rotation was not played: `entered` leaves those out.
   const joinedAt = new Map(roster.map((m) => [m.bbs_id, m.guild_joined_at]));
-  const rotationById = new Map((cycle.rotations || []).map((r) => [r.rotation_id, r]));
   const endedRotations = (cycle.rotations || [])
     .filter((r) => (parseDate(r.end_date) || parseDate(r.start_date)) + DAY_MS <= now);
+  const endedRotationById = new Map(endedRotations.map((r) => [r.rotation_id, r]));
   const expected = bbsIds.reduce(
     (sum, bbsId) => sum + endedRotations.filter((r) => wasMemberDuring(joinedAt.get(bbsId), r)).length, 0
   );
   const played = entered.filter((s) => {
-    const rotation = rotationById.get(s.rotation_id);
-    return !rotation || wasMemberDuring(joinedAt.get(s.bbs_id), rotation);
+    const rotation = endedRotationById.get(s.rotation_id);
+    return rotation && wasMemberDuring(joinedAt.get(s.bbs_id), rotation);
   }).length;
 
   const avg = average(values);
