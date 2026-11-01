@@ -2,16 +2,16 @@ import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
 import { loadComparableScores, toObjectIds, average } from './killerRecords.js';
 import { getProgression, getPreviousCycle, getCycleRecords } from './playerTrends.js';
-import { getPodiumFull, getGuildBbsIdsForCycle, getGuildScoreMatch, getMinScoresForRanking } from './podiumService/index.js';
+import { getPodiumFull, getGuildBbsIdsForCycle, getGuildScoreMatch, getMinScoresForRanking, applyRanks } from './podiumService/index.js';
 import { getGuildGoals } from './guildGoals.js';
 
 // Maximum number of records listed in the message (the total is always shown).
 const MAX_LISTED_RECORDS = 8;
 
 /**
- * A guild's cycle recap: top 3 (same ranking as the published podium), personal records beaten,
- * biggest progression and guild average compared with the previous cycle. Same scope as the podium:
- * current members while the cycle is running, otherwise the scores entered for the guild.
+ * A guild's cycle recap: the three top 3 (average, max and progression, same rankings as the published
+ * podium), personal records beaten and guild average compared with the previous cycle. Same scope as
+ * the podium: current members while the cycle is running, otherwise the scores entered for the guild.
  */
 export const getCycleRecap = async (db, cycle, guild) => {
   const guildId = guild._id.toString();
@@ -23,8 +23,10 @@ export const getCycleRecap = async (db, cycle, guild) => {
     previousCycle ? getGuildScoreMatch(db, previousCycle, guildId) : null,
   ]);
 
-  const [podium, records, progression, currentScores, previousScores, goals] = await Promise.all([
-    getPodiumFull(db, { cycle_name: cycle.name, year: cycle.year, guild_name: guild.name, ranking_type: 'average', limit: 3 }),
+  const podiumQuery = { cycle_name: cycle.name, year: cycle.year, guild_name: guild.name, limit: 3 };
+  const [podium, maxPodium, records, progression, currentScores, previousScores, goals] = await Promise.all([
+    getPodiumFull(db, { ...podiumQuery, ranking_type: 'average' }),
+    getPodiumFull(db, { ...podiumQuery, ranking_type: 'max' }),
     getCycleRecords(db, cycle, bbsIds),
     getProgression(db, { cycle, bbsIds, minScores }),
     loadComparableScores(db, { cycle_id: cycle._id.toString(), ...currentMatch }),
@@ -38,7 +40,7 @@ export const getCycleRecap = async (db, cycle, guild) => {
     : [];
   const rotationById = new Map(rotations.map((r) => [r._id.toString(), r]));
 
-  const best = progression.rows[0];
+  const progressionPodium = applyRanks(progression.rows.filter((row) => row.progression > 0), 'progressionPercent');
   return {
     guild_name: guild.name,
     cycle_name: cycle.name,
@@ -46,6 +48,14 @@ export const getCycleRecap = async (db, cycle, guild) => {
     previous_cycle_name: previousCycle?.name || null,
     participants: new Set(currentScores.map((s) => s.bbs_id)).size,
     top3: podium.data.filter((p) => p.rank <= 3).map((p) => ({ rank: p.rank, pseudo: p.bbs_name, average: p.averageScore })),
+    top3_max: maxPodium.data.filter((p) => p.rank <= 3).map((p) => ({ rank: p.rank, pseudo: p.bbs_name, total: p.totalScore })),
+    top3_progression: progressionPodium.filter((p) => p.rank <= 3).slice(0, 3).map((p) => ({
+      rank: p.rank,
+      pseudo: p.bbs_name,
+      previous_average: p.previousAverageScore,
+      average: p.averageScore,
+      percent: p.progressionPercent,
+    })),
     records_count: records.length,
     records: records.slice(0, MAX_LISTED_RECORDS).map((r) => ({
       pseudo: r.pseudo,
@@ -54,9 +64,6 @@ export const getCycleRecap = async (db, cycle, guild) => {
       previous_score: r.previous_score,
       new_score: r.new_score,
     })),
-    best_progression: best && best.progression > 0
-      ? { pseudo: best.bbs_name, previous_average: best.previousAverageScore, average: best.averageScore, percent: best.progressionPercent }
-      : null,
     guild_average: average(currentScores),
     previous_guild_average: average(previousScores),
     goals: goals.goals.map(({ type, unit, target, value, achieved }) => ({ type, unit, target, value, achieved })),
