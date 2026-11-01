@@ -52,13 +52,14 @@ const computeGoalValues = async (db, cycle, guildId, now) => {
   ]);
   const [scores, entered, records] = await Promise.all([
     loadComparableScores(db, { cycle_id: cycleId, ...match }),
-    db.collection('scores').find({ cycle_id: cycleId, ...match }, { projection: { bbs_id: 1, rotation_id: 1 } }).toArray(),
+    db.collection('scores').find({ cycle_id: cycleId, ...match, score: { $gt: 0 } }, { projection: { bbs_id: 1, rotation_id: 1 } }).toArray(),
     getCycleRecords(db, cycle, bbsIds),
   ]);
   const values = scores.map((s) => s.score || 0);
 
   // Participation only counts the rotations that ended after each member joined the guild. Join
-  // dates are only known for accounts still in the guild; the others owe every rotation.
+  // dates are only known for accounts still in the guild; the others owe every rotation. A score of 0
+  // means the rotation was not played: `entered` leaves those out.
   const joinedAt = new Map(roster.map((m) => [m.bbs_id, m.guild_joined_at]));
   const rotationById = new Map((cycle.rotations || []).map((r) => [r.rotation_id, r]));
   const endedRotations = (cycle.rotations || [])
