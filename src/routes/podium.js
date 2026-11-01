@@ -95,6 +95,8 @@ router.get('/draft-proposal', requireAdmin, async (req, res) => {
   try {
     const result = await getDraftProposal(req.db, req.query);
     res.json({ success: true, ...result });
+    // Live views of the admin page recompute on every change: only explicit generations are kept
+    if (req.query.preview === '1') return;
 
     // History (non-blocking, after the response): keeps the full generated result so it can be
     // reviewed later without recomputing it.
