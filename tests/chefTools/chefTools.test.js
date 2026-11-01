@@ -219,6 +219,36 @@ describe('guild goals', () => {
     expect(res.body.goals[0]).toMatchObject({ value: 50, achieved: true });
   });
 
+  it('does not count a score of 0 as participation', async () => {
+    const ctx = await seed();
+    await db.collection('scores').insertMany([
+      score(ctx, 0, 'alice', 100), score(ctx, 1, 'alice', 100), score(ctx, 2, 'alice', 100), score(ctx, 3, 'alice', 100),
+      score(ctx, 0, 'bob', 100), score(ctx, 1, 'bob', 100), score(ctx, 2, 'bob', 100),
+      // Differential score: the weekly total did not move, so this rotation was not played
+      score(ctx, 3, 'bob', 0, { raw_score: 100, is_differential: true }),
+    ]);
+    await db.collection('guild_goals').insertOne({ guild_id: ctx.guildId, cycle_id: ctx.cycleId, goals: [{ type: 'participation', target: 100 }] });
+
+    const res = await request(app).get(`/api/guildes/${ctx.guildId}/goals`).query({ cycle_id: ctx.cycleId });
+    expect(res.body.goals[0]).toMatchObject({ value: 87.5, achieved: false });
+  });
+
+  it('leaves the scores of an unfinished rotation out of participation', async () => {
+    const today = new Date();
+    const ctx = await seed({ start: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2) });
+    await db.collection('scores').insertMany([
+      score(ctx, 0, 'alice', 100), score(ctx, 1, 'alice', 100),
+      // Rotation 3 ends today: neither expected nor counted, and it must not hide bob's missing score
+      score(ctx, 2, 'alice', 100), score(ctx, 2, 'bob', 100),
+      score(ctx, 0, 'bob', 100), score(ctx, 1, 'bob', 0),
+    ]);
+    await db.collection('guild_goals').insertOne({ guild_id: ctx.guildId, cycle_id: ctx.cycleId, goals: [{ type: 'participation', target: 100 }] });
+
+    const res = await request(app).get(`/api/guildes/${ctx.guildId}/goals`).query({ cycle_id: ctx.cycleId });
+    // 3 scores out of 2 members × 2 finished rotations
+    expect(res.body.goals[0]).toMatchObject({ value: 75, achieved: false });
+  });
+
   it('validates goals and refuses another guild', async () => {
     const ctx = await seed();
     const auth = { Authorization: `Bearer ${await chefToken(ctx.guildId)}` };
