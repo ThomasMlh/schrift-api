@@ -263,7 +263,7 @@ router.patch('/:id', optionalAuth, validateObjectIdParam('id'), async (req, res)
       _id: new ObjectId(id)
     });
 
-    const enrichedTeam = await enrichTeamWithCharacters(updatedBuild.team, req.db);
+    const enrichedTeam = await enrichTeamWithCharacters(updatedBuild.team, req.db, updatedBuild.user_id);
     const enrichedBuild = await enrichWithUser(updatedBuild, req.db);
     const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
 
@@ -320,7 +320,7 @@ router.patch('/:id/validate', requireAdmin, validateObjectIdParam('id'), async (
       _id: new ObjectId(id)
     });
 
-    const enrichedTeam = await enrichTeamWithCharacters(updatedBuild.team, req.db);
+    const enrichedTeam = await enrichTeamWithCharacters(updatedBuild.team, req.db, updatedBuild.user_id);
     const enrichedBuild = await enrichWithUser(updatedBuild, req.db);
     const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
 

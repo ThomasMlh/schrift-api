@@ -60,7 +60,9 @@ export const enrichWithRotation = async (build, db) => {
   }
 };
 
-const CHARACTER_FIELDS = { name: 1, image: 1, rarity: 1, element: 1, affinity: 1, soul_traits: 1 };
+const CHARACTER_FIELDS = {
+  name: 1, version: 1, image: 1, rarity: 1, element: 1, affinity: 1, 'traits.link': 1, 'traits.ex': 1, 'resurrection.traits.link': 1,
+};
 
 const loadByIds = async (db, collection, ids, projection) => {
   const validIds = [...new Set(ids.filter((id) => id && ObjectId.isValid(id)).map(String))];
@@ -71,20 +73,46 @@ const loadByIds = async (db, collection, ids, projection) => {
   return new Map(docs.map((doc) => [doc._id.toString(), doc]));
 };
 
-const withoutSoulTraits = (character) => {
+// EX traits only exist on the base form, one value per EX level
+const toTeamCharacter = (character) => {
   if (!character) return null;
-  const rest = { ...character };
-  delete rest.soul_traits;
-  return rest;
+  const { traits, resurrection, ...rest } = character;
+  return { ...rest, ex_traits: (traits?.ex ?? []).map(({ text, values }) => ({ text, values })) };
+};
+
+// Soul traits of a link, from the game tables: the resurrected values when the character has that form
+const toLinkCharacter = (character) => {
+  if (!character) return null;
+  const traits = character.resurrection?.traits?.link?.length ? character.resurrection.traits.link : character.traits?.link;
+  return { ...toTeamCharacter(character), link_traits: (traits ?? []).map(({ name, text }) => ({ name, text })) };
+};
+
+// Album of each author's main bbs account ({ <character _id>: spe }), by user id
+const loadAuthorAlbums = async (db, userIds) => {
+  const users = await loadByIds(db, 'users', userIds, { bbs_id: 1, bbs_accounts: 1 });
+  const mainAccount = new Map([...users].map(([id, user]) => {
+    const accounts = user.bbs_accounts ?? [];
+    const account = accounts.find((a) => a.is_primary) ?? accounts[0];
+    return [id, account?.bbs_id ?? user.bbs_id ?? null];
+  }));
+  const bbsIds = [...new Set([...mainAccount.values()].filter(Boolean))];
+  if (bbsIds.length === 0) return new Map();
+  const albums = await db.collection('albums')
+    .find({ bbs_id: { $in: bbsIds } }, { projection: { bbs_id: 1, characters: 1 } })
+    .toArray();
+  const byBbsId = new Map(albums.map((album) => [album.bbs_id, album.characters ?? {}]));
+  return new Map([...mainAccount].map(([id, bbsId]) => [id, byBbsId.get(bbsId) ?? {}]));
 };
 
 // Attaches characters, links, skills and accessories to several teams with one query per collection.
 // Invalid skill ids are dropped, and so are accessories with an invalid accessory or sub-effect id.
-export const enrichTeams = async (teams, db) => {
+// With the author of each team (userIds, in the same order), members and links also get `spe`, the
+// level set in the author's album; it is left out when the album does not list the character.
+export const enrichTeams = async (teams, db, userIds = []) => {
   const members = teams.flatMap((team) => (Array.isArray(team) ? team : []));
   const accessories = members.flatMap((m) => (Array.isArray(m.accessories) ? m.accessories : []));
 
-  const [characters, skills, accessoryDocs, subeffects] = await Promise.all([
+  const [characters, skills, accessoryDocs, subeffects, albums] = await Promise.all([
     loadByIds(db, 'characters', members.flatMap((m) => [
       m.id_character,
       ...(Array.isArray(m.links) ? m.links.map((l) => l.id_character) : []),
@@ -92,15 +120,19 @@ export const enrichTeams = async (teams, db) => {
     loadByIds(db, 'skills', members.flatMap((m) => (Array.isArray(m.skills) ? m.skills : [])), { name: 1, names: 1, value: 1, format: 1 }),
     loadByIds(db, 'accessories', accessories.map((a) => a.id_accessory), { name: 1, names: 1, code: 1, rarity: 1, effect: 1, same_affinity_rate: 1 }),
     loadByIds(db, 'accessories_subeffect', accessories.map((a) => a.id_subeffect), { name: 1, names: 1, value: 1 }),
+    loadAuthorAlbums(db, userIds.map((id) => (id ? String(id) : null))),
   ]);
 
-  const enrichMember = (member) => {
+  const enrichMember = (album) => (member) => {
     if (!member.id_character) return member;
+    const withSpe = (doc, id) => (album[String(id)] ? { ...doc, spe: album[String(id)] } : doc);
     return {
-      ...member,
-      character: withoutSoulTraits(characters.get(String(member.id_character))),
+      ...withSpe(member, member.id_character),
+      character: toTeamCharacter(characters.get(String(member.id_character))),
       links: (Array.isArray(member.links) ? member.links : []).map((link) => (
-        link.id_character ? { ...link, character: characters.get(String(link.id_character)) || null } : link
+        link.id_character
+          ? withSpe({ ...link, character: toLinkCharacter(characters.get(String(link.id_character))) }, link.id_character)
+          : link
       )),
       skills: (Array.isArray(member.skills) ? member.skills : [])
         .map((id) => skills.get(String(id)))
@@ -114,7 +146,9 @@ export const enrichTeams = async (teams, db) => {
     };
   };
 
-  return teams.map((team) => (Array.isArray(team) ? team.map(enrichMember) : []));
+  return teams.map((team, i) => (
+    Array.isArray(team) ? team.map(enrichMember(albums.get(String(userIds[i])) ?? {})) : []
+  ));
 };
 
-export const enrichTeamWithCharacters = async (team, db) => (await enrichTeams([team], db))[0];
+export const enrichTeamWithCharacters = async (team, db, userId) => (await enrichTeams([team], db, [userId]))[0];

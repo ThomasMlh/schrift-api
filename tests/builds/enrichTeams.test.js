@@ -23,8 +23,20 @@ afterAll(async () => {
 describe('enrichTeams', () => {
   it('attaches characters, links, skills and accessories to every team', async () => {
     const [ichigo, rukia] = Object.values((await db.collection('characters').insertMany([
-      { name: 'Ichigo', rarity: 'UR', soul_traits: ['a'] },
-      { name: 'Rukia', rarity: 'SR', soul_traits: ['b'] },
+      {
+        name: 'Ichigo',
+        rarity: 'UR',
+        traits: {
+          link: [{ type: 'a', name: { fr: 'A' }, text: { fr: 'Effet A' } }],
+          ex: [{ kind: 'ex', type: 'ex_atk', ref: '1', values: [10, 12, 14, 16, 18], text: { fr: 'ATQ +10 > 18 %' } }],
+        },
+      },
+      {
+        name: 'Rukia',
+        rarity: 'SR',
+        traits: { link: [{ type: 'b', value: 8, text: { fr: 'Base' } }] },
+        resurrection: { traits: { link: [{ type: 'b', value: 12, name: { fr: 'B' }, text: { fr: 'Ressuscitée' } }] } },
+      },
     ])).insertedIds).map(String);
     const skill = String((await db.collection('skills').insertOne({ name: 'Getsuga' })).insertedId);
     const accessory = String((await db.collection('accessories').insertOne({ name: 'Ring', code: 'R1' })).insertedId);
@@ -43,9 +55,15 @@ describe('enrichTeams', () => {
 
     const [first, second] = await enrichTeams(teams, db);
 
-    expect(first[0].character).toEqual({ _id: new ObjectId(ichigo), name: 'Ichigo', rarity: 'UR' });
+    expect(first[0].character).toEqual({
+      _id: new ObjectId(ichigo),
+      name: 'Ichigo',
+      rarity: 'UR',
+      ex_traits: [{ text: { fr: 'ATQ +10 > 18 %' }, values: [10, 12, 14, 16, 18] }],
+    });
     expect(first[0].links.map((l) => l.character?.name ?? null)).toEqual(['Rukia', null]);
-    expect(first[0].links[0].character.soul_traits).toEqual(['b']);
+    expect(first[0].links[0].character.link_traits).toEqual([{ name: { fr: 'B' }, text: { fr: 'Ressuscitée' } }]);
+    expect(first[0].links[0].character.ex_traits).toEqual([]);
     expect(first[0].skills.map((s) => s.name)).toEqual(['Getsuga']);
     expect(first[0].accessories).toEqual([{
       accessory: { _id: new ObjectId(accessory), name: 'Ring', code: 'R1' },
@@ -53,5 +71,37 @@ describe('enrichTeams', () => {
     }]);
     expect(second[0]).toEqual({ position: 1 });
     expect(second[1]).toMatchObject({ character: { name: 'Rukia' }, links: [], skills: [], accessories: [] });
+  });
+
+  it('falls back on the base soul traits of a link without a resurrected form', async () => {
+    const [ichigo, rukia] = Object.values((await db.collection('characters').insertMany([
+      { name: 'Ichigo' },
+      { name: 'Rukia', traits: { link: [{ type: 'b', name: { fr: 'B' }, text: { fr: 'Base' } }] } },
+    ])).insertedIds).map(String);
+
+    const [[member]] = await enrichTeams([[{ id_character: ichigo, position: 1, links: [{ id_character: rukia }] }]], db);
+
+    expect(member.links[0].character.link_traits).toEqual([{ name: { fr: 'B' }, text: { fr: 'Base' } }]);
+  });
+
+  it('attaches the spe from the album of the author main account, only for listed characters', async () => {
+    const [ichigo, rukia, renji] = Object.values((await db.collection('characters').insertMany([
+      { name: 'Ichigo' }, { name: 'Rukia' }, { name: 'Renji' },
+    ])).insertedIds).map(String);
+    const author = String((await db.collection('users').insertOne({
+      bbs_accounts: [{ bbs_id: 'alt', is_primary: false }, { bbs_id: 'main', is_primary: true }],
+    })).insertedId);
+    await db.collection('albums').insertMany([
+      { bbs_id: 'main', characters: { [ichigo]: 3, [rukia]: 5 } },
+      { bbs_id: 'alt', characters: { [renji]: 2 } },
+    ]);
+    const team = [{ id_character: ichigo, position: 1, links: [{ id_character: rukia }, { id_character: renji }] }];
+
+    const [[withAuthor], [withoutAuthor]] = await enrichTeams([team, team], db, [author, null]);
+
+    expect(withAuthor.spe).toBe(3);
+    expect(withAuthor.links.map((l) => l.spe)).toEqual([5, undefined]);
+    expect(withoutAuthor.spe).toBeUndefined();
+    expect(withoutAuthor.links.map((l) => l.spe)).toEqual([undefined, undefined]);
   });
 });
