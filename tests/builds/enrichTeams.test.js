@@ -23,7 +23,14 @@ afterAll(async () => {
 describe('enrichTeams', () => {
   it('attaches characters, links, skills and accessories to every team', async () => {
     const [ichigo, rukia] = Object.values((await db.collection('characters').insertMany([
-      { name: 'Ichigo', rarity: 'UR', traits: { link: [{ type: 'a', name: { fr: 'A' }, text: { fr: 'Effet A' } }] } },
+      {
+        name: 'Ichigo',
+        rarity: 'UR',
+        traits: {
+          link: [{ type: 'a', name: { fr: 'A' }, text: { fr: 'Effet A' } }],
+          ex: [{ kind: 'ex', type: 'ex_atk', ref: '1', values: [10, 12, 14, 16, 18], text: { fr: 'ATQ +10 > 18 %' } }],
+        },
+      },
       {
         name: 'Rukia',
         rarity: 'SR',
@@ -48,9 +55,15 @@ describe('enrichTeams', () => {
 
     const [first, second] = await enrichTeams(teams, db);
 
-    expect(first[0].character).toEqual({ _id: new ObjectId(ichigo), name: 'Ichigo', rarity: 'UR' });
+    expect(first[0].character).toEqual({
+      _id: new ObjectId(ichigo),
+      name: 'Ichigo',
+      rarity: 'UR',
+      ex_traits: [{ text: { fr: 'ATQ +10 > 18 %' }, values: [10, 12, 14, 16, 18] }],
+    });
     expect(first[0].links.map((l) => l.character?.name ?? null)).toEqual(['Rukia', null]);
     expect(first[0].links[0].character.link_traits).toEqual([{ name: { fr: 'B' }, text: { fr: 'Ressuscitée' } }]);
+    expect(first[0].links[0].character.ex_traits).toEqual([]);
     expect(first[0].skills.map((s) => s.name)).toEqual(['Getsuga']);
     expect(first[0].accessories).toEqual([{
       accessory: { _id: new ObjectId(accessory), name: 'Ring', code: 'R1' },

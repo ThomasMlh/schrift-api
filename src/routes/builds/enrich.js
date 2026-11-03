@@ -61,7 +61,7 @@ export const enrichWithRotation = async (build, db) => {
 };
 
 const CHARACTER_FIELDS = {
-  name: 1, version: 1, image: 1, rarity: 1, element: 1, affinity: 1, 'traits.link': 1, 'resurrection.traits.link': 1,
+  name: 1, version: 1, image: 1, rarity: 1, element: 1, affinity: 1, 'traits.link': 1, 'traits.ex': 1, 'resurrection.traits.link': 1,
 };
 
 const loadByIds = async (db, collection, ids, projection) => {
@@ -73,10 +73,11 @@ const loadByIds = async (db, collection, ids, projection) => {
   return new Map(docs.map((doc) => [doc._id.toString(), doc]));
 };
 
+// EX traits only exist on the base form, one value per EX level
 const toTeamCharacter = (character) => {
   if (!character) return null;
   const { traits, resurrection, ...rest } = character;
-  return rest;
+  return { ...rest, ex_traits: (traits?.ex ?? []).map(({ text, values }) => ({ text, values })) };
 };
 
 // Soul traits of a link, from the game tables: the resurrected values when the character has that form
