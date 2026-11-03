@@ -73,6 +73,22 @@ describe('GET /api/builds (crud.js)', () => {
   });
 });
 
+describe('GET /api/builds?sort (crud.js)', () => {
+  it('lists the most recent first by default and the best score first with sort=score', async () => {
+    await db.collection('builds').insertMany([
+      { description: 'old-best', score: 900, created_at: new Date('2026-01-01') },
+      { description: 'new-no-score', created_at: new Date('2026-03-01') },
+      { description: 'mid', score: 500, created_at: new Date('2026-02-01') },
+    ]);
+
+    const recent = await request(app).get('/api/builds');
+    expect(recent.body.data.map((b) => b.description)).toEqual(['new-no-score', 'mid', 'old-best']);
+
+    const byScore = await request(app).get('/api/builds?sort=score');
+    expect(byScore.body.data.map((b) => b.description)).toEqual(['old-best', 'mid', 'new-no-score']);
+  });
+});
+
 describe('GET /api/builds?playable_by (crud.js)', () => {
   it('keeps only builds whose main team is owned in the album, links excluded', async () => {
     const [a, b, c] = ['a', 'b', 'c'].map(() => new ObjectId().toString());

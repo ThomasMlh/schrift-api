@@ -11,10 +11,16 @@ import { removeScreenshot } from '../../services/buildScreenshots.js';
 
 const router = express.Router();
 
+// Most recent first by default; sort=score puts the best score first (builds without a score last)
+const SORTS = {
+  recent: { created_at: -1 },
+  score: { score: -1, created_at: -1 },
+};
+
 // GET /builds - builds with filters and pagination
 router.get('/', async (req, res) => {
   try {
-    const { rotation_id, isValid, character_id, playable_by } = req.query;
+    const { rotation_id, isValid, character_id, playable_by, sort } = req.query;
     const { page, limit, skip } = parsePaginationParams(req.query, 20, 100);
 
     const filter = {};
@@ -40,7 +46,7 @@ router.get('/', async (req, res) => {
 
     const builds = await req.db.collection('builds')
       .find(filter)
-      .sort({ created_at: -1 })
+      .sort(SORTS[sort] ?? SORTS.recent)
       .skip(skip)
       .limit(limit)
       .toArray();
