@@ -107,6 +107,39 @@ describe('POST /api/guildes/draft (draft.js, requireAdmin)', () => {
   });
 });
 
+describe('POST /api/guildes/draft roles', () => {
+  const draft = (moves) => request(app).post('/api/guildes/draft').set('Authorization', `Bearer ${adminToken()}`).send({ moves });
+  const account = async (userId, bbsId) => (await db.collection('users').findOne({ _id: userId })).bbs_accounts.find((a) => a.bbs_id === bbsId);
+
+  it('moves one account and changes the role of another account of the same user in one draft', async () => {
+    const { insertedIds } = await db.collection('guildes').insertMany([{ name: 'C' }, { name: 'E' }]);
+    const [c, e] = Object.values(insertedIds).map(String);
+    const joined = new Date('2026-09-07');
+    const { insertedId: userId } = await db.collection('users').insertOne({
+      bbs_accounts: [
+        { bbs_id: 'alt', bbs_name: 'Alt', guilde_id: null, role: null, is_primary: false },
+        { bbs_id: 'main', bbs_name: 'Main', guilde_id: e, role: 'membre', is_primary: true, guild_joined_at: joined },
+      ],
+    });
+
+    const res = await draft([
+      { userId: String(userId), bbsId: 'alt', toGuildId: c, role: 'chef' },
+      { userId: String(userId), bbsId: 'main', toGuildId: e, role: 'chef' },
+    ]);
+
+    expect(res.status).toBe(200);
+    expect(await account(userId, 'alt')).toMatchObject({ guilde_id: c, role: 'chef' });
+    expect(await account(userId, 'main')).toMatchObject({ guilde_id: e, role: 'chef', guild_joined_at: joined });
+    expect(res.body.results.find((r) => r.role)).toMatchObject({ fromRole: 'membre', role: 'chef' });
+  });
+
+  it('rejects an unknown role', async () => {
+    const res = await draft([{ userId: new ObjectId().toString(), role: 'roi' }]);
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe('Rôle invalide: roi');
+  });
+});
+
 describe('PATCH /api/guildes/:id/toggle-disable (crud.js, requireAdmin)', () => {
   it('rejects an unauthenticated request with 401', async () => {
     const res = await request(app).patch(`/api/guildes/${new ObjectId().toString()}/toggle-disable`);
