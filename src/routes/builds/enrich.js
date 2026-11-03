@@ -60,7 +60,9 @@ export const enrichWithRotation = async (build, db) => {
   }
 };
 
-const CHARACTER_FIELDS = { name: 1, image: 1, rarity: 1, element: 1, affinity: 1, soul_traits: 1 };
+const CHARACTER_FIELDS = {
+  name: 1, version: 1, image: 1, rarity: 1, element: 1, affinity: 1, 'traits.link': 1, 'resurrection.traits.link': 1,
+};
 
 const loadByIds = async (db, collection, ids, projection) => {
   const validIds = [...new Set(ids.filter((id) => id && ObjectId.isValid(id)).map(String))];
@@ -71,11 +73,17 @@ const loadByIds = async (db, collection, ids, projection) => {
   return new Map(docs.map((doc) => [doc._id.toString(), doc]));
 };
 
-const withoutSoulTraits = (character) => {
+const toTeamCharacter = (character) => {
   if (!character) return null;
-  const rest = { ...character };
-  delete rest.soul_traits;
+  const { traits, resurrection, ...rest } = character;
   return rest;
+};
+
+// Soul traits of a link, from the game tables: the resurrected values when the character has that form
+const toLinkCharacter = (character) => {
+  if (!character) return null;
+  const traits = character.resurrection?.traits?.link?.length ? character.resurrection.traits.link : character.traits?.link;
+  return { ...toTeamCharacter(character), link_traits: (traits ?? []).map(({ name, text }) => ({ name, text })) };
 };
 
 // Attaches characters, links, skills and accessories to several teams with one query per collection.
@@ -98,9 +106,9 @@ export const enrichTeams = async (teams, db) => {
     if (!member.id_character) return member;
     return {
       ...member,
-      character: withoutSoulTraits(characters.get(String(member.id_character))),
+      character: toTeamCharacter(characters.get(String(member.id_character))),
       links: (Array.isArray(member.links) ? member.links : []).map((link) => (
-        link.id_character ? { ...link, character: characters.get(String(link.id_character)) || null } : link
+        link.id_character ? { ...link, character: toLinkCharacter(characters.get(String(link.id_character))) } : link
       )),
       skills: (Array.isArray(member.skills) ? member.skills : [])
         .map((id) => skills.get(String(id)))
