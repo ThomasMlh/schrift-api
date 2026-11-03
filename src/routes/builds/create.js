@@ -248,7 +248,7 @@ router.post('/', optionalAuth, async (req, res) => {
       _id: result.insertedId
     });
 
-    const enrichedTeam = await enrichTeamWithCharacters(createdBuild.team, req.db);
+    const enrichedTeam = await enrichTeamWithCharacters(createdBuild.team, req.db, createdBuild.user_id);
     const enrichedBuild = await enrichWithUser(createdBuild, req.db);
     const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
 

@@ -66,7 +66,7 @@ router.get('/', async (req, res) => {
       rotations.forEach(r => rotationMap.set(r._id.toString(), r));
     }
 
-    const enrichedTeams = await enrichTeams(builds.map(b => b.team), req.db);
+    const enrichedTeams = await enrichTeams(builds.map(b => b.team), req.db, builds.map(b => b.user_id));
     const enrichedBuilds = builds.map((build, i) => ({
       ...build,
       team: enrichedTeams[i],
@@ -110,7 +110,7 @@ router.get('/:id', validateObjectIdParam('id'), async (req, res) => {
       });
     }
 
-    const enrichedTeam = await enrichTeamWithCharacters(build.team, req.db);
+    const enrichedTeam = await enrichTeamWithCharacters(build.team, req.db, build.user_id);
     const enrichedBuild = await enrichWithUser(build, req.db);
     const enrichedWithRotation = await enrichWithRotation(enrichedBuild, req.db);
 

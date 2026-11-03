@@ -83,4 +83,25 @@ describe('enrichTeams', () => {
 
     expect(member.links[0].character.link_traits).toEqual([{ name: { fr: 'B' }, text: { fr: 'Base' } }]);
   });
+
+  it('attaches the spe from the album of the author main account, only for listed characters', async () => {
+    const [ichigo, rukia, renji] = Object.values((await db.collection('characters').insertMany([
+      { name: 'Ichigo' }, { name: 'Rukia' }, { name: 'Renji' },
+    ])).insertedIds).map(String);
+    const author = String((await db.collection('users').insertOne({
+      bbs_accounts: [{ bbs_id: 'alt', is_primary: false }, { bbs_id: 'main', is_primary: true }],
+    })).insertedId);
+    await db.collection('albums').insertMany([
+      { bbs_id: 'main', characters: { [ichigo]: 3, [rukia]: 5 } },
+      { bbs_id: 'alt', characters: { [renji]: 2 } },
+    ]);
+    const team = [{ id_character: ichigo, position: 1, links: [{ id_character: rukia }, { id_character: renji }] }];
+
+    const [[withAuthor], [withoutAuthor]] = await enrichTeams([team, team], db, [author, null]);
+
+    expect(withAuthor.spe).toBe(3);
+    expect(withAuthor.links.map((l) => l.spe)).toEqual([5, undefined]);
+    expect(withoutAuthor.spe).toBeUndefined();
+    expect(withoutAuthor.links.map((l) => l.spe)).toEqual([undefined, undefined]);
+  });
 });
