@@ -10,6 +10,8 @@ import { sendStatusCodeError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
 
+const ROLES = ['membre', 'sous-chef', 'chef'];
+
 // POST run a draft: remove then reassign players in bulk
 router.post('/draft', requireAdmin, async (req, res) => {
   try {
@@ -33,6 +35,12 @@ router.post('/draft', requireAdmin, async (req, res) => {
         return res.status(400).json({
           success: false,
           message: `ID utilisateur invalide: ${move.userId}`
+        });
+      }
+      if (move.role !== undefined && move.role !== null && !ROLES.includes(move.role)) {
+        return res.status(400).json({
+          success: false,
+          message: `Rôle invalide: ${move.role}`
         });
       }
       if (move.toGuildId && !ObjectId.isValid(move.toGuildId)) {
@@ -59,7 +67,8 @@ router.post('/draft', requireAdmin, async (req, res) => {
       }
     }
 
-    const userIds = moves.map(m => m.userId);
+    // A user can appear in several moves, one per bbs account
+    const userIds = [...new Set(moves.map(m => m.userId))];
     const users = await req.db.collection('users').find({
       _id: { $in: userIds.map(id => new ObjectId(id)) }
     }).toArray();
@@ -95,8 +104,17 @@ router.post('/draft', requireAdmin, async (req, res) => {
       });
     }
 
+    // A move to the account's current guild only changes its role: it keeps its place and join date,
+    // and is applied once the transfers went through
+    const isRoleChange = (move) => !!move.toGuildId && String(move.originalGuildeId || '') === move.toGuildId;
+    const roleChanges = resolvedMoves.filter(isRoleChange);
+    const transfers = resolvedMoves.filter((move) => !isRoleChange(move));
+    if (roleChanges.some((move) => !move.bbsId || !move.role)) {
+      return res.status(400).json({ success: false, message: 'Un changement de rôle doit préciser le compte bbs et le rôle' });
+    }
+
     // Step 1: remove each account from its guild
-    for (const move of resolvedMoves) {
+    for (const move of transfers) {
       const user = userMap.get(move.userId);
       const bbsAccounts = move.bbsId
         ? updateAccount(user.bbs_accounts, move.bbsId, { guildeId: null, role: null })
@@ -110,7 +128,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
 
     // Step 2: final headcount per guild (accounts, not users) to enforce the 20-member limit
     const guildCounts = {};
-    for (const guildId of targetGuildIds) {
+    for (const guildId of new Set(transfers.filter(m => m.toGuildId).map(m => m.toGuildId))) {
       const rows = await req.db.collection('users').aggregate([
         { $match: { "bbs_accounts.guilde_id": guildId } },
         { $unwind: "$bbs_accounts" },
@@ -120,12 +138,12 @@ router.post('/draft', requireAdmin, async (req, res) => {
       guildCounts[guildId] = rows[0]?.count || 0;
     }
 
-    for (const move of resolvedMoves) {
+    for (const move of transfers) {
       if (!move.toGuildId) continue;
       guildCounts[move.toGuildId] = (guildCounts[move.toGuildId] || 0) + 1;
       if (guildCounts[move.toGuildId] > 20) {
         // Rollback: put every account back in its original guild/role
-        for (const m of resolvedMoves) {
+        for (const m of transfers) {
           if (!m.bbsId || !m.originalGuildeId) continue;
           const user = userMap.get(m.userId);
           const bbsAccounts = updateAccount(user.bbs_accounts, m.bbsId, {
@@ -147,7 +165,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
 
     // Step 3: assign each account to its new guild (or leave it guildless)
     const results = [];
-    for (const move of resolvedMoves) {
+    for (const move of transfers) {
       const user = userMap.get(move.userId);
       if (move.toGuildId) {
         const role = move.role || 'membre';
@@ -171,10 +189,30 @@ router.post('/draft', requireAdmin, async (req, res) => {
       });
     }
 
-    // Discord notifications per affected guild, awaited before responding.
+    // Step 4: role changes inside a guild
+    const roleResults = [];
+    for (const move of roleChanges) {
+      const user = userMap.get(move.userId);
+      const bbsAccounts = updateAccount(user.bbs_accounts, move.bbsId, { role: move.role });
+      user.bbs_accounts = bbsAccounts;
+      await req.db.collection('users').updateOne(
+        { _id: user._id },
+        { $set: { bbs_accounts: bbsAccounts, ...deriveMirrorFields(bbsAccounts) } }
+      );
+      roleResults.push({
+        userId: move.userId,
+        username: move.bbsName || getUserDisplayName(user),
+        toGuildId: move.toGuildId,
+        toGuildName: guilds.find(g => g._id.toString() === move.toGuildId)?.name || 'Inconnue',
+        fromRole: move.originalRole,
+        role: move.role,
+      });
+    }
+
+    // Discord notifications per affected guild (transfers only), awaited before responding.
     try {
       // Source guilds (`guilds` only holds the targets)
-      const sourceGuildeIds = [...new Set(resolvedMoves.map(m => m.originalGuildeId).filter(Boolean))];
+      const sourceGuildeIds = [...new Set(transfers.map(m => m.originalGuildeId).filter(Boolean))];
       const missingIds = sourceGuildeIds.filter(id => !guilds.find(g => g._id.toString() === id));
       const allGuildes = [...guilds];
       if (missingIds.length > 0) {
@@ -191,7 +229,7 @@ router.post('/draft', requireAdmin, async (req, res) => {
 
       for (let i = 0; i < results.length; i++) {
         const result = results[i];
-        const move = resolvedMoves[i];
+        const move = transfers[i];
         const fromGuildeId = move.originalGuildeId;
         const toGuildeId = result.toGuildId;
 
@@ -230,8 +268,8 @@ router.post('/draft', requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      message: `${moves.length} joueur(s) déplacé(s) avec succès`,
-      results
+      message: `${transfers.length} joueur(s) déplacé(s), ${roleChanges.length} rôle(s) modifié(s)`,
+      results: [...results, ...roleResults]
     });
   } catch (err) {
     sendStatusCodeError(res, err, 'Erreur serveur lors du draft', 'Erreur lors de l\'exécution du draft:');
