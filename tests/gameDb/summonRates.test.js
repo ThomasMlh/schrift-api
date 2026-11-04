@@ -2,6 +2,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient } from 'mongodb';
 import {
   archiveSummonRates, newsCharacterIds, parseSummonRates, pendingSummonRates, queueSummonRates, ratePagePaths, ratesArchivePath,
+  RATES_REVISION,
 } from '../../src/services/gameDb/summonRates.js';
 
 jest.setTimeout(60000);
@@ -44,6 +45,9 @@ describe('summon rates', () => {
         'gacha_rate/character_gacha_rate?gacha_group_id=866', 'gacha_rate/index?gacha_id=8662',
       ]);
       expect(ratePagePaths({ gacha_group_id: 55, list_category: 'accessory_ticket', details })).toEqual(['gacha_rate/index?gacha_id=8662']);
+      expect(ratePagePaths({ gacha_group_id: 33, list_category: 'character_ticket', details })).toEqual([
+        'gacha_rate/character_gacha_rate?gacha_group_id=33', 'gacha_rate/beginner_pack?gacha_id=8662', 'gacha_rate/index?gacha_id=8662',
+      ]);
     });
 
     it('reads the character ids of a news', () => {
@@ -128,6 +132,60 @@ describe('summon rates', () => {
       expect((await doc(6)).rates_status).toBe('missing');
       expect(ftp.files[ratesArchivePath(6)]).toBeUndefined();
       expect(await pendingSummonRates(db)).toBe(0);
+    });
+
+    it('replaces the archived rates of a ticket by the page listing its units', async () => {
+      await db.collection('banners').insertOne(banner(20, { list_category: 'character_ticket', rates_pending: true }));
+      global.fetch = jest.fn(async (url) => ({ ok: true, text: async () => (url.includes('beginner_pack') ? page(available) : page()) }));
+      const ftp = ftpWith({ [ratesArchivePath(20)]: page() });
+      await archiveSummonRates(db, ftp, 10);
+      const stored = await doc(20);
+      expect(stored.rates.sections[0].units.map((u) => u.game_id)).toEqual([61001, null]);
+      expect(stored.rates_revision).toBe(RATES_REVISION);
+      expect(ftp.files[ratesArchivePath(20)]).toContain('gacha-rate-character-table');
+      expect(global.fetch.mock.calls.map(([url]) => url).some((url) => url.includes('beginner_pack%3Fgacha_id%3D200'))).toBe(true);
+    });
+
+    it('takes the units of a ticket from its news when no page lists them', async () => {
+      await db.collection('banners').insertMany([
+        banner(21, { list_category: 'character_ticket', rates_pending: true }),
+        banner(22, { list_category: 'character_ticket', rates_pending: true, details: { news_id: 901, main_gacha_id: 220 } }),
+      ]);
+      global.fetch = jest.fn(async () => ({ ok: true, text: async () => page() }));
+      const ftp = ftpWith({
+        // 5★ and 6★ thumbnails of the same unit, and a unit the site does not have
+        '/game-news/fr/900.html': '<img src="x/Characters/1004/thumb_l.png"><img src="x/Characters/61004/thumb_l.png"><img src="x/Characters/61001/thumb_l.png"><img src="x/Characters/9999/thumb_l.png">',
+        '/game-news/fr/901.html': '<html>news-view</html>',
+      });
+      await archiveSummonRates(db, ftp, 10);
+      const withNews = await doc(21);
+      expect(withNews.rates.source).toBe('news');
+      expect(withNews.rates.sections).toEqual([{
+        kind: 'available',
+        units: [
+          { name: 'Kon', rarity: 5, affinity: 'Technique', version: null, game_id: 61004 },
+          { name: 'Ichigo', rarity: 6, affinity: 'Technique', version: 'version 3e fusion', game_id: 61001 },
+        ],
+      }]);
+      expect(withNews.rates.tables).toHaveLength(1);
+      // Neither the page nor the news lists units: the rates are kept
+      const ratesOnly = await doc(22);
+      expect(ratesOnly.rates_status).toBe('archived');
+      expect(ratesOnly.rates.sections).toEqual([]);
+      expect(ratesOnly.rates_revision).toBe(RATES_REVISION);
+    });
+
+    it('queues once more the character tickets left without units by an older reading', async () => {
+      const ticket = (id, fields) => banner(id, { list_category: 'character_ticket', rates_status: 'archived', rates: { sections: [] }, ...fields });
+      await db.collection('banners').insertMany([
+        ticket(30),
+        ticket(31, { rates_revision: RATES_REVISION }),
+        ticket(32, { rates: { sections: [{ kind: 'available', units: [{ game_id: 61001 }] }] } }),
+        ticket(33, { rates_status: 'missing', rates: undefined, started_at: new Date('2020-01-01T00:00:00Z') }),
+        banner(34, { rates_status: 'archived', rates: { sections: [] } }),
+      ]);
+      expect(await queueSummonRates(db, new Date('2026-09-20T00:00:00Z'))).toBe(2);
+      expect((await db.collection('banners').find({ rates_pending: true }).toArray()).map((b) => b.gacha_group_id)).toEqual([30, 33]);
     });
 
     it('queues new and upcoming summons and recent missing ones, not old missing ones', async () => {
