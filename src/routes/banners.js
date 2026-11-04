@@ -111,7 +111,9 @@ router.get('/game', async (req, res) => {
   }
 });
 
-const SUMMON_CHARACTER_FIELDS = { name: 1, version: 1, version_name: 1, game_version: 1, game_id: 1, affinity: 1, attack_type: 1 };
+const SUMMON_CHARACTER_FIELDS = {
+  name: 1, version: 1, version_name: 1, game_version: 1, game_id: 1, affinity: 1, attack_type: 1, images_version: 1, resurrection_release: 1,
+};
 
 const SUMMON_ACCESSORY_FIELDS = { name: 1, names: 1, code: 1, rarity: 1, game_identity_id: 1 };
 
