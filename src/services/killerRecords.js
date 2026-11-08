@@ -115,6 +115,7 @@ export const getRotationHistory = async (db, rotationId, { guildId, currentCycle
         cycle_name: cycle.name,
         cycle_year: cycle.year,
         average: average(cycleScores),
+        best: bestOf(cycleScores)?.score ?? null,
         count: cycleScores.length,
         guild_average: guildScores ? average(guildScores) : null,
         guild_count: guildScores ? guildScores.length : null,

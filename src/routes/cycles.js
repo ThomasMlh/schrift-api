@@ -2,11 +2,11 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { requireDb, requireAdmin } from '../middleware/auth.js';
 import { parsePaginationParams, buildPaginationMeta } from '../utils/pagination.js';
-import { USER_SCORES_LOOKUP } from '../utils/projections.js';
 import { notifyDiscord } from '../utils/notifyDiscord.js';
 import { logger } from '../utils/logger.js';
 import { sendServerError } from '../utils/httpErrors.js';
 import { getScoreLockDays, isCycleLocked } from '../services/scoreLock.js';
+import { rankRotationScores } from '../services/rotationRanking.js';
 
 const router = express.Router();
 
@@ -333,69 +333,10 @@ router.get('/:cycleId/rotations/:position/scores', async (req, res) => {
       guildId = guild._id.toString();
     }
 
-    const matchStage = {
-      rotation_id: rotation.rotation_id,
-      cycle_id: cycleId
-    };
-
-    if (guildId) {
-      matchStage.guild_id = guildId;
-    }
-
-    // Every score first (no pagination) so ranks can be computed
-    let pipelineForRanking = [
-      { $match: matchStage },
-      {
-        $lookup: {
-          from: 'users',
-          let: { userId: "$user_id" },
-          pipeline: [
-            { 
-              $match: { 
-                $expr: { 
-                  $or: [
-                    { $eq: ["$discord_id", "$$userId"] }, // user_id holding a discord_id
-                    { $eq: [{ $toString: "$_id" }, "$$userId"] } // user_id holding a stringified ObjectId
-                  ]
-                }
-              }
-            },
-            { $project: USER_SCORES_LOOKUP }
-          ],
-          as: 'user'
-        }
-      },
-      {
-        $unwind: {
-          path: '$user',
-          preserveNullAndEmptyArrays: true // Keep scores whose user is not found
-        }
-      }
-    ];
-
-    pipelineForRanking.push(
-      { $sort: { score: -1 } }
-    );
-
-    const allScores = await req.db.collection('scores')
-      .aggregate(pipelineForRanking)
-      .toArray();
-
-    // Ranks with ties
-    let currentRank = 1;
-    let previousScore = null;
-
-    const scoresWithRank = allScores.map((scoreDoc, index) => {
-      if (previousScore !== null && scoreDoc.score !== previousScore) {
-        currentRank = index + 1;
-      }
-      
-      previousScore = scoreDoc.score;
-      
-      return {
-        ...scoreDoc,
-        rank: currentRank
-      };
+    const scoresWithRank = await rankRotationScores(req.db, {
+      cycleId,
+      rotationId: rotation.rotation_id,
+      guildId: guildId ?? undefined,
     });
 
     // Paginate the ranked results
