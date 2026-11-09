@@ -3,6 +3,8 @@ import { ObjectId } from 'mongodb';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
 import { sendServerError, sendStatusCodeError } from '../utils/httpErrors.js';
 import { getRotationHistory } from '../services/killerRecords.js';
+import { getRotationRecords, previousPassageScores, rankRotationScores } from '../services/rotationRanking.js';
+import { buildPaginationMeta, parsePaginationParams } from '../utils/pagination.js';
 
 const router = express.Router();
 
@@ -44,6 +46,49 @@ router.get('/:id/history', async (req, res) => {
     res.json({ success: true, data: history });
   } catch (err) {
     sendStatusCodeError(res, err, "Erreur serveur lors de la récupération de l'historique du killer", "Erreur lors de la récupération de l'historique du killer:");
+  }
+});
+
+// GET the ranking of a rotation in one cycle, with each player's score on the previous passage.
+// Query: cycle_id (required), guild_id (optional), page, limit.
+router.get('/:id/scores', async (req, res) => {
+  try {
+    const { cycle_id: cycleId, guild_id: guildId } = req.query;
+    if (!ObjectId.isValid(req.params.id) || !cycleId || !ObjectId.isValid(cycleId)) {
+      return res.status(400).json({ success: false, message: 'Rotation ou cycle invalide' });
+    }
+    const cycle = await req.db.collection('cycles').findOne({ _id: new ObjectId(cycleId) }, { projection: { rotations: 1 } });
+    if (!cycle?.rotations?.some((r) => r.rotation_id === req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Rotation absente de ce cycle' });
+    }
+    const { page, limit, skip } = parsePaginationParams(req.query);
+    const ranked = await rankRotationScores(req.db, { cycleId, rotationId: req.params.id, guildId: guildId || undefined });
+    const pageScores = ranked.slice(skip, skip + limit);
+    const previous = await previousPassageScores(req.db, {
+      cycleId, rotationId: req.params.id, bbsIds: pageScores.map((s) => s.bbs_id),
+    });
+    res.json({
+      success: true,
+      data: pageScores.map((score) => ({ ...score, previous: previous.get(score.bbs_id) ?? null })),
+      pagination: buildPaginationMeta(page, limit, ranked.length, pageScores.length),
+    });
+  } catch (err) {
+    sendServerError(res, err);
+  }
+});
+
+// GET the best score of each player on a rotation over every cycle. Query: guild_id, page, limit.
+router.get('/:id/records', async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Rotation invalide' });
+    }
+    const { page, limit, skip } = parsePaginationParams(req.query);
+    const records = await getRotationRecords(req.db, req.params.id, { guildId: req.query.guild_id || undefined });
+    const pageRecords = records.slice(skip, skip + limit);
+    res.json({ success: true, data: pageRecords, pagination: buildPaginationMeta(page, limit, records.length, pageRecords.length) });
+  } catch (err) {
+    sendServerError(res, err);
   }
 });
 
