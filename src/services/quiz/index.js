@@ -23,6 +23,8 @@ const parseDate = (value, label) => {
 const events = (db) => db.collection('events');
 const quizzes = (db) => db.collection('quizzes');
 const attempts = (db) => db.collection('quiz_attempts');
+// Admin rehearsals: same flow as a real attempt, kept apart from the rankings
+const testAttempts = (db) => db.collection('quiz_test_attempts');
 export const mediaCollection = (db) => db.collection('quiz_media');
 
 // The unique index keeps one attempt per account; created once per process before the first start
@@ -78,6 +80,7 @@ export const deleteEvent = async (db, id) => {
     throw error(409, 'Vide d\'abord la médiathèque de l\'événement');
   }
   await quizzes(db).deleteMany({ event_id: id });
+  if (quizIds.length) await testAttempts(db).deleteMany({ quiz_id: { $in: quizIds } });
   const { deletedCount } = await events(db).deleteOne({ _id: eventId });
   if (!deletedCount) throw error(404, 'Événement introuvable');
 };
@@ -161,6 +164,7 @@ export const deleteQuiz = async (db, id) => {
     throw error(409, 'Des joueurs ont déjà participé : le quiz ne peut plus être supprimé');
   }
   await quizzes(db).deleteOne({ _id: quiz._id });
+  await testAttempts(db).deleteMany({ quiz_id: quiz._id.toString() });
 };
 
 // ---------- Player side ----------
@@ -211,7 +215,7 @@ const deadlineOf = (question, servedAt) =>
  * Moves the attempt past every question whose time ran out while the player was away (a missed
  * question scores 0), then serves the current one. Returns the updated attempt.
  */
-const catchUp = async (db, quiz, attempt, now) => {
+const catchUp = async (db, quiz, attempt, now, store = attempts(db)) => {
   const order = questionOrder(quiz, attempt);
   let { current_index: index, current_served_at: servedAt } = attempt;
   const missed = [];
@@ -225,13 +229,13 @@ const catchUp = async (db, quiz, attempt, now) => {
   if (index === attempt.current_index && servedAt === attempt.current_served_at) return attempt;
 
   const set = { current_index: index, current_served_at: finished ? null : servedAt, ...(finished && { finished_at: attempt.finished_at ?? now }) };
-  const updated = await attempts(db).findOneAndUpdate(
+  const updated = await store.findOneAndUpdate(
     { _id: attempt._id, current_index: attempt.current_index },
     { $set: set, ...(missed.length && { $push: { answers: { $each: missed } } }) },
     { returnDocument: 'after' },
   );
   // Another request moved it first: use its result
-  return updated ?? attempts(db).findOne({ _id: attempt._id });
+  return updated ?? store.findOne({ _id: attempt._id });
 };
 
 const mediaPaths = async (db, ids) => {
@@ -338,9 +342,13 @@ export const getAttemptState = async (db, quizId, token, now = new Date()) => {
  * Records the answer to the current question and serves the next one. An answer to another question
  * (already skipped, double click) is ignored and the current state is returned.
  */
-export const submitAnswer = async (db, quizId, token, { question_id: questionId, answer }, now = new Date()) => {
+export const submitAnswer = async (db, quizId, token, input, now = new Date()) => {
   const { quiz } = await playableQuiz(db, quizId, now);
-  const attempt = await catchUp(db, quiz, await myAttempt(db, quiz, token), now);
+  return recordAnswer(db, attempts(db), quiz, await myAttempt(db, quiz, token), input, now);
+};
+
+const recordAnswer = async (db, store, quiz, current, { question_id: questionId, answer } = {}, now = new Date()) => {
+  const attempt = await catchUp(db, quiz, current, now, store);
   const order = questionOrder(quiz, attempt);
   const question = order[attempt.current_index];
   if (attempt.finished_at || !question || question.id !== questionId) return { ...(await attemptState(db, quiz, attempt, now)), ignored: true };
@@ -350,7 +358,7 @@ export const submitAnswer = async (db, quizId, token, { question_id: questionId,
   const remainingMs = Math.max(0, Math.min(durationMs, deadlineOf(question, new Date(servedAt)) - now.getTime()));
   const nextIndex = attempt.current_index + 1;
   const finished = nextIndex >= order.length;
-  const updated = await attempts(db).findOneAndUpdate(
+  const updated = await store.findOneAndUpdate(
     { _id: attempt._id, current_index: attempt.current_index },
     {
       $push: { answers: { question_id: question.id, answer: answer ?? null, missed: false, answered_at: now, remaining_ms: remainingMs } },
@@ -358,7 +366,7 @@ export const submitAnswer = async (db, quizId, token, { question_id: questionId,
     },
     { returnDocument: 'after' },
   );
-  return attemptState(db, quiz, updated ?? await attempts(db).findOne({ _id: attempt._id }), now);
+  return attemptState(db, quiz, updated ?? await store.findOne({ _id: attempt._id }), now);
 };
 
 // ---------- Scores and results ----------
@@ -479,7 +487,10 @@ export const listAttempts = async (db, quizId, now = new Date()) => {
 export const getAttemptDetail = async (db, attemptId) => {
   const attempt = await attempts(db).findOne({ _id: toObjectId(attemptId) });
   if (!attempt) throw error(404, 'Participation introuvable');
-  const quiz = await getQuiz(db, attempt.quiz_id);
+  return attemptDetail(await getQuiz(db, attempt.quiz_id), attempt);
+};
+
+const attemptDetail = (quiz, attempt) => {
   const score = scoreAttempt(quiz, attempt);
   const byId = new Map(quiz.questions.map((q) => [q.id, q]));
   return {
@@ -511,4 +522,54 @@ export const reviewAnswer = async (db, attemptId, { question_id: questionId, key
 export const deleteAttempt = async (db, attemptId) => {
   const { deletedCount } = await attempts(db).deleteOne({ _id: toObjectId(attemptId) });
   if (!deletedCount) throw error(404, 'Participation introuvable');
+};
+
+// ---------- Admin rehearsal ----------
+// An admin plays the saved quiz as a player would, whatever its status and the event dates. The
+// rehearsal lives in its own collection, so it never shows in the participants or the rankings.
+
+const testAttempt = async (db, quiz, token) => {
+  const attempt = await testAttempts(db).findOne({ quiz_id: quiz._id.toString(), user_id: userKey(token) });
+  if (!attempt) throw error(404, 'Aucun test en cours');
+  return attempt;
+};
+
+/** Starts a rehearsal from the first question; a previous one is dropped. */
+export const startTestAttempt = async (db, quizId, token, now = new Date()) => {
+  const quiz = await getQuiz(db, quizId);
+  if (!quiz.questions?.length) throw error(400, 'Ajoute au moins une question avant de tester');
+  const key = userKey(token);
+  if (!key) throw error(401, 'Connexion requise');
+  await testAttempts(db).deleteMany({ quiz_id: quiz._id.toString(), user_id: key });
+  const user = await findTokenUser(db, token);
+  const doc = {
+    quiz_id: quiz._id.toString(),
+    user_id: key,
+    user_name: user?.global_name || user?.username || null,
+    in_guild: false,
+    started_at: now,
+    finished_at: null,
+    current_index: 0,
+    current_served_at: now,
+    answers: [],
+    reviews: {},
+  };
+  const { insertedId } = await testAttempts(db).insertOne(doc);
+  return attemptState(db, quiz, { _id: insertedId, ...doc }, now);
+};
+
+export const getTestState = async (db, quizId, token, now = new Date()) => {
+  const quiz = await getQuiz(db, quizId);
+  return attemptState(db, quiz, await catchUp(db, quiz, await testAttempt(db, quiz, token), now, testAttempts(db)), now);
+};
+
+export const submitTestAnswer = async (db, quizId, token, input, now = new Date()) => {
+  const quiz = await getQuiz(db, quizId);
+  return recordAnswer(db, testAttempts(db), quiz, await testAttempt(db, quiz, token), input, now);
+};
+
+/** Score and correction of the rehearsal, with the answer key of each question. */
+export const getTestResult = async (db, quizId, token) => {
+  const quiz = await getQuiz(db, quizId);
+  return attemptDetail(quiz, await testAttempt(db, quiz, token));
 };
