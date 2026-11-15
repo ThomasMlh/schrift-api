@@ -25,6 +25,8 @@ import discordRouter from './discord.js';
 import albumsRouter from './albums.js';
 import recruitmentRouter from './recruitment.js';
 import raffleRouter from './raffle.js';
+import eventsRouter from './events.js';
+import eventsAdminRouter from './eventsAdmin.js';
 
 const router = express.Router();
 
@@ -34,6 +36,8 @@ router.use('/membres', membresRouter);
 router.use('/rotations', rotationsRouter);
 router.use('/cycles', cyclesRouter);
 router.use('/scores', scoresRouter);
+// Before /admin, which would take its requests
+router.use('/admin/events', eventsAdminRouter);
 router.use('/admin', adminRouter);
 router.use('/auth', authRouter);
 router.use('/users', usersRouter);
@@ -54,5 +58,6 @@ router.use('/discord', discordRouter);
 router.use('/albums', albumsRouter);
 router.use('/recruitment', recruitmentRouter);
 router.use('/raffle', raffleRouter);
+router.use('/events', eventsRouter);
 
 export default router;

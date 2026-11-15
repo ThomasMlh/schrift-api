@@ -30,6 +30,11 @@ export const INDEXES = [
 
   { collection: 'raffle_tickets', key: { month: 1, guild_id: 1 } },
 
+  // Unique: one quiz attempt per site account, even with two starts at once
+  { collection: 'quiz_attempts', key: { quiz_id: 1, user_id: 1 }, options: { unique: true } },
+  { collection: 'quizzes', key: { event_id: 1 } },
+  { collection: 'quiz_media', key: { event_id: 1 } },
+
   { collection: 'characters', key: { search_name: 'text', name: 'text' } },
   { collection: 'characters', key: { search_name: 1 } },
   { collection: 'characters', key: { affinity: 1, search_name: 1 } },
