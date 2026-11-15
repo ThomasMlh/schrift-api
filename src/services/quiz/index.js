@@ -404,8 +404,6 @@ const rank = (rows) => {
   });
 };
 
-const finishedAttempts = async (db, quiz) => (await attempts(db).find({ quiz_id: quiz._id.toString() }).toArray())
-  .filter((a) => a.finished_at || a.current_index >= quiz.questions.length);
 
 const resultRow = (quiz, attempt) => {
   const score = scoreAttempt(quiz, attempt);
@@ -429,7 +427,8 @@ export const getResults = async (db, quizId, token, now = new Date()) => {
   if (!token?.is_admin && (quiz.status !== 'published' || !isOver(event, now))) {
     throw error(403, 'Les résultats seront révélés à la fin de l\'événement');
   }
-  const rows = (await finishedAttempts(db, quiz)).map((a) => resultRow(quiz, a));
+  // An attempt left in the middle still ranks: the questions it never answered score 0
+  const rows = (await attempts(db).find({ quiz_id: quiz._id.toString() }).toArray()).map((a) => resultRow(quiz, a));
   const key = userKey(token);
   const mine = key ? await attempts(db).findOne({ quiz_id: quiz._id.toString(), user_id: key }) : null;
   const myScore = mine ? scoreAttempt(quiz, mine) : null;

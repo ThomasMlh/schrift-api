@@ -110,10 +110,15 @@ describe('playing a quiz', () => {
     expect(attempts.find((a) => a.name === 'Member')).toMatchObject({ in_guild: true, guild_name: 'Schrift' });
     await reviewAnswer(db, freeAttempt.attempt_id.toString(), { question_id: 'q2', key: 'text', accept: true });
 
+    // A third player who left after the first question still ranks with what they answered
+    const { insertedId: quitterId } = await db.collection('users').insertOne({ discord_id: 'q1', username: 'quitter', bbs_accounts: [] });
+    await startAttempt(db, quizId, { _id: quitterId.toString() }, at(300));
+    await submitAnswer(db, quizId, { _id: quitterId.toString() }, { question_id: 'q1', answer: 'o1' }, at(305));
+
     const results = await getResults(db, quizId, member, new Date(END.getTime() + 1000));
-    expect(results.rankings.all.map((r) => [r.name, r.rank])).toEqual([['Member', 1], ['Free', 2]]);
+    expect(results.rankings.free.map((r) => [r.name, r.points])).toEqual([['Free', 2.5], ['quitter', 1]]);
+    expect(results.rankings.all.map((r) => [r.name, r.rank])).toEqual([['Member', 1], ['Free', 2], ['quitter', 3]]);
     expect(results.rankings.guild.map((r) => r.name)).toEqual(['Member']);
-    expect(results.rankings.free.map((r) => [r.name, r.points])).toEqual([['Free', 2.5]]);
     expect(results.mine.points).toBe(3.5);
     expect(results.mine.bonus).toBeGreaterThan(0);
     expect(results.mine.bonus).toBeLessThanOrEqual(results.mine.max_bonus);
