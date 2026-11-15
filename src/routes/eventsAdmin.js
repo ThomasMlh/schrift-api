@@ -2,8 +2,8 @@ import express from 'express';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 import {
-  createEvent, createQuiz, deleteAttempt, deleteEvent, deleteQuiz, getAttemptDetail, getQuiz, listAttempts, listEventQuizzes,
-  listEvents, reviewAnswer, updateEvent, updateQuiz,
+  createEvent, createQuiz, deleteAttempt, deleteEvent, deleteQuiz, getAttemptDetail, getQuiz, getTestResult, getTestState,
+  listAttempts, listEventQuizzes, listEvents, reviewAnswer, startTestAttempt, submitTestAnswer, updateEvent, updateQuiz,
 } from '../services/quiz/index.js';
 import { deleteMedia, listMedia, startUpload, uploadChunk, uploadImage } from '../services/quiz/media.js';
 
@@ -27,6 +27,12 @@ router.get('/quizzes/:quizId', handle('Erreur lors de la récupération du quiz'
 router.put('/quizzes/:quizId', handle('Erreur lors de l\'enregistrement du quiz', async (req) => ({ data: await updateQuiz(req.db, req.params.quizId, req.body ?? {}) })));
 router.delete('/quizzes/:quizId', handle('Erreur lors de la suppression du quiz', async (req) => { await deleteQuiz(req.db, req.params.quizId); }));
 router.get('/quizzes/:quizId/attempts', handle('Erreur lors de la récupération des participants', async (req) => ({ data: await listAttempts(req.db, req.params.quizId) })));
+
+// Rehearsal of a quiz by an admin, draft or not, outside the event dates; never ranked
+router.post('/quizzes/:quizId/test', handle('Erreur lors du lancement du test', async (req) => startTestAttempt(req.db, req.params.quizId, req.user)));
+router.get('/quizzes/:quizId/test', handle('Erreur lors de la récupération du test', async (req) => getTestState(req.db, req.params.quizId, req.user)));
+router.post('/quizzes/:quizId/test/answer', handle('Erreur lors de l\'envoi de la réponse', async (req) => submitTestAnswer(req.db, req.params.quizId, req.user, req.body ?? {})));
+router.get('/quizzes/:quizId/test/result', handle('Erreur lors de la récupération du test', async (req) => ({ data: await getTestResult(req.db, req.params.quizId, req.user) })));
 
 router.get('/attempts/:attemptId', handle('Erreur lors de la récupération de la participation', async (req) => ({ data: await getAttemptDetail(req.db, req.params.attemptId) })));
 // POST { question_id, key, accept }

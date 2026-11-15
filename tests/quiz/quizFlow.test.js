@@ -153,3 +153,31 @@ describe('media', () => {
     expect(media.path).toMatch(/^quiz\/event\/[a-f0-9]{24}\.mp3$/);
   });
 });
+
+describe('admin rehearsal', () => {
+  it('plays a draft quiz outside the dates, restarts, and stays out of the participants', async () => {
+    const { quizId } = await seed();
+    await updateQuiz(db, quizId, { status: 'draft' });
+    const admin = bearer({ discord_id: 'a', is_admin: true });
+    const base = `/api/admin/events/quizzes/${quizId}/test`;
+
+    expect((await request(app).post(base).set(bearer({ discord_id: 'm1', is_admin: false }))).status).toBe(403);
+    const first = await request(app).post(base).set(admin);
+    expect(first.body).toMatchObject({ success: true, status: 'in_progress', index: 0, total: 3 });
+    expect(JSON.stringify(first.body.question)).not.toContain('correct');
+
+    await request(app).post(`${base}/answer`).set(admin).send({ question_id: 'q1', answer: 'o1' });
+    await request(app).post(`${base}/answer`).set(admin).send({ question_id: 'q2', answer: 'ichigo kurosaki' });
+    const last = await request(app).post(`${base}/answer`).set(admin).send({ question_id: 'q3', answer: false });
+    expect(last.body.status).toBe('finished');
+
+    const result = await request(app).get(`${base}/result`).set(admin);
+    expect(result.body.data.score.points).toBe(3);
+    expect(result.body.data.answers[0].question.correct_id).toBe('o1');
+
+    // A new start drops the previous rehearsal
+    expect((await request(app).post(base).set(admin)).body.index).toBe(0);
+    expect(await db.collection('quiz_test_attempts').countDocuments()).toBe(1);
+    expect(await listAttempts(db, quizId)).toEqual([]);
+  });
+});
