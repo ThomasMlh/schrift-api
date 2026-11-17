@@ -95,6 +95,8 @@ describe('advent calendar', () => {
     expect(calendar.days[0]).toMatchObject({ day: 1, state: 'today', clue: { type: 'silhouette' } });
     expect(calendar.days[0].clue.path).toMatch(/^advent\/[a-f0-9]{24}\/[a-f0-9]{24}\.webp$/);
     expect(calendar.days[1].state).toBe('locked');
+    // Day 3 has come but nobody filled it
+    expect((await getCalendar(db, eventId, null, day(3))).days[2].state).toBe('empty');
     expect(calendar.days[1].clue).toBeUndefined();
     expect(JSON.stringify(calendar)).not.toContain('Renji');
   });

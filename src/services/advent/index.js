@@ -219,7 +219,9 @@ export const getCalendar = async (db, eventId, token, now = new Date()) => {
     const openAt = opensAt(event, day);
     const item = byDay.get(day);
     const opened = now >= openAt && item;
-    const state = !opened ? 'locked' : over ? 'over' : now < new Date(openAt.getTime() + DAY_MS) ? 'today' : 'late';
+    // A case whose day has come but that no admin filled yet
+    const state = now < openAt ? 'locked' : !item ? 'empty'
+      : over ? 'over' : now < new Date(openAt.getTime() + DAY_MS) ? 'today' : 'late';
     return {
       day,
       opens_at: openAt,
