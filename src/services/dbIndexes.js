@@ -35,6 +35,11 @@ export const INDEXES = [
   { collection: 'quizzes', key: { event_id: 1 } },
   { collection: 'quiz_media', key: { event_id: 1 } },
   { collection: 'quiz_test_attempts', key: { quiz_id: 1, user_id: 1 } },
+  { collection: 'advent_cases', key: { event_id: 1, day: 1 }, options: { unique: true } },
+  // Unique: one answer per player and case
+  { collection: 'advent_answers', key: { event_id: 1, user_id: 1, day: 1 }, options: { unique: true } },
+  { collection: 'event_badges', key: { event_id: 1, user_id: 1 }, options: { unique: true } },
+  { collection: 'event_badges', key: { user_id: 1 } },
 
   { collection: 'characters', key: { search_name: 'text', name: 'text' } },
   { collection: 'characters', key: { search_name: 1 } },
