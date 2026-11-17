@@ -111,6 +111,7 @@ describe('advent calendar', () => {
 
     const { rankings } = await getCalendar(db, eventId, one, day(4));
     expect(rankings.all.map((r) => [r.name, r.points, r.rank])).toEqual([['one', 15, 1], ['two', 0, 2]]);
+    expect(rankings.all[0].user).toMatchObject({ discord_id: 'p1', bbs_name: 'one' });
     expect((await listUserBadges(db, one._id))[0]).toMatchObject({ name: 'Anniversaire 2026', year: 2026, holders: 2 });
   });
 

@@ -3,6 +3,7 @@ import { matchFreeText } from '../quiz/grading.js';
 import { findTokenUser, getEventById, guildSnapshot, isEventOpen, isEventOver, userKey } from '../quiz/index.js';
 import { awardEventBadge } from '../eventBadges.js';
 import { CLUE_TYPES, removeClue, sanitizeClueSettings, storeClue } from './clues.js';
+import { withPlayers } from '../quiz/players.js';
 
 // Advent calendar of an event: one case a day from the event start, each hiding a character to name.
 // Case N opens N-1 days after the start. Answered the day it opens it gives full points, later half.
@@ -182,7 +183,7 @@ const rank = (rows) => {
   });
 };
 
-const rankings = (event, list) => {
+const rankings = async (db, event, list) => {
   const byUser = new Map();
   for (const answer of list) {
     const row = byUser.get(answer.user_id) ?? { user_id: answer.user_id, points: 0, found: 0, last: 0 };
@@ -191,11 +192,14 @@ const rankings = (event, list) => {
     if (points > 0) row.found += 1;
     // The latest answer gives the name and the guild shown
     if (answer.answered_at.getTime() >= row.last) {
-      Object.assign(row, { last: answer.answered_at.getTime(), name: answer.bbs_name || answer.user_name || 'Joueur', guild_name: answer.guild_name, in_guild: answer.in_guild });
+      Object.assign(row, {
+        last: answer.answered_at.getTime(), name: answer.bbs_name || answer.user_name || 'Joueur', bbs_id: answer.bbs_id ?? null,
+        guild_name: answer.guild_name, in_guild: answer.in_guild,
+      });
     }
     byUser.set(answer.user_id, row);
   }
-  const rows = [...byUser.values()];
+  const rows = await withPlayers(db, [...byUser.values()]);
   return { all: rank(rows), guild: rank(rows.filter((r) => r.in_guild)), free: rank(rows.filter((r) => !r.in_guild)) };
 };
 
@@ -236,7 +240,7 @@ export const getCalendar = async (db, eventId, token, now = new Date()) => {
     advent: { points: adventOf(event).points, late_ratio: LATE_RATIO },
     now,
     days,
-    rankings: rankings(event, all),
+    rankings: await rankings(db, event, all),
   };
 };
 

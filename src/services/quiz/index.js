@@ -3,6 +3,7 @@ import { getPrimaryAccount } from '../../utils/bbsAccounts.js';
 import { gradeAnswer, SUPPORT_DURATIONS, timeBonus } from './grading.js';
 import { correctAnswer, playerQuestion, sanitizeQuestion, seededShuffle } from './questions.js';
 import { awardEventBadge, deleteEventBadges } from '../eventBadges.js';
+import { withPlayers } from './players.js';
 import { adventHasAnswers, deleteEventAdvent, sanitizeAdvent } from '../advent/index.js';
 
 export const EVENT_KINDS = ['anniversary', 'other'];
@@ -439,6 +440,7 @@ const resultRow = (quiz, attempt) => {
   return {
     attempt_id: attempt._id,
     user_id: attempt.user_id,
+    bbs_id: attempt.bbs_id ?? null,
     name: attempt.bbs_name || attempt.user_name || 'Joueur',
     guild_name: attempt.guild_name,
     in_guild: attempt.in_guild,
@@ -457,7 +459,7 @@ export const getResults = async (db, quizId, token, now = new Date()) => {
     throw error(403, 'Les résultats seront révélés à la fin de l\'événement');
   }
   // An attempt left in the middle still ranks: the questions it never answered score 0
-  const rows = (await attempts(db).find({ quiz_id: quiz._id.toString() }).toArray()).map((a) => resultRow(quiz, a));
+  const rows = await withPlayers(db, (await attempts(db).find({ quiz_id: quiz._id.toString() }).toArray()).map((a) => resultRow(quiz, a)));
   const key = userKey(token);
   const mine = key ? await attempts(db).findOne({ quiz_id: quiz._id.toString(), user_id: key }) : null;
   const myScore = mine ? scoreAttempt(quiz, mine) : null;
@@ -489,7 +491,7 @@ export const getResults = async (db, quizId, token, now = new Date()) => {
 export const listAttempts = async (db, quizId, now = new Date()) => {
   const quiz = await getQuiz(db, quizId);
   const list = await attempts(db).find({ quiz_id: quiz._id.toString() }).sort({ started_at: 1 }).toArray();
-  return list.map((attempt) => {
+  return withPlayers(db, list.map((attempt) => {
     const score = scoreAttempt(quiz, attempt);
     const finished = Boolean(attempt.finished_at) || attempt.current_index >= quiz.questions.length;
     return {
@@ -502,7 +504,7 @@ export const listAttempts = async (db, quizId, now = new Date()) => {
       // An attempt left in the middle is only stale for the admin view
       idle: !finished && attempt.current_served_at && now - new Date(attempt.current_served_at) > 5 * 60 * 1000,
     };
-  });
+  }));
 };
 
 export const getAttemptDetail = async (db, attemptId) => {
