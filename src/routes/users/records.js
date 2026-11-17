@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { validateObjectIdParam } from '../../middleware/auth.js';
 import { getAccountRecords } from '../../services/killerRecords.js';
 import { getAchievementsForAccounts } from '../../services/achievements.js';
+import { listUserBadges } from '../../services/eventBadges.js';
 import { sendStatusCodeError } from '../../utils/httpErrors.js';
 
 const router = express.Router();
@@ -54,6 +55,8 @@ router.get('/:userId/achievements', validateObjectIdParam('userId', "Format d'ID
     res.json({
       success: true,
       total_accounts: totalAccounts,
+      // Limited edition badges of events, earned by the site account
+      event_badges: await listUserBadges(req.db, req.params.userId),
       data: accounts.map((a) => ({
         bbs_id: a.bbs_id,
         bbs_name: a.bbs_name || null,

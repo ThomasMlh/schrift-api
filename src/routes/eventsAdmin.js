@@ -6,6 +6,9 @@ import {
   listAttempts, listEventQuizzes, listEvents, reviewAnswer, startTestAttempt, submitTestAnswer, updateEvent, updateQuiz,
 } from '../services/quiz/index.js';
 import { deleteMedia, listMedia, startUpload, uploadChunk, uploadImage } from '../services/quiz/media.js';
+import {
+  characterAccepted, deleteCase, listCaseAnswers, listCases, randomCharacter, reviewCaseAnswer, saveCase,
+} from '../services/advent/index.js';
 
 const router = express.Router();
 // Admin only: events and quizzes are built from the admin panel
@@ -39,6 +42,11 @@ router.get('/attempts/:attemptId', handle('Erreur lors de la récupération de l
 router.post('/attempts/:attemptId/review', handle('Erreur lors de la correction', async (req) => ({ data: await reviewAnswer(req.db, req.params.attemptId, req.body ?? {}) })));
 router.delete('/attempts/:attemptId', handle('Erreur lors de la suppression de la participation', async (req) => { await deleteAttempt(req.db, req.params.attemptId); }));
 
+// Advent calendar
+router.get('/advent/characters/:characterId', handle('Erreur lors de la récupération du perso', async (req) => ({ data: await characterAccepted(req.db, req.params.characterId) })));
+// POST { accept }
+router.post('/advent/answers/:answerId/review', handle('Erreur lors de la correction', async (req) => ({ data: await reviewCaseAnswer(req.db, req.params.answerId, req.body?.accept) })));
+
 // PUT { index, data }: base64 chunk of an audio or video upload
 router.put('/media/:mediaId/chunk', handle('Erreur lors de l\'envoi du fichier', async (req) => ({ data: await uploadChunk(req.db, req.params.mediaId, req.body ?? {}) })));
 router.delete('/media/:mediaId', handle('Erreur lors de la suppression du média', async (req) => { await deleteMedia(req.db, req.params.mediaId); }));
@@ -47,6 +55,12 @@ router.put('/:id', handle('Erreur lors de l\'enregistrement de l\'événement', 
 router.delete('/:id', handle('Erreur lors de la suppression de l\'événement', async (req) => { await deleteEvent(req.db, req.params.id); }));
 router.get('/:id/quizzes', handle('Erreur lors de la récupération des quiz', async (req) => ({ data: await listEventQuizzes(req.db, req.params.id) })));
 router.post('/:id/quizzes', handle('Erreur lors de la création du quiz', async (req) => ({ data: await createQuiz(req.db, req.params.id, req.body ?? {}) })));
+router.get('/:id/advent', handle('Erreur lors de la récupération du calendrier', async (req) => ({ data: await listCases(req.db, req.params.id) })));
+router.get('/:id/advent/random', handle('Erreur lors du tirage', async (req) => ({ data: await randomCharacter(req.db, req.params.id) })));
+// PUT { character_id, clue_type, settings, clue_text, accepted }
+router.put('/:id/advent/:day', handle('Erreur lors de l\'enregistrement de la case', async (req) => ({ data: await saveCase(req.db, req.params.id, req.params.day, req.body ?? {}) })));
+router.delete('/:id/advent/:day', handle('Erreur lors de la suppression de la case', async (req) => { await deleteCase(req.db, req.params.id, req.params.day); }));
+router.get('/:id/advent/:day/answers', handle('Erreur lors de la récupération des réponses', async (req) => ({ data: await listCaseAnswers(req.db, req.params.id, req.params.day) })));
 router.get('/:id/media', handle('Erreur lors de la récupération des médias', async (req) => ({ data: await listMedia(req.db, req.params.id) })));
 // POST { name, data }: image as a data URL
 router.post('/:id/media/image', handle('Erreur lors de l\'envoi de l\'image', async (req) => ({ data: await uploadImage(req.db, req.params.id, req.body ?? {}) })));

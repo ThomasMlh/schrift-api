@@ -2,6 +2,9 @@ import { ObjectId } from 'mongodb';
 import { getPrimaryAccount } from '../../utils/bbsAccounts.js';
 import { gradeAnswer, SUPPORT_DURATIONS, timeBonus } from './grading.js';
 import { correctAnswer, playerQuestion, sanitizeQuestion, seededShuffle } from './questions.js';
+import { awardEventBadge, deleteEventBadges } from '../eventBadges.js';
+import { withPlayers } from './players.js';
+import { adventHasAnswers, deleteEventAdvent, sanitizeAdvent } from '../advent/index.js';
 
 export const EVENT_KINDS = ['anniversary', 'other'];
 export const DEFAULT_BONUS_RATIO = 0.1;
@@ -48,6 +51,9 @@ const sanitizeEvent = (input) => {
     description: String(input?.description ?? '').trim().slice(0, 2000),
     start_at: startAt,
     end_at: endAt,
+    // Limited edition badge given to the participants; empty: no badge
+    badge_name: String(input?.badge_name ?? '').trim().slice(0, 60) || null,
+    advent: sanitizeAdvent(input?.advent),
   };
 };
 
@@ -76,16 +82,19 @@ export const deleteEvent = async (db, id) => {
   if (quizIds.length && await attempts(db).countDocuments({ quiz_id: { $in: quizIds } })) {
     throw error(409, 'Des joueurs ont déjà participé : l\'événement ne peut plus être supprimé');
   }
+  if (await adventHasAnswers(db, id)) throw error(409, 'Des joueurs ont déjà ouvert le calendrier : l\'événement ne peut plus être supprimé');
   if (await mediaCollection(db).countDocuments({ event_id: id })) {
     throw error(409, 'Vide d\'abord la médiathèque de l\'événement');
   }
   await quizzes(db).deleteMany({ event_id: id });
   if (quizIds.length) await testAttempts(db).deleteMany({ quiz_id: { $in: quizIds } });
+  await deleteEventAdvent(db, id);
+  await deleteEventBadges(db, id);
   const { deletedCount } = await events(db).deleteOne({ _id: eventId });
   if (!deletedCount) throw error(404, 'Événement introuvable');
 };
 
-const getEvent = async (db, id) => {
+export const getEventById = async (db, id) => {
   const event = await events(db).findOne({ _id: toObjectId(id) });
   if (!event) throw error(404, 'Événement introuvable');
   return event;
@@ -109,7 +118,7 @@ export const quizSummary = (quiz) => ({
 });
 
 export const createQuiz = async (db, eventId, input) => {
-  await getEvent(db, eventId);
+  await getEventById(db, eventId);
   const now = new Date();
   const doc = {
     event_id: eventId,
@@ -169,11 +178,13 @@ export const deleteQuiz = async (db, id) => {
 
 // ---------- Player side ----------
 
-const isOpen = (event, now) => now >= event.start_at && now <= event.end_at;
-const isOver = (event, now) => now > event.end_at;
+export const isEventOpen = (event, now) => now >= event.start_at && now <= event.end_at;
+export const isEventOver = (event, now) => now > event.end_at;
+const isOpen = isEventOpen;
+const isOver = isEventOver;
 
 // Bbs account shown for the player and whether it was in an active guild when the quiz started
-const guildSnapshot = async (db, user) => {
+export const guildSnapshot = async (db, user) => {
   const accounts = user?.bbs_accounts ?? [];
   const guildIds = [...new Set(accounts.map((a) => a.guilde_id).filter(Boolean))];
   const guilds = guildIds.length
@@ -203,7 +214,7 @@ export const findTokenUser = async (db, token) => {
   return token?.discord_id ? db.collection('users').findOne({ discord_id: token.discord_id }) : null;
 };
 
-const userKey = (token) => String(token?._id ?? token?.discord_id ?? '');
+export const userKey = (token) => String(token?._id ?? token?.discord_id ?? '');
 
 // Order of the questions for an attempt: the quiz order, or a per-player shuffle
 const questionOrder = (quiz, attempt) => (quiz.shuffle ? seededShuffle(quiz.questions, attempt._id.toString()) : quiz.questions);
@@ -267,7 +278,7 @@ const attemptState = async (db, quiz, attempt, now) => {
 // Public view of an event, with the player's state on each quiz when logged in
 export const getPublicEvent = async (db, { kind, id }, token, now = new Date()) => {
   const event = id
-    ? await getEvent(db, id)
+    ? await getEventById(db, id)
     : await events(db).find({ kind: kind ?? 'anniversary' }).sort({ start_at: -1 }).limit(1).next();
   if (!event) throw error(404, 'Aucun événement');
   const list = (await listEventQuizzes(db, event._id.toString())).filter((q) => q.status === 'published');
@@ -276,7 +287,12 @@ export const getPublicEvent = async (db, { kind, id }, token, now = new Date()) 
     ? await attempts(db).find({ quiz_id: { $in: list.map((q) => q._id.toString()) }, user_id: key }).toArray()
     : [];
   return {
-    event: { _id: event._id, name: event.name, kind: event.kind, description: event.description, start_at: event.start_at, end_at: event.end_at },
+    event: {
+      _id: event._id, name: event.name, kind: event.kind, description: event.description, start_at: event.start_at, end_at: event.end_at,
+      badge_name: event.badge_name ?? null,
+      advent_enabled: Boolean(event.advent?.enabled),
+    },
+    my_badge: key ? Boolean(await db.collection('event_badges').findOne({ event_id: event._id.toString(), user_id: key })) : false,
     state: now < event.start_at ? 'upcoming' : isOver(event, now) ? 'over' : 'open',
     quizzes: list.map((quiz) => {
       const attempt = mine.find((a) => a.quiz_id === quiz._id.toString());
@@ -286,19 +302,25 @@ export const getPublicEvent = async (db, { kind, id }, token, now = new Date()) 
   };
 };
 
+// Finishing the quiz while the event runs earns its badge
+const withBadge = async (db, event, token, state, now) => {
+  if (state.status === 'finished') await awardEventBadge(db, event, userKey(token), 'quiz', now);
+  return state;
+};
+
 const playableQuiz = async (db, quizId, now) => {
   const quiz = await getQuiz(db, quizId);
   if (quiz.status !== 'published') throw error(404, 'Quiz introuvable');
-  const event = await getEvent(db, quiz.event_id);
+  const event = await getEventById(db, quiz.event_id);
   return { quiz, event, open: isOpen(event, now) };
 };
 
 export const startAttempt = async (db, quizId, token, now = new Date()) => {
-  const { quiz, open } = await playableQuiz(db, quizId, now);
+  const { quiz, event, open } = await playableQuiz(db, quizId, now);
   const key = userKey(token);
   if (!key) throw error(401, 'Connexion requise');
   const existing = await attempts(db).findOne({ quiz_id: quiz._id.toString(), user_id: key });
-  if (existing) return attemptState(db, quiz, await catchUp(db, quiz, existing, now), now);
+  if (existing) return withBadge(db, event, token, await attemptState(db, quiz, await catchUp(db, quiz, existing, now), now), now);
   if (!open) throw error(403, 'Le quiz n\'est pas ouvert');
 
   await ensureAttemptIndex(db);
@@ -333,9 +355,9 @@ const myAttempt = async (db, quiz, token) => {
 };
 
 export const getAttemptState = async (db, quizId, token, now = new Date()) => {
-  const { quiz } = await playableQuiz(db, quizId, now);
+  const { quiz, event } = await playableQuiz(db, quizId, now);
   const attempt = await myAttempt(db, quiz, token);
-  return attemptState(db, quiz, await catchUp(db, quiz, attempt, now), now);
+  return withBadge(db, event, token, await attemptState(db, quiz, await catchUp(db, quiz, attempt, now), now), now);
 };
 
 /**
@@ -343,8 +365,8 @@ export const getAttemptState = async (db, quizId, token, now = new Date()) => {
  * (already skipped, double click) is ignored and the current state is returned.
  */
 export const submitAnswer = async (db, quizId, token, input, now = new Date()) => {
-  const { quiz } = await playableQuiz(db, quizId, now);
-  return recordAnswer(db, attempts(db), quiz, await myAttempt(db, quiz, token), input, now);
+  const { quiz, event } = await playableQuiz(db, quizId, now);
+  return withBadge(db, event, token, await recordAnswer(db, attempts(db), quiz, await myAttempt(db, quiz, token), input, now), now);
 };
 
 const recordAnswer = async (db, store, quiz, current, { question_id: questionId, answer } = {}, now = new Date()) => {
@@ -418,6 +440,7 @@ const resultRow = (quiz, attempt) => {
   return {
     attempt_id: attempt._id,
     user_id: attempt.user_id,
+    bbs_id: attempt.bbs_id ?? null,
     name: attempt.bbs_name || attempt.user_name || 'Joueur',
     guild_name: attempt.guild_name,
     in_guild: attempt.in_guild,
@@ -431,12 +454,12 @@ const resultRow = (quiz, attempt) => {
 /** The 3 rankings, readable once the event is over (or by an admin). */
 export const getResults = async (db, quizId, token, now = new Date()) => {
   const quiz = await getQuiz(db, quizId);
-  const event = await getEvent(db, quiz.event_id);
+  const event = await getEventById(db, quiz.event_id);
   if (!token?.is_admin && (quiz.status !== 'published' || !isOver(event, now))) {
     throw error(403, 'Les résultats seront révélés à la fin de l\'événement');
   }
   // An attempt left in the middle still ranks: the questions it never answered score 0
-  const rows = (await attempts(db).find({ quiz_id: quiz._id.toString() }).toArray()).map((a) => resultRow(quiz, a));
+  const rows = await withPlayers(db, (await attempts(db).find({ quiz_id: quiz._id.toString() }).toArray()).map((a) => resultRow(quiz, a)));
   const key = userKey(token);
   const mine = key ? await attempts(db).findOne({ quiz_id: quiz._id.toString(), user_id: key }) : null;
   const myScore = mine ? scoreAttempt(quiz, mine) : null;
@@ -468,7 +491,7 @@ export const getResults = async (db, quizId, token, now = new Date()) => {
 export const listAttempts = async (db, quizId, now = new Date()) => {
   const quiz = await getQuiz(db, quizId);
   const list = await attempts(db).find({ quiz_id: quiz._id.toString() }).sort({ started_at: 1 }).toArray();
-  return list.map((attempt) => {
+  return withPlayers(db, list.map((attempt) => {
     const score = scoreAttempt(quiz, attempt);
     const finished = Boolean(attempt.finished_at) || attempt.current_index >= quiz.questions.length;
     return {
@@ -481,7 +504,7 @@ export const listAttempts = async (db, quizId, now = new Date()) => {
       // An attempt left in the middle is only stale for the admin view
       idle: !finished && attempt.current_served_at && now - new Date(attempt.current_served_at) > 5 * 60 * 1000,
     };
-  });
+  }));
 };
 
 export const getAttemptDetail = async (db, attemptId) => {
