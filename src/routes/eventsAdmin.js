@@ -9,7 +9,7 @@ import { deleteMedia, listMedia, startUpload, uploadChunk, uploadImage } from '.
 import {
   characterAccepted, deleteCase, listCaseAnswers, listCases, randomCharacter, reviewCaseAnswer, saveCase,
 } from '../services/advent/index.js';
-import { deleteSpot, listSpots, randomSpot, saveSpot } from '../services/hunt/index.js';
+import { deleteSpot, describePath, listSpots, randomSpot, saveSpot } from '../services/hunt/index.js';
 import { goalProgress } from '../services/eventGoal.js';
 
 const router = express.Router();
@@ -64,6 +64,8 @@ router.put('/:id/advent/:day', handle('Erreur lors de l\'enregistrement de la ca
 router.delete('/:id/advent/:day', handle('Erreur lors de la suppression de la case', async (req) => { await deleteCase(req.db, req.params.id, req.params.day); }));
 router.get('/:id/advent/:day/answers', handle('Erreur lors de la récupération des réponses', async (req) => ({ data: await listCaseAnswers(req.db, req.params.id, req.params.day) })));
 router.get('/:id/hunt', handle('Erreur lors de la récupération de la chasse', async (req) => ({ data: await listSpots(req.db, req.params.id) })));
+// What a page shows (player, character…), to check a spot before saving it
+router.get('/hunt/preview', handle('Erreur lors de la lecture de la page', async (req) => ({ data: await describePath(req.db, req.query.path) })));
 router.get('/:id/hunt/random', handle('Erreur lors du tirage', async (req) => ({ data: await randomSpot(req.db, req.params.id) })));
 router.put('/:id/hunt/:day', handle('Erreur lors de l\'enregistrement de la cachette', async (req) => ({ data: await saveSpot(req.db, req.params.id, req.params.day, req.body ?? {}) })));
 router.delete('/:id/hunt/:day', handle('Erreur lors de la suppression de la cachette', async (req) => { await deleteSpot(req.db, req.params.id, req.params.day); }));

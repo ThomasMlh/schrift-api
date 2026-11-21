@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { findTokenUser, getEventById, guildSnapshot, isEventOpen, userKey } from '../quiz/index.js';
 import { awardEventBadge, awardHunterBadge } from '../eventBadges.js';
+import { escapeRegex } from '../../utils/regexUtils.js';
 
 // Gift hunt of an event: each day an admin hides a gift on one page of the site, with a hint shown on
 // the event page. A logged-in player who opens that page that day sees the gift and picks it up. Each
@@ -65,6 +66,57 @@ export const normalizePath = (value) => {
 
 // ---------- Admin ----------
 
+const STATIC_LABELS = {
+  '/': 'Accueil',
+  '/guildes': 'Guildes',
+  '/personnages': 'Liste des persos',
+  '/invocations': 'Invocations',
+  '/cycles': 'Cycles',
+  '/podium': 'Podium',
+  '/comparateur': 'Comparateur',
+  '/joueurs': 'Liste des joueurs',
+  '/guides': 'Guides',
+  '/recrutement': 'Recrutement',
+  '/annonce': 'Annonces',
+};
+
+/** What a page shows, for the admin: the player or character it belongs to, or the page name. */
+export const describePath = async (db, value) => {
+  const path = normalizePath(value);
+  const player = /^\/joueur\/(.+)$/.exec(path);
+  if (player) {
+    const name = player[1];
+    const user = await db.collection('users').findOne(
+      { 'bbs_accounts.bbs_name': { $regex: `^${escapeRegex(name)}$`, $options: 'i' } },
+      { projection: { discord_id: 1, avatar: 1, global_name: 1, bbs_accounts: 1 } },
+    );
+    const account = user?.bbs_accounts?.find((a) => a.bbs_name?.toLowerCase() === name);
+    if (!account) return { kind: 'unknown', path, label: 'Joueur introuvable' };
+    const guild = ObjectId.isValid(account.guilde_id)
+      ? await db.collection('guildes').findOne({ _id: new ObjectId(account.guilde_id) }, { projection: { name: 1 } })
+      : null;
+    return {
+      kind: 'player',
+      path,
+      label: account.bbs_name,
+      player: {
+        _id: user._id.toString(), bbs_name: account.bbs_name, bbs_id: account.bbs_id ?? null, discord_id: user.discord_id ?? null,
+        avatar: user.avatar ?? null, global_name: user.global_name ?? null, guild_name: guild?.name ?? null,
+      },
+    };
+  }
+  const character = /^\/personnage\/([a-f0-9]{24})$/.exec(path);
+  if (character) {
+    const found = await db.collection('characters').findOne(
+      { _id: new ObjectId(character[1]) },
+      { projection: { name: 1, version_name: 1, images_version: 1, rarity: 1 } },
+    );
+    if (!found) return { kind: 'unknown', path, label: 'Perso introuvable' };
+    return { kind: 'character', path, label: found.name, character: { ...found, _id: found._id.toString() } };
+  }
+  return { kind: 'page', path, label: STATIC_LABELS[path] ?? path };
+};
+
 export const listSpots = async (db, eventId) => {
   const event = await getEventById(db, eventId);
   const [list, counts] = await Promise.all([
@@ -75,7 +127,9 @@ export const listSpots = async (db, eventId) => {
   return {
     hunt: huntOf(event),
     days: dayCount(event),
-    spots: list.map((s) => ({ ...s, opens_at: opensAt(event, s.day), finds: findsOf.get(s.day) ?? 0 })),
+    spots: await Promise.all(list.map(async (s) => ({
+      ...s, opens_at: opensAt(event, s.day), finds: findsOf.get(s.day) ?? 0, target: await describePath(db, s.path),
+    }))),
   };
 };
 
@@ -143,7 +197,9 @@ export const randomSpot = async (db, eventId) => {
       const [path, hint] = STATIC_PAGES[Math.floor(Math.random() * STATIC_PAGES.length)];
       suggestion = { path, hint, label: path };
     }
-    if (suggestion && !used.has(normalizePath(suggestion.path))) return { ...suggestion, path: normalizePath(suggestion.path) };
+    if (suggestion && !used.has(normalizePath(suggestion.path))) {
+      return { ...suggestion, path: normalizePath(suggestion.path), target: await describePath(db, suggestion.path) };
+    }
   }
   throw error(404, 'Aucune page disponible');
 };

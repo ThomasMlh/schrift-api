@@ -6,7 +6,7 @@ import { MongoClient } from 'mongodb';
 import eventsRouter from '../../src/routes/events.js';
 import eventsAdminRouter from '../../src/routes/eventsAdmin.js';
 import {
-  checkPage, claimGift, huntTicketsBetween, huntView, normalizePath, randomSpot, saveSpot,
+  checkPage, claimGift, describePath, huntTicketsBetween, huntView, normalizePath, randomSpot, saveSpot,
 } from '../../src/services/hunt/index.js';
 import { clearLiveCache, getLiveEvent, goalProgress, sanitizeGoal } from '../../src/services/eventGoal.js';
 import { getCalendar } from '../../src/services/advent/index.js';
@@ -123,6 +123,17 @@ describe('gift hunt', () => {
 
     const raffle = computeRaffleTickets({ rotations: [], scores: [], players: [{ bbs_id: 'b1', bbs_name: 'One' }], eventTickets: tickets });
     expect(raffle.players[0]).toMatchObject({ tickets: 2, breakdown: { event: 2 } });
+  });
+
+  it('describes the player or the character a page belongs to', async () => {
+    await seed();
+    const guild = await db.collection('guildes').insertOne({ name: 'Schrift' });
+    await db.collection('users').updateOne({ discord_id: 'p1' }, { $set: { 'bbs_accounts.0.guilde_id': guild.insertedId.toString() } });
+    expect(await describePath(db, '/joueur/ONE')).toMatchObject({ kind: 'player', label: 'One', player: { discord_id: 'p1', guild_name: 'Schrift' } });
+    const { insertedId } = await db.collection('characters').insertOne({ name: 'Renji Abarai', version_name: 'Bankai' });
+    expect(await describePath(db, `/personnage/${insertedId}`)).toMatchObject({ kind: 'character', character: { name: 'Renji Abarai', version_name: 'Bankai' } });
+    expect(await describePath(db, '/podium')).toMatchObject({ kind: 'page', label: 'Podium' });
+    expect((await describePath(db, '/joueur/nobody')).kind).toBe('unknown');
   });
 
   it('suggests a page not used yet', async () => {
