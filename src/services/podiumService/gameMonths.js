@@ -60,6 +60,7 @@ export const getGameMonths = (cycles, now = Date.now()) => {
       weeks: m.weeks,
       in_progress: m.start <= now && now < m.end + DAY_MS,
       finished: m.end + DAY_MS <= now,
+      starts_at: m.start,
       ends_at: m.end,
       rotations: m.rotations,
     }));
