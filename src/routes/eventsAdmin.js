@@ -2,13 +2,15 @@ import express from 'express';
 import { requireAdmin, requireDb } from '../middleware/auth.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 import {
-  createEvent, createQuiz, deleteAttempt, deleteEvent, deleteQuiz, getAttemptDetail, getQuiz, getTestResult, getTestState,
+  createEvent, createQuiz, deleteAttempt, deleteEvent, deleteQuiz, getAttemptDetail, getEventById, getQuiz, getTestResult, getTestState,
   listAttempts, listEventQuizzes, listEvents, reviewAnswer, startTestAttempt, submitTestAnswer, updateEvent, updateQuiz,
 } from '../services/quiz/index.js';
 import { deleteMedia, listMedia, startUpload, uploadChunk, uploadImage } from '../services/quiz/media.js';
 import {
   characterAccepted, deleteCase, listCaseAnswers, listCases, randomCharacter, reviewCaseAnswer, saveCase,
 } from '../services/advent/index.js';
+import { deleteSpot, listSpots, randomSpot, saveSpot } from '../services/hunt/index.js';
+import { goalProgress } from '../services/eventGoal.js';
 
 const router = express.Router();
 // Admin only: events and quizzes are built from the admin panel
@@ -61,6 +63,11 @@ router.get('/:id/advent/random', handle('Erreur lors du tirage', async (req) => 
 router.put('/:id/advent/:day', handle('Erreur lors de l\'enregistrement de la case', async (req) => ({ data: await saveCase(req.db, req.params.id, req.params.day, req.body ?? {}) })));
 router.delete('/:id/advent/:day', handle('Erreur lors de la suppression de la case', async (req) => { await deleteCase(req.db, req.params.id, req.params.day); }));
 router.get('/:id/advent/:day/answers', handle('Erreur lors de la récupération des réponses', async (req) => ({ data: await listCaseAnswers(req.db, req.params.id, req.params.day) })));
+router.get('/:id/hunt', handle('Erreur lors de la récupération de la chasse', async (req) => ({ data: await listSpots(req.db, req.params.id) })));
+router.get('/:id/hunt/random', handle('Erreur lors du tirage', async (req) => ({ data: await randomSpot(req.db, req.params.id) })));
+router.put('/:id/hunt/:day', handle('Erreur lors de l\'enregistrement de la cachette', async (req) => ({ data: await saveSpot(req.db, req.params.id, req.params.day, req.body ?? {}) })));
+router.delete('/:id/hunt/:day', handle('Erreur lors de la suppression de la cachette', async (req) => { await deleteSpot(req.db, req.params.id, req.params.day); }));
+router.get('/:id/goal', handle('Erreur lors du calcul de l\'objectif', async (req) => ({ data: await goalProgress(req.db, await getEventById(req.db, req.params.id)) })));
 router.get('/:id/media', handle('Erreur lors de la récupération des médias', async (req) => ({ data: await listMedia(req.db, req.params.id) })));
 // POST { name, data }: image as a data URL
 router.post('/:id/media/image', handle('Erreur lors de l\'envoi de l\'image', async (req) => ({ data: await uploadImage(req.db, req.params.id, req.body ?? {}) })));

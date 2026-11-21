@@ -3,6 +3,8 @@ import { optionalAuth, requireAuth, requireDb } from '../middleware/auth.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 import { getAttemptState, getPublicEvent, getResults, startAttempt, submitAnswer } from '../services/quiz/index.js';
 import { answerCase, getCalendar } from '../services/advent/index.js';
+import { checkPage, claimGift } from '../services/hunt/index.js';
+import { getLiveEvent } from '../services/eventGoal.js';
 
 const router = express.Router();
 router.use(requireDb);
@@ -47,6 +49,34 @@ router.post('/quizzes/:quizId/attempt/answer', requireAuth, async (req, res) => 
     res.json({ success: true, ...(await submitAnswer(req.db, req.params.quizId, req.user, req.body ?? {})) });
   } catch (err) {
     sendStatusCodeError(res, err, 'Erreur serveur lors de l\'envoi de la réponse');
+  }
+});
+
+// Running event, read by every page: festive decor, framed avatars, whether a gift hunt runs
+router.get('/live', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({ success: true, data: await getLiveEvent(req.db) });
+  } catch (err) {
+    sendStatusCodeError(res, err, 'Erreur serveur lors de la récupération de l\'événement');
+  }
+});
+
+// POST { path }: whether the page shown hides today's gift
+router.post('/hunt/check', requireAuth, async (req, res) => {
+  try {
+    res.json({ success: true, data: await checkPage(req.db, req.user, req.body?.path) });
+  } catch (err) {
+    sendStatusCodeError(res, err, 'Erreur serveur lors de la recherche du cadeau');
+  }
+});
+
+// POST { path }: picks up today's gift on that page
+router.post('/hunt/claim', requireAuth, async (req, res) => {
+  try {
+    res.json({ success: true, data: await claimGift(req.db, req.user, req.body?.path) });
+  } catch (err) {
+    sendStatusCodeError(res, err, 'Erreur serveur lors de la récupération du cadeau');
   }
 });
 
