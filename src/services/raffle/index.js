@@ -9,6 +9,7 @@ import { parseDate } from '../killerRecords.js';
 import { sendDiscordMessage } from '../../utils/botClient.js';
 import { logger } from '../../utils/logger.js';
 import { computeRaffleTickets, pickWinner, RAFFLE_RULES } from './computeTickets.js';
+import { huntTicketsBetween } from '../hunt/index.js';
 
 const MONTH_KEY = /^(\d{4})-(0[1-9]|1[0-2])$/;
 const DEFAULT_SETTINGS = { guild_ids: [], prize: 'Pack perso (25 €)', max_tickets: 20 };
@@ -146,7 +147,12 @@ export const getGuildRaffle = async (db, { month: monthKey, guildId }) => {
     ...manual.map((m) => ({ bbs_id: m.bbs_id, bbs_name: m.bbs_name })),
   ];
   const bbsIds = [...new Set([...scores.map((s) => s.bbs_id), ...players.map((p) => p.bbs_id)].filter(Boolean))];
-  const [{ firstSeen, declared }, identities] = await Promise.all([loadFirstSeen(db, cycles, bbsIds), loadIdentities(db, bbsIds)]);
+  const [{ firstSeen, declared }, identities, eventTickets] = await Promise.all([
+    loadFirstSeen(db, cycles, bbsIds),
+    loadIdentities(db, bbsIds),
+    // Gifts found from the first day of the month to the day after its last rotation
+    huntTicketsBetween(db, bbsIds, month.starts_at, month.ends_at + 24 * 3600 * 1000),
+  ]);
 
   const result = computeRaffleTickets({
     rotations: month.rotations,
@@ -157,6 +163,7 @@ export const getGuildRaffle = async (db, { month: monthKey, guildId }) => {
     rankTickets: rankTicketsOf(monthDoc),
     monthEnd: month.ends_at,
     maxTickets: settings.max_tickets,
+    eventTickets,
   });
 
   return {

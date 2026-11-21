@@ -5,6 +5,8 @@ import { correctAnswer, playerQuestion, sanitizeQuestion, seededShuffle } from '
 import { awardEventBadge, deleteEventBadges } from '../eventBadges.js';
 import { withPlayers } from './players.js';
 import { adventHasAnswers, deleteEventAdvent, sanitizeAdvent } from '../advent/index.js';
+import { deleteEventHunt, huntHasFinds, huntView, sanitizeHunt } from '../hunt/index.js';
+import { clearLiveCache, goalProgress, sanitizeGoal } from '../eventGoal.js';
 
 export const EVENT_KINDS = ['anniversary', 'other'];
 export const DEFAULT_BONUS_RATIO = 0.1;
@@ -54,6 +56,8 @@ const sanitizeEvent = (input) => {
     // Limited edition badge given to the participants; empty: no badge
     badge_name: String(input?.badge_name ?? '').trim().slice(0, 60) || null,
     advent: sanitizeAdvent(input?.advent),
+    hunt: sanitizeHunt(input?.hunt),
+    goal: sanitizeGoal(input?.goal),
   };
 };
 
@@ -63,6 +67,7 @@ export const createEvent = async (db, input) => {
   const now = new Date();
   const doc = { ...sanitizeEvent(input), created_at: now, updated_at: now };
   const { insertedId } = await events(db).insertOne(doc);
+  clearLiveCache(db);
   return { _id: insertedId, ...doc };
 };
 
@@ -73,6 +78,7 @@ export const updateEvent = async (db, id, input) => {
     { returnDocument: 'after' },
   );
   if (!result) throw error(404, 'Événement introuvable');
+  clearLiveCache(db);
   return result;
 };
 
@@ -83,15 +89,18 @@ export const deleteEvent = async (db, id) => {
     throw error(409, 'Des joueurs ont déjà participé : l\'événement ne peut plus être supprimé');
   }
   if (await adventHasAnswers(db, id)) throw error(409, 'Des joueurs ont déjà ouvert le calendrier : l\'événement ne peut plus être supprimé');
+  if (await huntHasFinds(db, id)) throw error(409, 'Des joueurs ont déjà trouvé des cadeaux : l\'événement ne peut plus être supprimé');
   if (await mediaCollection(db).countDocuments({ event_id: id })) {
     throw error(409, 'Vide d\'abord la médiathèque de l\'événement');
   }
   await quizzes(db).deleteMany({ event_id: id });
   if (quizIds.length) await testAttempts(db).deleteMany({ quiz_id: { $in: quizIds } });
   await deleteEventAdvent(db, id);
+  await deleteEventHunt(db, id);
   await deleteEventBadges(db, id);
   const { deletedCount } = await events(db).deleteOne({ _id: eventId });
   if (!deletedCount) throw error(404, 'Événement introuvable');
+  clearLiveCache(db);
 };
 
 export const getEventById = async (db, id) => {
@@ -292,6 +301,8 @@ export const getPublicEvent = async (db, { kind, id }, token, now = new Date()) 
       badge_name: event.badge_name ?? null,
       advent_enabled: Boolean(event.advent?.enabled),
     },
+    goal: await goalProgress(db, event, now),
+    hunt: await huntView(db, event, token, now),
     my_badge: key ? Boolean(await db.collection('event_badges').findOne({ event_id: event._id.toString(), user_id: key })) : false,
     state: now < event.start_at ? 'upcoming' : isOver(event, now) ? 'over' : 'open',
     quizzes: list.map((quiz) => {

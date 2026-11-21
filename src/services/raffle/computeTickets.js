@@ -44,9 +44,11 @@ export const homogeneityTickets = (worstGap) => {
  * @param firstSeen Map bbs_id -> timestamp of the first known presence in the guilds
  * @param manual tickets entered by leaders [{ bbs_id, kind: 'farm'|'qg'|'bonus', period, count, label }]
  * @param rankTickets tickets given to every member for reaching or keeping the guild's rank
+ * @param eventTickets Map bbs_id -> tickets earned in events this month (gifts of a gift hunt)
  */
 export const computeRaffleTickets = ({
   rotations, scores, players = [], firstSeen = new Map(), manual = [], rankTickets = 0, monthEnd, maxTickets = 20,
+  eventTickets = new Map(),
 }) => {
   const rotationKey = (r) => `${r.cycle_id}|${r.rotation_id}`;
   const monthRotations = new Set(rotations.map(rotationKey));
@@ -119,6 +121,7 @@ export const computeRaffleTickets = ({
       farm: Math.min(farmPeriods.size, RAFFLE_RULES.periods),
       qg: Math.min(qgPeriods.size, RAFFLE_RULES.periods),
       bonus: bonusEntries.reduce((sum, m) => sum + (m.count || 0), 0),
+      event: eventTickets.get(p.bbs_id) ?? 0,
     };
     const earned = Object.values(breakdown).reduce((a, b) => a + b, 0);
 

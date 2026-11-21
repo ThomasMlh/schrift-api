@@ -40,6 +40,12 @@ export const INDEXES = [
   { collection: 'advent_answers', key: { event_id: 1, user_id: 1, day: 1 }, options: { unique: true } },
   { collection: 'event_badges', key: { event_id: 1, user_id: 1 }, options: { unique: true } },
   { collection: 'event_badges', key: { user_id: 1 } },
+  { collection: 'hunt_spots', key: { event_id: 1, day: 1 }, options: { unique: true } },
+  // Unique: one gift per player and day
+  { collection: 'hunt_finds', key: { event_id: 1, user_id: 1, day: 1 }, options: { unique: true } },
+  { collection: 'hunt_finds', key: { bbs_id: 1, found_at: 1 } },
+  // Community goal: scores entered during an event
+  { collection: 'scores', key: { created_at: 1 } },
 
   { collection: 'characters', key: { search_name: 'text', name: 'text' } },
   { collection: 'characters', key: { search_name: 1 } },
