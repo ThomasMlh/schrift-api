@@ -133,4 +133,15 @@ describe('attacks', () => {
     expect(result.heavy3.status_bonus).toEqual({ duration: 2000, probability: 10, conditional: [{ value: 20, belong: ['Arrancar'], affinity: null }] });
     expect(result.ex.status_bonus).toBeNull();
   });
+
+  it('adds the buff duration ability to the attacks that give a buff', () => {
+    const attacks = {
+      heavy3: { steps: [{ statuses: [], shape: null, buff: { target: 2, atk: 40, duration: 15000 } }] },
+      heavy2: { steps: [{ statuses: [], shape: null, buff: null }] },
+    };
+    const result = applyAttackBonuses(attacks, { passive: [], tree: [{ type: 'buff_time_up', value: 10000 }], ex: [] });
+    expect(result.heavy3.buff_bonus).toBe(10000);
+    expect(result.heavy2.buff_bonus).toBeNull();
+    expect(applyAttackBonuses(attacks, { passive: [], tree: [], ex: [] }).heavy3.buff_bonus).toBeNull();
+  });
 });

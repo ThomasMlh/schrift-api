@@ -205,6 +205,8 @@ export const applyAttackBonuses = (attacks, traits, condition = () => null) => {
     conditional: all.filter((trait) => CONDITIONAL_STATUS_CHANCES.has(trait.type) && trait.ref).map((trait) => condition(trait.ref)).filter(Boolean),
   };
   const hasStatusBonus = statusBonus.duration > 0 || statusBonus.probability > 0 || statusBonus.conditional.length > 0;
+  // Longer buffs given by the unit (ms), e.g. +10 s from the soul tree
+  const buffBonus = totals.get('buff_time_up') || null;
   return Object.fromEntries(Object.entries(attacks).map(([button, attack]) => {
     const key = bonusKey(button);
     const range = totals.get(RANGE_BONUSES[key]) || null;
@@ -214,6 +216,7 @@ export const applyAttackBonuses = (attacks, traits, condition = () => null) => {
       range_bonus: range,
       hit_bonus: hitBonus,
       status_bonus: hasStatusBonus && attack.steps.some((step) => step.statuses?.length > 0) ? statusBonus : null,
+      buff_bonus: buffBonus && attack.steps.some((step) => step.buff) ? buffBonus : null,
       steps: range ? attack.steps.map((step) => ({ ...step, shape: widenShape(step.shape, range) })) : attack.steps,
     }];
   }));
