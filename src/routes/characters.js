@@ -10,7 +10,8 @@ import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.
 import { logger } from '../utils/logger.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 import { ensureIndexes } from '../services/dbIndexes.js';
-import { ACQUISITIONS } from '../services/gameDb/acquisition.js';
+import { ACQUISITIONS, acquisitionsMatching } from '../services/gameDb/acquisition.js';
+import { accentInsensitive } from '../utils/search.js';
 
 const router = express.Router();
 
@@ -243,15 +244,14 @@ router.get("/", async (req, res) => {
     if (resurrection === '1') query.resurrection = { $type: 'object' };
     else if (resurrection === '0') query.resurrection = { $not: { $type: 'object' } };
 
-    // Text search
+    // Text search, accents ignored
     if (search && search.trim()) {
-      const searchTerm = search
-        .toLowerCase()
-        .replace(/[^\w\sàâäéèêëïîôöùûüÿç]/g, "")
-        .trim();
+      const searchTerm = accentInsensitive(search);
+      const acquisitions = acquisitionsMatching(search);
 
-      // Include characters featured in matching game summons
-      const matchingBanners = await req.db
+      // Include characters featured in matching game summons, unless a category is searched: "saisonnier"
+      // would also bring every unit of the "saisonnière" summons
+      const matchingBanners = acquisitions.length > 0 ? [] : await req.db
         .collection("banners")
         .find({ name: { $regex: searchTerm, $options: "i" } })
         .project({ gacha_group_id: 1 })
@@ -264,7 +264,11 @@ router.get("/", async (req, res) => {
         { version: { $regex: searchTerm, $options: "i" } },
         { version_name: { $regex: searchTerm, $options: "i" } },
         { "game_version.fr": { $regex: searchTerm, $options: "i" } },
-        ...(summonIds.length > 0 ? [{ "banners.gacha_group_id": { $in: summonIds } }] : [])
+        ...(summonIds.length > 0 ? [{ "banners.gacha_group_id": { $in: summonIds } }] : []),
+        // How it is obtained: the admin's choice, else the computed one
+        ...(acquisitions.length > 0
+          ? [{ acquisition_override: { $in: acquisitions } }, { acquisition_override: null, acquisition: { $in: acquisitions } }]
+          : []),
       ];
     }
 
