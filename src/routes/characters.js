@@ -10,6 +10,7 @@ import { parsePaginationParams, buildPaginationMeta } from "../utils/pagination.
 import { logger } from '../utils/logger.js';
 import { sendStatusCodeError } from '../utils/httpErrors.js';
 import { ensureIndexes } from '../services/dbIndexes.js';
+import { ACQUISITIONS } from '../services/gameDb/acquisition.js';
 
 const router = express.Router();
 
@@ -522,6 +523,24 @@ router.post("/bot-database/enrich", requireAdmin, async (req, res) => {
 });
 
 // POST upload images in batches (avoids Vercel timeouts)
+// PUT how a character is obtained, chosen by an admin over the computed one; null goes back to the computing
+router.put("/:id/acquisition", requireAdmin, async (req, res) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ success: false, message: "Identifiant invalide" });
+    const value = req.body?.acquisition ?? null;
+    if (value !== null && !ACQUISITIONS.includes(value)) return res.status(400).json({ success: false, message: "Catégorie inconnue" });
+    const result = await req.db.collection("characters").findOneAndUpdate(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { acquisition_override: value, updated_at: new Date() } },
+      { returnDocument: "after", projection: { acquisition: 1, acquisition_exchange: 1, acquisition_override: 1 } }
+    );
+    if (!result) return res.status(404).json({ success: false, message: "Personnage non trouvé" });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    sendStatusCodeError(res, error, "Erreur lors du choix de la catégorie");
+  }
+});
+
 router.post("/update/images", requireAdmin, async (req, res) => {
   try {
     const result = await uploadImagesBatch(req.db, req.body?.batchSize);
