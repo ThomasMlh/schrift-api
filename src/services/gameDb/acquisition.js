@@ -8,6 +8,29 @@ export const ACQUISITIONS = [
   'premium', 'seasonal', 'seasonal_medal', 'exclusive', 'senkaimon', 'brave_battle', 'kan_shop', 'frenzy', 'exchange', 'mixer', 'misc',
 ];
 
+// Names shown on the site (fr, en), for the search
+const ACQUISITION_NAMES = {
+  premium: ['Premium'],
+  seasonal: ['Saisonnier', 'Seasonal'],
+  seasonal_medal: ['Saisonnier hors BS', 'Seasonal outside BS'],
+  exclusive: ['Exclusif', 'Exclusive'],
+  senkaimon: ['Senkaimon'],
+  brave_battle: ['Échange Brave Battle', 'Brave Battle exchange'],
+  kan_shop: ['Shop Kans', 'Kan shop'],
+  frenzy: ['Ticket Frenzy', 'Frenzy ticket'],
+  exchange: ['Échange', 'Exchange'],
+  mixer: ['Loterie Mixeur', 'Mixer summon'],
+  misc: ['Divers', 'Other'],
+};
+const plain = (text) => String(text ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+// Categories whose name contains the searched text ("saisonnier" -> seasonal and seasonal_medal)
+export const acquisitionsMatching = (search) => {
+  const term = plain(search);
+  if (term.length < 3) return [];
+  return Object.entries(ACQUISITION_NAMES).filter(([, names]) => names.some((name) => plain(name).includes(term))).map(([key]) => key);
+};
+
 // Tables read on top of the character and summon tables
 export const ACQUISITION_TABLES = ['m_exchange_shop'];
 
