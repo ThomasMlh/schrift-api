@@ -18,6 +18,7 @@ import {
 } from './banners.js';
 import { queueSummonRates } from './summonRates.js';
 import { createSummonCatalog, createSummonDetails, SUMMON_TABLES } from './summons.js';
+import { ACQUISITION_TABLES, saveAcquisitions } from './acquisition.js';
 
 const PREVIEW_LIMIT = 50;
 export const TRAIT_FILTERS_SETTING = 'game_trait_filters';
@@ -61,7 +62,7 @@ const previewOf = (plan, languages) => {
 };
 
 export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
-  const { tables, translations } = await loadGameData(GAME_TABLES, [...OPTIONAL_GAME_TABLES, ...SUMMON_TABLES]);
+  const { tables, translations } = await loadGameData(GAME_TABLES, [...OPTIONAL_GAME_TABLES, ...SUMMON_TABLES, ...ACQUISITION_TABLES]);
   const dict = createDictionary(tables.m_dictionary, translations);
   const gameCharacters = buildCharacters(tables, dict);
   const siteCharacters = await db.collection('characters').find({}).toArray();
@@ -83,7 +84,8 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   Object.assign(preview.statistics, await accessoryChanges(db, accessories));
   const bonusAbilities = buildBonusAbilities(tables, dict);
   Object.assign(preview.statistics, await bonusAbilityChanges(db, bonusAbilities));
-  if (dryRun) return { dryRun: true, ...preview };
+  // Category of the characters already on the site (new ones get theirs at the next sync)
+  if (dryRun) return { dryRun: true, ...preview, statistics: { ...preview.statistics, acquisitions: await saveAcquisitions(db, tables, dict, { dryRun: true }) } };
 
   await db.collection('app_settings').updateOne(
     { _id: TRAIT_FILTERS_SETTING },
@@ -117,6 +119,7 @@ export const syncCharactersFromGame = async (db, { dryRun = true } = {}) => {
   await queueSummonRates(db);
   await saveAccessories(db, accessories, subeffects, new Date(), exists);
   await saveBonusAbilities(db, bonusAbilities);
+  preview.statistics.acquisitions = await saveAcquisitions(db, tables, dict);
   if (plan.created.length > 0 || plan.updates.some((u) => u.changes.some((field) => field === 'release_date' || field === 'book_order'))) await reorderCharactersByReleaseDate(db);
   return { dryRun: false, ...preview, merged };
 };
